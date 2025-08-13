@@ -169,14 +169,13 @@ def build_saeV_model(
                         logger.warning(f"Travel time exceeds total time T for service arc ({i}, {j}, {t}), skipping")
                         continue  # travel time exceeds total time T, skip this arc
 
-                    if travel_energy_ij >= L:
+                    if travel_energy_ij > L:
                         invalid_demand.add((i, j, t))
                         logger.warning(f"Travel energy exceeds max SoC L for service arc ({i}, {j}, {t}), skipping")
                         continue
 
-                    for l in range(travel_energy_ij + 1, L + 1):
-                        # Need at least travel_energy_ij SoC to serve this demand, and EV cannot have empty SoC after the ride
-                        
+                    for l in range(travel_energy_ij, L + 1):
+                        # Need at least travel_energy_ij SoC to serve this demand                       
                         o       = Node(i, t, l)
                         d       = Node(j, t + travel_time_ijt, l - travel_energy_ij)
                         revenue = order_revenue.get((i, j, t), 0.0)
@@ -195,22 +194,21 @@ def build_saeV_model(
                     if travel_time_ijt <= 0 or travel_energy_ij <= 0 or travel_time_ijt + t > T:
                         continue
 
-                    for l in range(travel_energy_ij + 1, L + 1):
-                        # Need at least travel_energy_ij SoC to relocate, and EV cannot have empty SoC after the relocation
-
+                    for l in range(travel_energy_ij, L + 1):
+                        # Need at least travel_energy_ij SoC to relocate
                         o = Node(i, t, l)
                         d = Node(j, t + travel_time_ijt, l - travel_energy_ij)
                         _add_arc(ArcType.RELOCATION, o, d)
 
                 # ---- Add Charging arcs ξ^c ----
-                if t in charge_cost:
+                if t in charge_cost and t + 1 <= T:
                     # Only add charging arcs if there is a charge cost defined for this time step
 
-                    for l in range(0, L + 1 - charge_speed):
+                    for l in LEVELS:
                         # Charging arcs can only be added if there is enough room to charge
 
                         o = Node(i, t, l)
-                        d = Node(i, t + 1, l + charge_speed)
+                        d = Node(i, t + 1, min (l + charge_speed, L))  # next level cannot exceed max SoC L
 
                         # charging cost per EV in one time step = charging price per level * charge speed (levels charged in one time step)
                         cost = charge_cost.get(t) * charge_speed
@@ -219,10 +217,11 @@ def build_saeV_model(
 
                 # ---- Add Idle arcs ξ^p ----
                 # Idle arcs are added for every node at every time step
-                for l in LEVELS:
-                    o = Node(i, t, l)
-                    d = Node(i, t + 1, l)
-                    _add_arc(ArcType.IDLE, o, d)
+                if t + 1 <= T:
+                    for l in LEVELS:
+                        o = Node(i, t, l)
+                        d = Node(i, t + 1, l)
+                        _add_arc(ArcType.IDLE, o, d)
 
                 # ---- Add wrap-around arcs ξ^w (end of day t=T to start of next day t=0) ----
                 if t == T:
@@ -366,7 +365,7 @@ def build_saeV_model(
     model.Params.MIPGap = mip_gap
     if time_limit is not None:
         model.Params.TimeLimit = time_limit
-    model.Params.IntegralityFocus = 1   # Focus more on integer solutions, but may lead to longer solve times
+    # model.Params.IntegralityFocus = 1   # Focus more on integer solutions, but may lead to longer solve times
 
     model.update()  # Apply all changes to the model
     logger.info("Model built successfully")
