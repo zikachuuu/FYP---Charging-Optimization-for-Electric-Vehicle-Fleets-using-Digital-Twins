@@ -126,7 +126,8 @@ class Logger:
             encoding:   str = "utf-8"
         ) -> None:
         """
-        Save future log messages to a file.
+        Save future log messages to a file named `file_name` in the "Logs" directory in the current working directory.
+        Ensure the "Logs" directory exists before calling this method.
         If a file handler already exists, it will be closed and removed before creating a new one.
 
         :param file_name: Name of the log file (will be created in the current working directory under "Logs"). 
