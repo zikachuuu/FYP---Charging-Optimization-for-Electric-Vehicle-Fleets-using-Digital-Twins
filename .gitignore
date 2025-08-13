@@ -23,7 +23,6 @@ dist/
 .vscode/
 
 # Logs
-Logs/
 *.log
 
 # Node.js

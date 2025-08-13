@@ -13,7 +13,7 @@ logger.save("model", mode="a")
 # Model builder
 # ----------------------------
 
-def build_saeV_model(
+def build_model(
         mip_gap     : float = 1e-4, 
         time_limit  : int | None = None, 
         **kwargs
