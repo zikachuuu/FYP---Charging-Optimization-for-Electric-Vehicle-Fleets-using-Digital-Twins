@@ -377,7 +377,7 @@ def build_model(
             "s": s
         },
         "sets": {
-            "arcs"                  : all_arcs,
+            "all_arcs"              : all_arcs,
             "type_arcs"             : type_arcs,
             "in_arcs"               : in_arcs,
             "out_arcs"              : out_arcs,
