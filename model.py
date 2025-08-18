@@ -1,5 +1,4 @@
 from __future__ import annotations
-from typing import Dict, Tuple, List, Set
 import gurobipy as gp
 from gurobipy import GRB
 from networkClass import Node, Arc, ArcType
@@ -29,39 +28,39 @@ def build_model(
     N               : int                               = kwargs.get("N")               # number of operation zones
     T               : int                               = kwargs.get("T")               # termination time of daily operations
     L               : int                               = kwargs.get("L")               # max SoC level
-    travel_demand   : Dict[Tuple[int, int, int], int]   = kwargs.get("travel_demand")   # d_ijt = travel demand from zone i to j at time t
-    travel_time     : Dict[Tuple[int, int, int], int]   = kwargs.get("travel_time")     # τ_ijt = travel time from i to j at time t
-    travel_energy   : Dict[Tuple[int, int], int]        = kwargs.get("travel_energy")   # l_ij = energy consumed for trip i->j
-    order_revenue   : Dict[Tuple[int, int, int], float] = kwargs.get("order_revenue")   # p_e = order revenue for service arcs departing (i,t) to j
-    penalty         : Dict[Tuple[int, int, int], float] = kwargs.get("penalty")         # c_ijt = penalty cost for unserved demand
+    travel_demand   : dict[tuple[int, int, int], int]   = kwargs.get("travel_demand")   # d_ijt = travel demand from zone i to j at time t
+    travel_time     : dict[tuple[int, int, int], int]   = kwargs.get("travel_time")     # τ_ijt = travel time from i to j at time t
+    travel_energy   : dict[tuple[int, int], int]        = kwargs.get("travel_energy")   # l_ij = energy consumed for trip i->j
+    order_revenue   : dict[tuple[int, int, int], float] = kwargs.get("order_revenue")   # p_e = order revenue for service arcs departing (i,t) to j
+    penalty         : dict[tuple[int, int, int], float] = kwargs.get("penalty")         # c_ijt = penalty cost for unserved demand
     charge_speed    : int                               = kwargs.get("charge_speed")    # charge speed (SoC levels per timestep)
     
     # Decision variables that are currently set as parameters for simplicity
-    num_ports       : Dict[int, int]                    = kwargs.get("num_ports")       # number of chargers in each zone
+    num_ports       : dict[int, int]                    = kwargs.get("num_ports")       # number of chargers in each zone
     num_EVs         : int                               = kwargs.get("num_EVs")         # total number of EVs in the fleet
-    charge_cost     : Dict[int, float]                  = kwargs.get("charge_cost")     # c^c_e = cost for charging arcs
+    charge_cost     : dict[int, float]                  = kwargs.get("charge_cost")     # c^c_e = cost for charging arcs
 
     logger.info("Parameters loaded successfully")
 
     # --------------------------
     # Sets
     # --------------------------
-    ZONES       : List[int] = list (range(N))       # zones 0..N-1
-    TIMESTEPS   : List[int] = list (range(T + 1))   # time steps 0..T
-    LEVELS      : List[int] = list (range(L + 1))   # SoC levels 0..L
+    ZONES       : list[int] = list (range(N))       # zones 0..N-1
+    TIMESTEPS   : list[int] = list (range(T + 1))   # time steps 0..T
+    LEVELS      : list[int] = list (range(L + 1))   # SoC levels 0..L
 
     logger.info ("Sets initialized successfully")
 
     # ----------------------------
     # Build nodes V
     # ----------------------------
-    V: List[Node] = [           \
+    V: list[Node] = [           \
         Node(i, t, l)           \
             for i in ZONES      \
             for t in TIMESTEPS  \
             for l in LEVELS     \
     ]
-    V_set: Set[Node] = set(V)
+    V_set: set[Node] = set(V)
 
     logger.info(f"Nodes V built with {len(V)} nodes")
 
@@ -69,21 +68,21 @@ def build_model(
     # ----------------------------
     # Build arcs ξ and all subsets
     # ----------------------------
-    all_arcs    : Dict[int      , Arc]      = {}                                # Map all arcs to their unique ids
-    type_arcs   : Dict[ArcType  , Set[int]] = {type: set() for type in ArcType} # sets of arc ids by type
-    in_arcs     : Dict[Node     , Set[int]] = {v: set() for v in V}             # incoming arc ids per node
-    out_arcs    : Dict[Node     , Set[int]] = {v: set() for v in V}             # outgoing arc ids per node
+    all_arcs    : dict[int      , Arc]      = {}                                # Map all arcs to their unique ids
+    type_arcs   : dict[ArcType  , set[int]] = {type: set() for type in ArcType} # sets of arc ids by type
+    in_arcs     : dict[Node     , set[int]] = {v: set() for v in V}             # incoming arc ids per node
+    out_arcs    : dict[Node     , set[int]] = {v: set() for v in V}             # outgoing arc ids per node
 
-    type_starting_arcs_l    : Dict[Tuple[ArcType, int]  , Set[int]] = {}    # arc ids starting at (i,0,l) for all i, indexed by (type, l)
-    type_ending_arcs_l      : Dict[Tuple[ArcType, int]  , Set[int]] = {}    # arc ids starting at (i,T,l) for all i, indexed by (type, l)
-    service_arcs_ijt        : Dict[Tuple[int, int, int] , Set[int]] = {}    # service arcs from node (i,t,l) to (j,t',l') for all l, t',l', indexed by (i,j,t)
-    charge_arcs_it          : Dict[Tuple[int, int]      , Set[int]] = {}    # charging arcs from node (i,t,l) for all l, indexed by (i,t)
+    type_starting_arcs_l    : dict[tuple[ArcType, int]  , set[int]] = {}    # arc ids starting at (i,0,l) for all i, indexed by (type, l)
+    type_ending_arcs_l      : dict[tuple[ArcType, int]  , set[int]] = {}    # arc ids starting at (i,T,l) for all i, indexed by (type, l)
+    service_arcs_ijt        : dict[tuple[int, int, int] , set[int]] = {}    # service arcs from node (i,t,l) to (j,t',l') for all l, t',l', indexed by (i,j,t)
+    charge_arcs_it          : dict[tuple[int, int]      , set[int]] = {}    # charging arcs from node (i,t,l) for all l, indexed by (i,t)
 
     # Associate revenue or cost with arcs by kind
     # Keys are arc ids
-    arc_revenue     : Dict[int, float] = {}     # service revenue
-    arc_penalty     : Dict[int, float] = {}     # penalty for unserved demand
-    arc_charge_cost : Dict[int, float] = {}     # charging cost
+    arc_revenue     : dict[int, float] = {}     # service revenue
+    arc_penalty     : dict[int, float] = {}     # penalty for unserved demand
+    arc_charge_cost : dict[int, float] = {}     # charging cost
 
     next_id = 0
     def _add_arc(
@@ -138,8 +137,8 @@ def build_model(
 
         return e.id
     
-    valid_demand:   Set[Tuple[int, int, int]] = set()
-    invalid_demand: Set[Tuple[int, int, int]] = set()
+    valid_demand:   set[tuple[int, int, int]] = set()
+    invalid_demand: set[tuple[int, int, int]] = set()
     
     # Add all arcs
     for i in ZONES:                 # Starting zone
@@ -251,7 +250,7 @@ def build_model(
     # ----------------------------
 
     # x_e: number of vehicles flow in arc id e
-    x = model.addVars(
+    x: gp.tupledict[tuple[int], gp.Var] = model.addVars(
         all_arcs.keys()         ,
         vtype   = GRB.INTEGER   , 
         lb      = 0             , 
@@ -259,7 +258,7 @@ def build_model(
     )
 
     # s_ijt: unserved demand integers
-    s = model.addVars(
+    s: gp.tupledict[tuple[int, int, int], gp.Var] = model.addVars(
         valid_demand            ,
         vtype   = GRB.INTEGER   , 
         lb      = 0             , 
@@ -340,19 +339,25 @@ def build_model(
     # Objective
     # ----------------------------
 
-    total_service_revenue = gp.quicksum(
-        x[e] * arc_revenue.get(e, 0.0)
-        for e in type_arcs[ArcType.SERVICE]
+    total_service_revenue = model.addVar (
+        gp.quicksum(
+            x[e] * arc_revenue.get(e, 0.0)
+            for e in type_arcs[ArcType.SERVICE]
+        )
     )
 
-    total_penalty_cost = gp.quicksum(
-        s[(i, j, t)] * float(penalty.get((i, j, t), 0.0))
-        for (i, j, t) in valid_demand
+    total_penalty_cost = model.addVar(
+        gp.quicksum(
+            s[(i, j, t)] * float(penalty.get((i, j, t), 0.0))
+            for (i, j, t) in valid_demand
+        )
     )
 
-    total_charge_cost = gp.quicksum(
-        x[e] * arc_charge_cost.get(e, 0.0)
-        for e in type_arcs[ArcType.CHARGE]
+    total_charge_cost = model.addVar (
+        gp.quicksum(
+            x[e] * arc_charge_cost.get(e, 0.0)
+            for e in type_arcs[ArcType.CHARGE]
+        )
     )
 
     model.setObjective(
@@ -374,7 +379,10 @@ def build_model(
         "model": model,
         "vars": {
             "x": x,
-            "s": s
+            "s": s,
+            "total_service_revenue":    total_service_revenue,
+            "total_penalty_cost":       total_penalty_cost,
+            "total_charge_cost":        total_charge_cost
         },
         "sets": {
             "all_arcs"              : all_arcs,
