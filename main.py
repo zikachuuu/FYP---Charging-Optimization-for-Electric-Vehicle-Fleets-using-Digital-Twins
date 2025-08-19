@@ -1,7 +1,7 @@
 import gurobipy as gp
 
 from logger import Logger
-from model import build_model
+from model import model
 from networkClass import Node, Arc, ArcType
 
 logger = Logger("main", level="DEBUG", to_console=True)
@@ -47,7 +47,7 @@ if __name__ == "__main__":
     num_EVs         : int                               = data.get("num_EVs")         # total number of EVs in the fleet
     charge_cost     : dict[int, float]                  = data.get("charge_cost")     # c^c_e = cost for charging arcs
 
-    output = build_model(
+    output = model(
         N               = N,
         T               = T,
         L               = L,
@@ -61,27 +61,16 @@ if __name__ == "__main__":
         num_EVs         = num_EVs,
         charge_cost     = charge_cost
     )
-    logger.info("Model built successfully.")
+    logger.info("Solution retreived from model.")
 
-    model: gp.Model = output["model"]
-    if model is None:
-        logger.error("Model building failed. Exiting.")
-        exit(1)
+    # Extract variables and sets from the output
+    obj                     : float                                     = output["obj"]
+    x                       : dict[int, int]                            = output["sol"]["x"]  # flow variables
+    s                       : dict[tuple[int, int, int], int]           = output["sol"]["s"]  # unserved demand variables
+    total_service_revenue   : float                                     = output["sol"]["total_service_revenue"]
+    total_penalty_cost      : float                                     = output["sol"]["total_penalty_cost"]
+    total_charge_cost       : float                                     = output["sol"]["total_charge_cost"]
 
-    model.optimize()
-
-    logger.info (f"Optimization completed with status {model.Status}.")
-
-    if model.Status != gp.GRB.OPTIMAL:
-        logger.error(f"Optimization was not successful. Status: {model.Status}")
-        exit(1)
-
-    logger.info("Optimization successful. Displaying results...")
-    logger.info(f"Objective value: {model.ObjVal:.4f}")
-    logger.info(f"Solution time: {model.Runtime:.4f} seconds")
-
-    x                   : gp.tupledict[tuple[int]           , gp.Var]   = output["vars"]["x"]
-    s                   : gp.tupledict[tuple[int, int, int] , gp.Var]   = output["vars"]["s"]
     all_arcs            : dict[int                  , Arc]              = output["sets"]["all_arcs"]
     type_arcs           : dict[ArcType              , set[int]]         = output["sets"]["type_arcs"]
     in_arcs             : dict[Node                 , set[int]]         = output["sets"]["in_arcs"]
@@ -92,13 +81,15 @@ if __name__ == "__main__":
     charge_arcs_it      : dict[tuple[int, int]      , set[int]]         = output["sets"]["charge_arcs_it"]
 
     for arc_id, arc in all_arcs.items():
+        if x.get(arc_id, 0) <= 0:
+            continue
         logger.info(f"Arc {arc_id} ({arc.type.name}): ")
         logger.info(f"  From ({arc.o.i}, {arc.o.t}, {arc.o.l}) to ({arc.d.i}, {arc.d.t}, {arc.d.l})")
-        logger.info(f"  Flow: {x[arc_id].X}")
-        logger.info(f"  Unserved Demand: {s[(arc.o.i, arc.d.i, arc.o.t)].X}" if arc.type == ArcType.SERVICE else "N/A")
+        logger.info(f"  Flow: {x.get(arc_id, 0)}")
+        logger.info(f"  Unserved Demand: {s.get((arc.o.i, arc.d.i, arc.o.t), 0) if arc.type == ArcType.SERVICE else 'N/A'}")
     
-    total_trips_served = sum(x[arc_id].X for arc_id in type_arcs[ArcType.SERVICE])
-    total_trips_served_alt = sum(s[(arc.o.i, arc.d.i, arc.o.t)].X 
+    total_trips_served = sum(x[arc_id] for arc_id in type_arcs[ArcType.SERVICE])
+    total_trips_served_alt = sum(s[(arc.o.i, arc.d.i, arc.o.t)]
                                 for arc_id in type_arcs[ArcType.SERVICE]
                                 for arc in [all_arcs[arc_id]]
                                 if arc.type == ArcType.SERVICE)

@@ -2,6 +2,10 @@ from __future__ import annotations
 import gurobipy as gp
 from gurobipy import GRB
 from networkClass import Node, Arc, ArcType
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
 
 from logger import Logger
 
@@ -12,9 +16,7 @@ logger.save("model", mode="a")
 # Model builder
 # ----------------------------
 
-def build_model(
-        mip_gap     : float = 1e-4, 
-        time_limit  : int | None = None, 
+def model(
         **kwargs
     ) -> dict:
     """
@@ -137,8 +139,8 @@ def build_model(
 
         return e.id
     
-    valid_demand:   set[tuple[int, int, int]] = set()
-    invalid_demand: set[tuple[int, int, int]] = set()
+    valid_demand    : set[tuple[int, int, int]] = set()
+    invalid_demand  : set[tuple[int, int, int]] = set()
     
     # Add all arcs
     for i in ZONES:                 # Starting zone
@@ -209,7 +211,7 @@ def build_model(
                         o = Node(i, t, l)
                         d = Node(i, t + 1, min (l + charge_speed, L))  # next level cannot exceed max SoC L
 
-                        # charging cost per EV in one time step = charging price per level * charge speed (levels charged in one time step)
+                        # charging cost per EV in one time step = charging cost per level * charge speed (levels charged in one time step)
                         cost = charge_cost.get(t) * charge_speed
 
                         _add_arc(ArcType.CHARGE, o, d, cost = cost)
@@ -235,164 +237,184 @@ def build_model(
     
     logger.info(f"Arcs built with {len(all_arcs)} arcs")
     # Log the number of arcs by type
-    for arc_type, arcs in type_arcs.items():
+    for arc_type, arcs in type_arcs.items() :
         logger.info(f"  {arc_type.name} arcs: {len(arcs)}")
     
-                    
+
     # ----------------------------
     # Model
     # ----------------------------
-    model = gp.Model("EV_CHARGING")
+    with gp.Env() as env, gp.Model(env=env) as model:        
+        model.Params.LogFile = "Logs/gurobi_model.log"  # Set log file for Gurobi
 
+        # ----------------------------
+        # Decision variables
+        # ----------------------------
 
-    # ----------------------------
-    # Decision variables
-    # ----------------------------
-
-    # x_e: number of vehicles flow in arc id e
-    x: gp.tupledict[tuple[int], gp.Var] = model.addVars(
-        all_arcs.keys()         ,
-        vtype   = GRB.INTEGER   , 
-        lb      = 0             , 
-        name    = "x"           ,
-    )
-
-    # s_ijt: unserved demand integers
-    s: gp.tupledict[tuple[int, int, int], gp.Var] = model.addVars(
-        valid_demand            ,
-        vtype   = GRB.INTEGER   , 
-        lb      = 0             , 
-        name    = "s"           ,
-    )
-
-    logger.info("Decision variables created")
-    logger.info(f"  x_e variables: {len(x)}")
-    logger.info(f"  s_ijt variables: {len(s)}")
-
-    # ----------------------------
-    # Constraints
-    # ----------------------------
-
-    # (4) Flow conservation at every node v ∈ V:
-    model.addConstrs(
-        gp.quicksum(x[e] for e in out_arcs[v]) - gp.quicksum(x[e] for e in in_arcs[v]) == 0
-        for v in V_set
-    )
-    logger.info("Flow conservation constraints (4) added")
-
-    # (5) For each SOC level l, the number of EVs that start with l cannot be lower than the number that end with l
-    #     This ensures that the EVs does not use up all the electricty and ends the day without any electricity
-    #     Which is detrimental to the next day operations
-    model.addConstrs(
-        gp.quicksum(
-            x[e] 
-                for arctype in ArcType 
-                for e in type_starting_arcs_l.get((arctype, l), set())
-        ) <=
-        gp.quicksum(
-            x[e] 
-                for arctype in ArcType
-                for e in type_ending_arcs_l.get((arctype, l), set())
+        # x_e: number of vehicles flow in arc id e
+        x: gp.tupledict[int, gp.Var] = model.addVars(
+            all_arcs.keys()         ,
+            vtype   = GRB.INTEGER   , 
+            lb      = 0             , 
+            name    = "x"           ,
         )
-        for l in LEVELS
-    )
-    logger.info("SOC level constraints (5) added")
 
-    # (6) Unserved demand propagation for t ∈ [1, T]
-    #     We assume unserved passengers will not leave the system and carry over to the next time step
-    #     Thus, unserved demand at time t = unserved demand at t-1 + new demand at t + served demand at t
-    model.addConstrs(
-        s[(i, j, t)] == s[(i, j, t - 1)] + travel_demand.get((i, j, t), 0) - 
+        # s_ijt: unserved demand integers
+        s: gp.tupledict[tuple[int, int, int], gp.Var] = model.addVars(
+            valid_demand            ,
+            vtype   = GRB.INTEGER   , 
+            lb      = 0             , 
+            name    = "s"           ,
+        )
+
+        logger.info("Decision variables created")
+        logger.info(f"  x_e variables: {len(x)}")
+        logger.info(f"  s_ijt variables: {len(s)}")
+
+        # ----------------------------
+        # Constraints
+        # ----------------------------
+
+        # (4) Flow conservation at every node v ∈ V:
+        model.addConstrs(
+            gp.quicksum(x[e] for e in out_arcs[v]) - gp.quicksum(x[e] for e in in_arcs[v]) == 0
+            for v in V_set
+        )
+        logger.info("Flow conservation constraints (4) added")
+
+        # (5) For each SOC level l, the number of EVs that start with l cannot be lower than the number that end with l
+        #     This ensures that the EVs does not use up all the electricty and ends the day without any electricity
+        #     Which is detrimental to the next day operations
+        model.addConstrs(
             gp.quicksum(
-                x[e] for e in service_arcs_ijt.get((i, j, t), set())
-            )
-        for (i, j, t) in valid_demand if t > 0
-    )
-    logger.info("Unserved demand propagation constraints (6) added")
-
-    # (7) Unserved demand at t=0
-    model.addConstrs(
-        s[(i, j, 0)] == travel_demand.get((i, j, 0), 0) - 
+                x[e] 
+                    for arctype in ArcType 
+                    for e in type_starting_arcs_l.get((arctype, l), set())
+            ) <=
             gp.quicksum(
-                x[e] for e in service_arcs_ijt.get((i, j, 0), set())
+                x[e] 
+                    for arctype in ArcType
+                    for e in type_ending_arcs_l.get((arctype, l), set())
             )
-        for (i, j) in {(i, j) for (i, j, t) in valid_demand if t == 0}
-    )
-    logger.info("Unserved demand at t=0 constraints (7) added")
-
-    # (8) Number of EVs charging at each zone at each time period cannot exceed the number of ports available in that zone
-    model.addConstrs(
-        gp.quicksum(x[e] for e in charge_arcs_it.get((i, t), set())) <= num_ports.get(i, 0)
-        for i in ZONES  
-        for t in TIMESTEPS
-    )
-    logger.info("Charging port constraints (8) added")
-
-    # (9) Fleet size equals sum of wrap-around flows
-    model.addConstr(
-        gp.quicksum(x[e] for e in type_arcs[ArcType.WRAP]) == num_EVs
-    )
-    logger.info("Fleet size constraint (9) added")
-
-
-    # ----------------------------
-    # Objective
-    # ----------------------------
-
-    total_service_revenue = model.addVar (
-        gp.quicksum(
-            x[e] * arc_revenue.get(e, 0.0)
-            for e in type_arcs[ArcType.SERVICE]
+            for l in LEVELS
         )
-    )
+        logger.info("SOC level constraints (5) added")
 
-    total_penalty_cost = model.addVar(
-        gp.quicksum(
-            s[(i, j, t)] * float(penalty.get((i, j, t), 0.0))
-            for (i, j, t) in valid_demand
+        # (6) Unserved demand propagation for t ∈ [1, T]
+        #     We assume unserved passengers will not leave the system and carry over to the next time step
+        #     Thus, unserved demand at time t = unserved demand at t-1 + new demand at t - served demand at t
+        model.addConstrs(
+            s[(i, j, t)] == s[(i, j, t - 1)] + travel_demand.get((i, j, t), 0) - 
+                gp.quicksum(
+                    x[e] for e in service_arcs_ijt.get((i, j, t), set())
+                )
+            for (i, j, t) in valid_demand if t > 0
         )
-    )
+        logger.info("Unserved demand propagation constraints (6) added")
 
-    total_charge_cost = model.addVar (
-        gp.quicksum(
-            x[e] * arc_charge_cost.get(e, 0.0)
-            for e in type_arcs[ArcType.CHARGE]
+        # (7) Unserved demand at t=0
+        model.addConstrs(
+            s[(i, j, 0)] == travel_demand.get((i, j, 0), 0) - 
+                gp.quicksum(
+                    x[e] for e in service_arcs_ijt.get((i, j, 0), set())
+                )
+            for (i, j) in {(i, j) for (i, j, t) in valid_demand if t == 0}
         )
-    )
+        logger.info("Unserved demand at t=0 constraints (7) added")
 
-    model.setObjective(
-        total_service_revenue - total_penalty_cost - total_charge_cost,
-        GRB.MAXIMIZE
-    )
-    logger.info("Objective function set")
+        # (8) Number of EVs charging at each zone at each time period cannot exceed the number of ports available in that zone
+        model.addConstrs(
+            gp.quicksum(x[e] for e in charge_arcs_it.get((i, t), set())) <= num_ports.get(i, 0)
+            for i in ZONES  
+            for t in TIMESTEPS
+        )
+        logger.info("Charging port constraints (8) added")
 
-    # Solver controls
-    model.Params.MIPGap = mip_gap
-    if time_limit is not None:
-        model.Params.TimeLimit = time_limit
-    # model.Params.IntegralityFocus = 1   # Focus more on integer solutions, but may lead to longer solve times
+        # (9) Fleet size equals sum of wrap-around flows
+        model.addConstr(
+            gp.quicksum(x[e] for e in type_arcs[ArcType.WRAP]) == num_EVs
+        )
+        logger.info("Fleet size constraint (9) added")
 
-    model.update()  # Apply all changes to the model
-    logger.info("Model built successfully")
 
-    return {
-        "model": model,
-        "vars": {
-            "x": x,
-            "s": s,
-            "total_service_revenue":    total_service_revenue,
-            "total_penalty_cost":       total_penalty_cost,
-            "total_charge_cost":        total_charge_cost
-        },
-        "sets": {
-            "all_arcs"              : all_arcs,
-            "type_arcs"             : type_arcs,
-            "in_arcs"               : in_arcs,
-            "out_arcs"              : out_arcs,
-            "type_starting_arcs_l"  : type_starting_arcs_l,
-            "type_ending_arcs_l"    : type_ending_arcs_l,
-            "service_arcs_ijt"      : service_arcs_ijt,
-            "charge_arcs_it"        : charge_arcs_it
-        },
-    }
+        # ----------------------------
+        # Objective
+        # ----------------------------
+
+        total_service_revenue   = model.addVar (name = "total_service_revenue")
+        total_penalty_cost      = model.addVar (name = "total_penalty_cost")
+        total_charge_cost       = model.addVar (name = "total_charge_cost")
+
+        model.addConstr (
+            total_service_revenue == gp.quicksum(
+                x[e] * arc_revenue.get(e, 0.0)
+                for e in type_arcs[ArcType.SERVICE]
+            ),
+            name = "total_service_revenue"
+        )
+
+        model.addConstr (
+            total_penalty_cost == gp.quicksum(
+                s[(i, j, t)] * float(penalty.get((i, j, t), 0.0))
+                for (i, j, t) in valid_demand
+            ),
+            name = "total_penalty_cost"
+        )
+
+        model.addConstr (
+            total_charge_cost == gp.quicksum(
+                x[e] * arc_charge_cost.get(e, 0.0)
+                for e in type_arcs[ArcType.CHARGE]
+            ),
+            name = "total_charge_cost"
+        )
+
+        model.setObjective(
+            total_service_revenue - total_penalty_cost - total_charge_cost,
+            GRB.MAXIMIZE
+        )
+        logger.info("Objective function set")
+
+        model.update()  # Apply all changes to the model
+        logger.info("Model built successfully")
+        logger.info(f"Optimizing model with {model.NumVars} variables and {model.NumConstrs} constraints")
+
+        model.optimize()
+
+        logger.info(f"Optimization completed with status {model.Status}")
+
+        if model.Status != GRB.OPTIMAL:
+            logger.error(f"Optimization was not successful. Status: {model.Status}")
+            return None
+        
+        logger.info("Optimization successful.")
+        logger.info(f"  Runtime: {model.Runtime:.4f} seconds")
+        logger.info(f"  Objective value: {model.ObjVal:.4f}")
+
+        x_sol: dict[int, int]                   = {e: v.X for e, v in x.items() if v.X > 0} # Keys are arc ids
+        s_sol: dict[tuple[int, int, int], int]  = {k: v.X for k, v in s.items() if v.X > 0} # Keys are (i, j, t) tuples
+        total_service_revenue_sol   : float     = total_service_revenue.X
+        total_penalty_cost_sol      : float     = total_penalty_cost.X
+        total_charge_cost_sol       : float     = total_charge_cost.X
+
+        return {
+            "obj"                       : model.ObjVal,
+            "sol": {
+                "x"                     : x_sol,
+                "s"                     : s_sol,
+                "total_service_revenue" : total_service_revenue_sol,
+                "total_penalty_cost"    : total_penalty_cost_sol,
+                "total_charge_cost"     : total_charge_cost_sol
+            },
+            "sets": {
+                "all_arcs"              : all_arcs,
+                "type_arcs"             : type_arcs,
+                "in_arcs"               : in_arcs,
+                "out_arcs"              : out_arcs,
+                "type_starting_arcs_l"  : type_starting_arcs_l,
+                "type_ending_arcs_l"    : type_ending_arcs_l,
+                "service_arcs_ijt"      : service_arcs_ijt,
+                "charge_arcs_it"        : charge_arcs_it
+            },
+        }
 
