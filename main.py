@@ -1,6 +1,7 @@
 import gurobipy as gp
 from datetime import datetime
 import json
+import math
 
 from logger import Logger
 from model import model
@@ -43,9 +44,9 @@ if __name__ == "__main__":
         logger.error(f"An unexpected error occurred while loading data: {e}")
         exit(1)
 
-    N               : int                               = processed_data.get("N")               # number of operation zones
-    T               : int                               = processed_data.get("T")               # termination time of daily operations
-    L               : int                               = processed_data.get("L")               # max SoC level (all EVs start at this level)
+    N               : int                               = processed_data.get("N")               # number of operation zones (1, ..., N)
+    T               : int                               = processed_data.get("T")               # termination time of daily operations (0, ..., T)
+    L               : int                               = processed_data.get("L")               # max SoC level (all EVs start at this level) (0, ..., L)
     travel_demand   : dict[tuple[int, int, int], int]   = processed_data.get("travel_demand")   # travel demand from zone i to j at starting at time t
     travel_time     : dict[tuple[int, int, int], int]   = processed_data.get("travel_time")     # travel time from i to j at starting at time t
     travel_energy   : dict[tuple[int, int], int]        = processed_data.get("travel_energy")   # energy consumed for trip from zone i to j
@@ -54,7 +55,8 @@ if __name__ == "__main__":
     charge_speed    : int                               = processed_data.get("charge_speed")    # charge speed (SoC levels per timestep)
     num_ports       : dict[int, int]                    = processed_data.get("num_ports")       # number of chargers in each zone
     num_EVs         : int                               = processed_data.get("num_EVs")         # total number of EVs in the fleet
-    charge_cost     : dict[int, float]                  = processed_data.get("charge_cost")    # price to charge one SoC level at time t
+    charge_cost     : dict[int, float]                  = processed_data.get("charge_cost")     # price to charge one SoC level at time t
+    L_min           : int                               = processed_data.get("L_min")           # min SoC level all EV must end with at the end of the daily operations
 
     output = model(
         N               = N             ,
@@ -69,6 +71,7 @@ if __name__ == "__main__":
         num_ports       = num_ports     ,
         num_EVs         = num_EVs       ,
         charge_cost     = charge_cost   ,
+        L_min           = L_min         ,
         timestamp       = timestamp     ,
         file_name       = file_name     ,
     )
@@ -86,8 +89,6 @@ if __name__ == "__main__":
     type_arcs               : dict[ArcType              , set[int]]     = output["arcs"]["type_arcs"]
     in_arcs                 : dict[Node                 , set[int]]     = output["arcs"]["in_arcs"]
     out_arcs                : dict[Node                 , set[int]]     = output["arcs"]["out_arcs"]
-    type_starting_arcs_l    : dict[tuple[ArcType, int]  , set[int]]     = output["arcs"]["type_starting_arcs_l"]
-    type_ending_arcs_l      : dict[tuple[ArcType, int]  , set[int]]     = output["arcs"]["type_ending_arcs_l"]
     service_arcs_ijt        : dict[tuple[int, int, int] , set[int]]     = output["arcs"]["service_arcs_ijt"]
     charge_arcs_it          : dict[tuple[int, int]      , set[int]]     = output["arcs"]["charge_arcs_it"]
 
@@ -107,7 +108,7 @@ if __name__ == "__main__":
     logger.info(f"  Total penalty cost: {total_penalty_cost:.2f}")
     logger.info(f"  Total charge cost: {total_charge_cost:.2f}")
     
-    if obj != total_service_revenue - total_penalty_cost - total_charge_cost:
+    if not math.isclose(obj, total_service_revenue - total_penalty_cost - total_charge_cost):
         logger.warning(f"Warning: Objective value ({obj}) does not match total service revenue ({total_service_revenue}) - total penalty cost ({total_penalty_cost}) - total charge cost ({total_charge_cost}).")
 
 
@@ -139,14 +140,26 @@ if __name__ == "__main__":
     # ----------------------------
     logger.info ("Demand served per time step")
     for t in TIMESTEPS:
+        demand = sum (
+            valid_travel_demand.get ((i, j, t), 0)
+            for i in ZONES 
+            for j in ZONES
+        )
         served = sum ( 
             x[e] 
             for i in ZONES 
             for j in ZONES 
             for e in service_arcs_ijt.get((i, j, t), set()) 
         )
-        logger.info (f"  Served demand at time step {t}: {served}")
-        logger.info (f"  Unserved demand at time step {t}: {sum(s[(i, j, t)] for i in ZONES for j in ZONES)}")
+        unserved = sum(
+            s[(i, j, t)] 
+            for i in ZONES 
+            for j in ZONES
+        )
+        logger.info (f"  Time {t}:")
+        logger.info (f"    New Demand: {demand}")
+        logger.info (f"    Served demand: {served}")
+        logger.info (f"    Remaining Unserved demand: {unserved}")
 
 
     # ----------------------------
