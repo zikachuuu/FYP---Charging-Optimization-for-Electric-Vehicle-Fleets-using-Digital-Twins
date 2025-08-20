@@ -24,21 +24,22 @@ def model(
     # ----------------------------
     # Parameters
     # ----------------------------
-    N               : int                               = kwargs.get("N")               # number of operation zones
-    T               : int                               = kwargs.get("T")               # termination time of daily operations
-    L               : int                               = kwargs.get("L")               # max SoC level
-    travel_demand   : dict[tuple[int, int, int], int]   = kwargs.get("travel_demand")   # d_ijt = travel demand from zone i to j at time t
-    travel_time     : dict[tuple[int, int, int], int]   = kwargs.get("travel_time")     # τ_ijt = travel time from i to j at time t
-    travel_energy   : dict[tuple[int, int], int]        = kwargs.get("travel_energy")   # l_ij = energy consumed for trip i->j
-    order_revenue   : dict[tuple[int, int, int], float] = kwargs.get("order_revenue")   # p_e = order revenue for service arcs departing (i,t) to j
-    penalty         : dict[tuple[int, int, int], float] = kwargs.get("penalty")         # c_ijt = penalty cost for unserved demand
+    N               : int                               = kwargs.get("N")               # number of operation zones (1, ..., N)
+    T               : int                               = kwargs.get("T")               # termination time of daily operations (0, ..., T)
+    L               : int                               = kwargs.get("L")               # max SoC level (all EVs start at this level) (0, ..., L)
+    travel_demand   : dict[tuple[int, int, int], int]   = kwargs.get("travel_demand")   # travel demand from zone i to j at starting at time t
+    travel_time     : dict[tuple[int, int, int], int]   = kwargs.get("travel_time")     # travel time from i to j at starting at time t
+    travel_energy   : dict[tuple[int, int], int]        = kwargs.get("travel_energy")   # energy consumed for trip from zone i to j
+    order_revenue   : dict[tuple[int, int, int], float] = kwargs.get("order_revenue")   # order revenue for each trip served from i to j at starting at time t
+    penalty         : dict[tuple[int, int, int], float] = kwargs.get("penalty")         # penalty cost for each unserved trip from i to j at starting at time t (accumulative)
     charge_speed    : int                               = kwargs.get("charge_speed")    # charge speed (SoC levels per timestep)
-    
+    L_min           : int                               = kwargs.get("L_min")           # min SoC level all EV must end with at the end of the daily operations
+
     # Decision variables that are currently set as parameters for simplicity
     num_ports       : dict[int, int]                    = kwargs.get("num_ports")       # number of chargers in each zone
     num_EVs         : int                               = kwargs.get("num_EVs")         # total number of EVs in the fleet
-    charge_cost     : dict[int, float]                  = kwargs.get("charge_cost")     # c^c_e = cost for charging arcs
-
+    charge_cost     : dict[int, float]                  = kwargs.get("charge_cost")     # price to charge one SoC level at time t
+    
     # Metadata
     timestamp       : str                               = kwargs.get("timestamp", "")   # timestamp for logging
     file_name        : str                              = kwargs.get("file_name", "")   # filename for logging
@@ -77,8 +78,6 @@ def model(
     in_arcs     : dict[Node     , set[int]] = {v: set() for v in V}             # incoming arc ids per node
     out_arcs    : dict[Node     , set[int]] = {v: set() for v in V}             # outgoing arc ids per node
 
-    type_starting_arcs_l    : dict[tuple[ArcType, int]  , set[int]] = {}    # arc ids starting at (i,0,l) for all i, indexed by (type, l)
-    type_ending_arcs_l      : dict[tuple[ArcType, int]  , set[int]] = {}    # arc ids starting at (i,T,l) for all i, indexed by (type, l)
     service_arcs_ijt        : dict[tuple[int, int, int] , set[int]] = {}    # service arcs from node (i,t,l) to (j,t',l') for all l, t',l', indexed by (i,j,t)
     charge_arcs_it          : dict[tuple[int, int]      , set[int]] = {}    # charging arcs from node (i,t,l) for all l, indexed by (i,t)
 
@@ -117,13 +116,6 @@ def model(
         type_arcs[type].add(e.id)
         in_arcs[o].add(e.id)
         out_arcs[d].add(e.id)
-        
-        # register sets required by constraints
-        if (o.t == 0) and (type != ArcType.WRAP):
-            type_starting_arcs_l.setdefault((type, o.l), set()).add(e.id)
-
-        if (o.t == T) and (type == ArcType.WRAP):
-            type_ending_arcs_l.setdefault((type, o.l), set()).add(e.id)
 
         if type == ArcType.SERVICE:
             service_arcs_ijt.setdefault((o.i, d.i, o.t), set()).add(e.id)
@@ -133,11 +125,11 @@ def model(
 
         if type == ArcType.SERVICE:
             # attach service revenue and penalty cost
-            arc_revenue[e.id]  = revenue
-            penalty[e.id]       = cost
+            arc_revenue[e.id] = revenue
+            penalty[e.id]     = cost
         elif type == ArcType.CHARGE:
             # attach charging cost
-            arc_charge_cost[e.id]   = cost
+            arc_charge_cost[e.id] = cost
 
         return e.id
     
@@ -178,13 +170,22 @@ def model(
                         logger.warning(f"Travel energy exceeds max SoC L for service arc ({i}, {j}, {t}), skipping")
                         continue
 
-                    for l in range(travel_energy_ij, L + 1):
-                        # Need at least travel_energy_ij SoC to serve this demand                       
-                        o       = Node(i, t, l)
-                        d       = Node(j, t + travel_time_ijt, l - travel_energy_ij)
-                        revenue = order_revenue.get((i, j, t), 0.0)
-                        cost    = penalty.get((i, j, t), 0.0)
+                    if t == 0:
+                        # EV start at max SoC
+                        o       = Node(i, 0, L)
+                        d       = Node(j, travel_time_ijt, L - travel_energy_ij)
+                        revenue = order_revenue.get((i, j, 0), 0.0)
+                        cost    = penalty.get((i, j, 0), 0.0)
                         _add_arc(ArcType.SERVICE, o, d, revenue, cost)
+
+                    else:
+                        for l in range(travel_energy_ij, L + 1):
+                            # Need at least travel_energy_ij SoC to serve this demand                       
+                            o       = Node(i, t, l)
+                            d       = Node(j, t + travel_time_ijt, l - travel_energy_ij)
+                            revenue = order_revenue.get((i, j, t), 0.0)
+                            cost    = penalty.get((i, j, t), 0.0)
+                            _add_arc(ArcType.SERVICE, o, d, revenue, cost)
 
                     valid_travel_demand[(i, j, t)] = demand_ijt
 
@@ -198,15 +199,23 @@ def model(
                     if travel_time_ijt <= 0 or travel_energy_ij <= 0 or travel_time_ijt + t > T:
                         continue
 
-                    for l in range(travel_energy_ij, L + 1):
-                        # Need at least travel_energy_ij SoC to relocate
-                        o = Node(i, t, l)
-                        d = Node(j, t + travel_time_ijt, l - travel_energy_ij)
-                        _add_arc(ArcType.RELOCATION, o, d)
+                    if t == 0:
+                        # EV start at max SoC
+                        o = Node(i, 0, L)
+                        d = Node(j, travel_time_ijt, L - travel_energy_ij)
+                        _add_arc(ArcType.RELOCATION, o, d)                        
+                    else:
+                        for l in range(travel_energy_ij, L + 1):
+                            # Need at least travel_energy_ij SoC to relocate
+                            o = Node(i, t, l)
+                            d = Node(j, t + travel_time_ijt, l - travel_energy_ij)
+                            _add_arc(ArcType.RELOCATION, o, d)
 
                 # ---- Add Charging arcs ξ^c ----
-                if t in charge_cost and t + 1 <= T:
+                if t in charge_cost and t + 1 <= T and t != 0:
                     # Only add charging arcs if there is a charge cost defined for this time step
+                    # and no charging at first time step t = 0 (since EVs are fully charged)
+                    # EVs can only serve, relocate, or idle
 
                     for l in LEVELS:
                         # Charging arcs can only be added if there is enough room to charge
@@ -221,7 +230,11 @@ def model(
 
                 # ---- Add Idle arcs ξ^p ----
                 # Idle arcs are added for every node at every time step
-                if t + 1 <= T:
+                if t == 0:
+                    o = Node(i, 0, L)
+                    d = Node(i, 1, L)
+                    _add_arc(ArcType.IDLE, o, d)                    
+                elif t + 1 <= T:
                     for l in LEVELS:
                         o = Node(i, t, l)
                         d = Node(i, t + 1, l)
@@ -229,9 +242,10 @@ def model(
 
                 # ---- Add wrap-around arcs ξ^w (end of day t=T to start of next day t=0) ----
                 if t == T:
-                    for l in LEVELS:
+                    for l in range (L_min, L + 1):
+                        # All EV must end the day with at least L_min SoC
                         o = Node(i, T, l)
-                        d = Node(i, 0, l)
+                        d = Node(i, 0, L)  # since all EV start at max SoC, for flow conservation
                         _add_arc(ArcType.WRAP, o, d)
 
     # Log any invalid demand that was skipped
@@ -286,24 +300,6 @@ def model(
             for v in V_set
         )
         logger.info("Flow conservation constraints (4) added")
-
-        # (5) For each SOC level l, the number of EVs that start with l cannot be lower than the number that end with l
-        #     This ensures that the EVs does not use up all the electricty and ends the day without any electricity
-        #     Which is detrimental to the next day operations
-        model.addConstrs(
-            gp.quicksum(
-                x[e] 
-                    for arctype in ArcType 
-                    for e in type_starting_arcs_l.get((arctype, l), set())
-            ) <=
-            gp.quicksum(
-                x[e] 
-                    for arctype in ArcType
-                    for e in type_ending_arcs_l.get((arctype, l), set())
-            )
-            for l in LEVELS
-        )
-        logger.info("SOC level constraints (5) added")
 
         # (6) Unserved demand propagation for t ∈ [1, T]
         #     We assume unserved passengers will not leave the system and carry over to the next time step
@@ -421,8 +417,6 @@ def model(
                 "type_arcs"             : type_arcs,
                 "in_arcs"               : in_arcs,
                 "out_arcs"              : out_arcs,
-                "type_starting_arcs_l"  : type_starting_arcs_l,
-                "type_ending_arcs_l"    : type_ending_arcs_l,
                 "service_arcs_ijt"      : service_arcs_ijt,
                 "charge_arcs_it"        : charge_arcs_it,
             },
