@@ -2,6 +2,7 @@ from __future__ import annotations
 import logging
 from typing import Optional, Union
 import os
+from datetime import datetime
 
 # Map string levels to logging levels
 _LEVELS = {
@@ -42,7 +43,8 @@ class Logger:
             self, 
             name:       str, 
             level:      Union[str, int] = "INFO", 
-            to_console: bool = True
+            to_console: bool = True,
+            timestamp = ""
         ):
         """
         Initialize the logger with a name, level, and whether to log to console.            
@@ -61,6 +63,7 @@ class Logger:
         :param to_console: If True, log messages will also be printed to console.
         """
         self._display_name = name
+        self._timestamp = timestamp or datetime.now().strftime("%Y%m%d_%H%M")
 
         # Unique internal logger to avoid handler collisions between instances
         internal_name = f"simplelogger.{name}.{id(self)}"
@@ -122,7 +125,7 @@ class Logger:
     def save(
             self, 
             file_name:  str, 
-            mode:       str = "a", 
+            mode:       str = "w", 
             encoding:   str = "utf-8"
         ) -> None:
         """
@@ -132,7 +135,7 @@ class Logger:
 
         :param file_name: Name of the log file (will be created in the current working directory under "Logs"). 
                             Do not include the ".log" extension, it will be added automatically.
-        :param mode: File mode, default is "a" (append). Use "w" to overwrite.
+        :param mode: File mode, default is "w" (overwrite). Use "a" to append.
         :param encoding: File encoding, default is "utf-8".
         """
         if self._file_handler is not None:
@@ -143,7 +146,9 @@ class Logger:
                 pass
             self._file_handler = None
 
-        file_path = os.path.join(os.getcwd(), "Logs", file_name + ".log")
+
+
+        file_path = os.path.join(os.getcwd(), "Logs", file_name + "_" + self._timestamp + ".log")
 
         fh = logging.FileHandler(file_path, mode=mode, encoding=encoding)
         fh.setFormatter(self._formatter)

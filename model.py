@@ -10,7 +10,6 @@ load_dotenv()
 from logger import Logger
 
 logger = Logger("model", level="DEBUG", to_console=True)
-logger.save("model", mode="a") 
 
 # ----------------------------
 # Model builder
@@ -21,9 +20,7 @@ def model(
     ) -> dict:
     """
     Builds the SAEV model based on the provided parameters.
-    """
-    logger.info("Model building started")
-    
+    """    
     # ----------------------------
     # Parameters
     # ----------------------------
@@ -42,6 +39,11 @@ def model(
     num_EVs         : int                               = kwargs.get("num_EVs")         # total number of EVs in the fleet
     charge_cost     : dict[int, float]                  = kwargs.get("charge_cost")     # c^c_e = cost for charging arcs
 
+    # Metadata
+    timestamp       : str                               = kwargs.get("timestamp", "")   # timestamp for logging
+    file_name        : str                              = kwargs.get("file_name", "")   # filename for logging
+
+    logger.save("model_" + file_name) 
     logger.info("Parameters loaded successfully")
 
     # --------------------------
@@ -139,8 +141,8 @@ def model(
 
         return e.id
     
-    valid_demand    : set[tuple[int, int, int]] = set()
-    invalid_demand  : set[tuple[int, int, int]] = set()
+    valid_travel_demand    : dict[tuple[int, int, int], int] = {}
+    invalid_travel_demand  : set[tuple[int, int, int]] = set()
     
     # Add all arcs
     for i in ZONES:                 # Starting zone
@@ -152,8 +154,9 @@ def model(
                     # We only add service arcs if there is demand
 
                     demand_ijt: int = travel_demand[(i, j, t)]
+
                     if demand_ijt <= 0:
-                        invalid_demand.add((i, j, t))
+                        invalid_travel_demand.add((i, j, t))
                         logger.warning(f"No demand for service arc ({i}, {j}, {t}), skipping")
                         continue  # no demand, skip this arc
 
@@ -161,17 +164,17 @@ def model(
                     travel_energy_ij: int = travel_energy.get((i, j), 0)
 
                     if travel_time_ijt <= 0 or travel_energy_ij <= 0:
-                        invalid_demand.add((i, j, t))
+                        invalid_travel_demand.add((i, j, t))
                         logger.warning(f"Invalid travel time or energy for service arc ({i}, {j}, {t}), skipping")
                         continue   # no valid travel time or energy, skip this arc
 
                     if travel_time_ijt + t > T:
-                        invalid_demand.add((i, j, t))
+                        invalid_travel_demand.add((i, j, t))
                         logger.warning(f"Travel time exceeds total time T for service arc ({i}, {j}, {t}), skipping")
                         continue  # travel time exceeds total time T, skip this arc
 
                     if travel_energy_ij > L:
-                        invalid_demand.add((i, j, t))
+                        invalid_travel_demand.add((i, j, t))
                         logger.warning(f"Travel energy exceeds max SoC L for service arc ({i}, {j}, {t}), skipping")
                         continue
 
@@ -183,7 +186,7 @@ def model(
                         cost    = penalty.get((i, j, t), 0.0)
                         _add_arc(ArcType.SERVICE, o, d, revenue, cost)
 
-                    valid_demand.add((i, j, t))
+                    valid_travel_demand[(i, j, t)] = demand_ijt
 
                 # ---- Add Relocation arcs ξ^r ----
                 if i != j and (i, j, t) in travel_time:
@@ -232,8 +235,10 @@ def model(
                         _add_arc(ArcType.WRAP, o, d)
 
     # Log any invalid demand that was skipped
-    if invalid_demand:
-        logger.warning(f"Skipped {len(invalid_demand)} invalid demand entries: {invalid_demand}")
+    if invalid_travel_demand:
+        logger.warning (f"Original number travel demand: {sum (travel_demand.values())} in {len(travel_demand)} entries")
+        logger.warning (f"Valid number of travel demand: {sum (valid_travel_demand.values())} in {len(valid_travel_demand)} entries")
+        logger.warning (f"Skipped {len(invalid_travel_demand)} invalid demand entries: {invalid_travel_demand}")
     
     logger.info(f"Arcs built with {len(all_arcs)} arcs")
     # Log the number of arcs by type
@@ -245,7 +250,7 @@ def model(
     # Model
     # ----------------------------
     with gp.Env() as env, gp.Model(env=env) as model:        
-        model.Params.LogFile = "Logs/gurobi_model.log"  # Set log file for Gurobi
+        model.Params.LogFile = f"Logs/gurobi_model_{file_name}_{timestamp}.log"  # Set log file for Gurobi
 
         # ----------------------------
         # Decision variables
@@ -259,9 +264,9 @@ def model(
             name    = "x"           ,
         )
 
-        # s_ijt: unserved demand integers
+        # s_ijt: number of unserved demand from zone i to j, up to time interval t (carried over from previous intervals)
         s: gp.tupledict[tuple[int, int, int], gp.Var] = model.addVars(
-            valid_demand            ,
+            ((i, j, t) for i in ZONES for j in ZONES for t in TIMESTEPS) ,
             vtype   = GRB.INTEGER   , 
             lb      = 0             , 
             name    = "s"           ,
@@ -304,21 +309,24 @@ def model(
         #     We assume unserved passengers will not leave the system and carry over to the next time step
         #     Thus, unserved demand at time t = unserved demand at t-1 + new demand at t - served demand at t
         model.addConstrs(
-            s[(i, j, t)] == s[(i, j, t - 1)] + travel_demand.get((i, j, t), 0) - 
+            s[(i, j, t)] == s[(i, j, t-1)] + valid_travel_demand.get((i, j, t), 0) - 
                 gp.quicksum(
                     x[e] for e in service_arcs_ijt.get((i, j, t), set())
                 )
-            for (i, j, t) in valid_demand if t > 0
+            for i in ZONES
+            for j in ZONES
+            for t in TIMESTEPS if t > 0
         )
         logger.info("Unserved demand propagation constraints (6) added")
 
         # (7) Unserved demand at t=0
         model.addConstrs(
-            s[(i, j, 0)] == travel_demand.get((i, j, 0), 0) - 
+            s[(i, j, 0)] == valid_travel_demand.get((i, j, 0), 0) - 
                 gp.quicksum(
                     x[e] for e in service_arcs_ijt.get((i, j, 0), set())
                 )
-            for (i, j) in {(i, j) for (i, j, t) in valid_demand if t == 0}
+            for i in ZONES
+            for j in ZONES
         )
         logger.info("Unserved demand at t=0 constraints (7) added")
 
@@ -355,8 +363,10 @@ def model(
 
         model.addConstr (
             total_penalty_cost == gp.quicksum(
-                s[(i, j, t)] * float(penalty.get((i, j, t), 0.0))
-                for (i, j, t) in valid_demand
+                s[(i, j, t)] * float(penalty.get((i, j, t), 0))
+                for i in ZONES
+                for j in ZONES
+                for t in TIMESTEPS
             ),
             name = "total_penalty_cost"
         )
@@ -391,8 +401,8 @@ def model(
         logger.info(f"  Runtime: {model.Runtime:.4f} seconds")
         logger.info(f"  Objective value: {model.ObjVal:.4f}")
 
-        x_sol: dict[int, int]                   = {e: v.X for e, v in x.items() if v.X > 0} # Keys are arc ids
-        s_sol: dict[tuple[int, int, int], int]  = {k: v.X for k, v in s.items() if v.X > 0} # Keys are (i, j, t) tuples
+        x_sol: dict[int, int]                   = {e: v.X for e, v in x.items()} # Keys are arc ids
+        s_sol: dict[tuple[int, int, int], int]  = {k: v.X for k, v in s.items()} # Keys are (i, j, t) tuples
         total_service_revenue_sol   : float     = total_service_revenue.X
         total_penalty_cost_sol      : float     = total_penalty_cost.X
         total_charge_cost_sol       : float     = total_charge_cost.X
@@ -406,7 +416,7 @@ def model(
                 "total_penalty_cost"    : total_penalty_cost_sol,
                 "total_charge_cost"     : total_charge_cost_sol
             },
-            "sets": {
+            "arcs": {
                 "all_arcs"              : all_arcs,
                 "type_arcs"             : type_arcs,
                 "in_arcs"               : in_arcs,
@@ -414,7 +424,14 @@ def model(
                 "type_starting_arcs_l"  : type_starting_arcs_l,
                 "type_ending_arcs_l"    : type_ending_arcs_l,
                 "service_arcs_ijt"      : service_arcs_ijt,
-                "charge_arcs_it"        : charge_arcs_it
+                "charge_arcs_it"        : charge_arcs_it,
+            },
+            "sets": {
+                "valid_travel_demand"  : valid_travel_demand,
+                "invalid_travel_demand": invalid_travel_demand,
+                "ZONES"                : ZONES,
+                "TIMESTEPS"            : TIMESTEPS,
+                "LEVELS"               : LEVELS,
             },
         }
 
