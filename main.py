@@ -47,11 +47,12 @@ if __name__ == "__main__":
     N               : int                               = processed_data.get("N")               # number of operation zones (1, ..., N)
     T               : int                               = processed_data.get("T")               # termination time of daily operations (0, ..., T)
     L               : int                               = processed_data.get("L")               # max SoC level (all EVs start at this level) (0, ..., L)
+    W               : int                               = processed_data.get("W")               # maximum time intervals a passenger will wait for a ride (0, ..., W-1; demand expires at W)
     travel_demand   : dict[tuple[int, int, int], int]   = processed_data.get("travel_demand")   # travel demand from zone i to j at starting at time t
     travel_time     : dict[tuple[int, int, int], int]   = processed_data.get("travel_time")     # travel time from i to j at starting at time t
     travel_energy   : dict[tuple[int, int], int]        = processed_data.get("travel_energy")   # energy consumed for trip from zone i to j
-    order_revenue   : dict[tuple[int, int, int], float] = processed_data.get("order_revenue")   # order revenue for each trip served from i to j at starting at time t
-    penalty         : dict[tuple[int, int, int], float] = processed_data.get("penalty")         # penalty cost for each unserved trip from i to j at starting at time t (accumulative)
+    order_revenue   : dict[tuple[int, int, int], float] = processed_data.get("order_revenue")   # order revenue for each trip served from i to j at time t
+    penalty         : dict[tuple[int, int, int], float] = processed_data.get("penalty")         # penalty cost for each unserved trip from i to j at time t
     charge_speed    : int                               = processed_data.get("charge_speed")    # charge speed (SoC levels per timestep)
     num_ports       : dict[int, int]                    = processed_data.get("num_ports")       # number of chargers in each zone
     num_EVs         : int                               = processed_data.get("num_EVs")         # total number of EVs in the fleet
@@ -62,6 +63,7 @@ if __name__ == "__main__":
         N               = N             ,
         T               = T             ,
         L               = L             ,
+        W               = W             ,
         travel_demand   = travel_demand ,
         travel_time     = travel_time   ,
         travel_energy   = travel_energy ,
@@ -72,15 +74,22 @@ if __name__ == "__main__":
         num_EVs         = num_EVs       ,
         charge_cost     = charge_cost   ,
         L_min           = L_min         ,
+
         timestamp       = timestamp     ,
         file_name       = file_name     ,
     )
     logger.info("Solution retreived from model.")
 
+    if output == None:
+        logger.error ("Optimization failed...")
+        exit (1)
+
     # Extract variables and sets from the output
     obj                     : float                                     = output["obj"]
     x                       : dict[int, int]                            = output["sol"]["x"]  # flow variables
     s                       : dict[tuple[int, int, int], int]           = output["sol"]["s"]  # unserved demand variables
+    u                       : dict[tuple[int, int, int, int], int]      = output["sol"]["u"]
+    e                       : dict[tuple[int, int, int], int]           = output["sol"]["e"]
     total_service_revenue   : float                                     = output["sol"]["total_service_revenue"]
     total_penalty_cost      : float                                     = output["sol"]["total_penalty_cost"]
     total_charge_cost       : float                                     = output["sol"]["total_charge_cost"]
@@ -97,8 +106,17 @@ if __name__ == "__main__":
     ZONES                   : list[int]                                 = output["sets"]["ZONES"]
     TIMESTEPS               : list[int]                                 = output["sets"]["TIMESTEPS"]
     LEVELS                  : list[int]                                 = output["sets"]["LEVELS"]
+    AGES                    : list[int]                                 = output["sets"]["AGES"]
 
 
+    # ----------------------------
+    # Arcs Information
+    # ----------------------------    
+    logger.debug("Arcs information:")
+    for id, arc in all_arcs.items():
+        logger.debug (f"  Arc {id}: type {arc.type} from node ({arc.o.i}, {arc.o.t}, {arc.o.l}) to ({arc.d.i}, {arc.d.t}, {arc.d.l}); flow: {x[id]}")
+    
+    
     # ----------------------------
     # Summarised Information
     # ----------------------------
@@ -110,8 +128,8 @@ if __name__ == "__main__":
     
     if not math.isclose(obj, total_service_revenue - total_penalty_cost - total_charge_cost):
         logger.warning(f"Warning: Objective value ({obj}) does not match total service revenue ({total_service_revenue}) - total penalty cost ({total_penalty_cost}) - total charge cost ({total_charge_cost}).")
-
-
+    
+    
     # ----------------------------
     # EV flow in each arcs
     # ----------------------------
@@ -156,10 +174,23 @@ if __name__ == "__main__":
             for i in ZONES 
             for j in ZONES
         )
+        expired = sum (
+            e[(i, j, t)]
+            for i in ZONES
+            for j in ZONES
+        )
         logger.info (f"  Time {t}:")
         logger.info (f"    New Demand: {demand}")
         logger.info (f"    Served demand: {served}")
+        for age in AGES:
+            unserved_age = sum (
+                u[i, j, t, age]
+                for i in ZONES
+                for j in ZONES
+            )
+            logger.info (f"    Unserved Demand of age {age}: {unserved_age}")
         logger.info (f"    Remaining Unserved demand: {unserved}")
+        logger.info (f"    Expired demand: {expired}")
 
 
     # ----------------------------
@@ -177,8 +208,13 @@ if __name__ == "__main__":
     )
     # total number of valid trips unserved (carried over from all intervals)
     total_trips_unserved: int = sum (
+        e[(i, j, t)]
+        for i in ZONES
+        for j in ZONES
+        for t in TIMESTEPS
+    ) + sum (
         s[(i, j, T)]
-        for i in ZONES 
+        for i in ZONES
         for j in ZONES
     )
     # total number of time intervals spent on service (sum of all EVs)
@@ -205,7 +241,7 @@ if __name__ == "__main__":
     logger.info ("Vehicle Operations Summary:")
     logger.info (f"  Total trips requested: {total_trips:.2f}")
     logger.info (f"  Total trips served: {total_trips_served:.2f}")
-    logger.info (f"  Total trips unserved: {total_trips_unserved:.2f}")
+    logger.info (f"  Total trips unserved (expired): {total_trips_unserved:.2f}")
 
     if total_trips != total_trips_served + total_trips_unserved:
         logger.warning(f"  Total trips requested ({total_trips}) does not match total trips served ({total_trips_served}) + unserved ({total_trips_unserved}).")
