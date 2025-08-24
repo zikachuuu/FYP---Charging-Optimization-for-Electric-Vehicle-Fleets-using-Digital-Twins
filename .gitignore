@@ -24,9 +24,9 @@ dist/
 
 # Logs
 Logs/
-*.log
-*.lp
-*.ilp
+
+# Results
+Results/
 
 # Node.js
 node_modules/

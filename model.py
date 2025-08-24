@@ -9,8 +9,6 @@ load_dotenv()
 
 from logger import Logger
 
-logger = Logger("model", level="DEBUG", to_console=True)
-
 # ----------------------------
 # Model builder
 # ----------------------------
@@ -46,6 +44,8 @@ def model(
     timestamp       : str                               = kwargs.get("timestamp", "")   # timestamp for logging
     file_name       : str                               = kwargs.get("file_name", "")   # filename for logging
 
+    logger = Logger("model", level="DEBUG", to_console=True, timestamp=timestamp)
+
     logger.save("model_" + file_name) 
     logger.info("Parameters loaded successfully")
 
@@ -77,7 +77,7 @@ def model(
     # Build arcs ξ and all subsets
     # ----------------------------
     all_arcs            : dict[int                  , Arc]      = {}                                # Map all arcs to their unique ids
-    type_arcs           : dict[ArcType              , set[int]] = {type: set() for type in ArcType} # sets of arc ids by type
+    type_arcs           : dict[ArcType              , set[int]] = {type: set() for type in ArcType} # sets of arc ids indexed by type
     in_arcs             : dict[Node                 , set[int]] = {v: set() for v in V}             # incoming arc ids per node
     out_arcs            : dict[Node                 , set[int]] = {v: set() for v in V}             # outgoing arc ids per node
     service_arcs_ijt    : dict[tuple[int, int, int] , set[int]] = {}                                # service arcs from node (i,t,l) to (j,t',l') for all l, t',l', indexed by (i,j,t)

@@ -7,6 +7,7 @@ from logger import Logger
 from model import model
 from networkClass import Node, Arc, ArcType
 from utility import convert_key_types
+from postprocessing import postprocessing
 
 timestamp = datetime.now().strftime("%Y%m%d_%H%M")
 
@@ -17,6 +18,8 @@ if __name__ == "__main__":
     file_name = input ("Enter the JSON test case file name, without the .json extension. It should be located in the Testcases folder: ").strip()
 
     logger.save("main_" + file_name)
+
+    results_name = f"Results/results_{file_name}_{timestamp}.xlsx"
 
     # Load data from the specified JSON file
     processed_data: dict = None
@@ -154,46 +157,6 @@ if __name__ == "__main__":
             logger.info(f"      Unserved Demand: {s.get((arc.o.i, arc.d.i, arc.o.t), 0)}")
 
     # ----------------------------
-    # Demand served per time step
-    # ----------------------------
-    logger.info ("Demand served per time step")
-    for t in TIMESTEPS:
-        demand = sum (
-            valid_travel_demand.get ((i, j, t), 0)
-            for i in ZONES 
-            for j in ZONES
-        )
-        served = sum ( 
-            x[e] 
-            for i in ZONES 
-            for j in ZONES 
-            for e in service_arcs_ijt.get((i, j, t), set()) 
-        )
-        unserved = sum(
-            s[(i, j, t)] 
-            for i in ZONES 
-            for j in ZONES
-        )
-        expired = sum (
-            e[(i, j, t)]
-            for i in ZONES
-            for j in ZONES
-        )
-        logger.info (f"  Time {t}:")
-        logger.info (f"    New Demand: {demand}")
-        logger.info (f"    Served demand: {served}")
-        for age in AGES:
-            unserved_age = sum (
-                u[i, j, t, age]
-                for i in ZONES
-                for j in ZONES
-            )
-            logger.info (f"    Unserved Demand of age {age}: {unserved_age}")
-        logger.info (f"    Remaining Unserved demand: {unserved}")
-        logger.info (f"    Expired demand: {expired}")
-
-
-    # ----------------------------
     # Calculated information
     # ----------------------------
 
@@ -238,22 +201,60 @@ if __name__ == "__main__":
         for e in type_arcs[ArcType.IDLE]    
     )
 
-    logger.info ("Vehicle Operations Summary:")
-    logger.info (f"  Total trips requested: {total_trips:.2f}")
-    logger.info (f"  Total trips served: {total_trips_served:.2f}")
-    logger.info (f"  Total trips unserved (expired): {total_trips_unserved:.2f}")
-
     if total_trips != total_trips_served + total_trips_unserved:
-        logger.warning(f"  Total trips requested ({total_trips}) does not match total trips served ({total_trips_served}) + unserved ({total_trips_unserved}).")
-    
-    logger.info (f"  Average trips served per vehicle: {total_trips_served / num_EVs:.2f}")
-    logger.info (f"  Total service time: {total_service_time}")
-    logger.info (f"  Total charging time: {total_charge_time}")
-    logger.info (f"  Total relocation time: {total_relocation_time}")
-    logger.info (f"  Total Idle time: {total_idle_time}")
+        logger.warning (f"  Total trips requested ({total_trips}) does not match total trips served ({total_trips_served}) + unserved ({total_trips_unserved}).")
 
     if total_service_time + total_charge_time + total_relocation_time + total_idle_time != T * num_EVs:
-        logger.warning (f"  Total time does not sum up!")
+        logger.warning (f"  Total time does not sum up! Total time: {T * num_EVs}, Service time: {total_service_time}, Charge time: {total_charge_time}, Relocation time: {total_relocation_time}, Idle time: {total_idle_time}")
+
+    postprocessing(
+        # Input parameters
+        N                       = N                     ,
+        T                       = T                     ,
+        L                       = L                     ,
+        W                       = W                     ,
+        travel_demand           = travel_demand         ,
+        travel_time             = travel_time           ,
+        travel_energy           = travel_energy         ,
+        order_revenue           = order_revenue         ,
+        penalty                 = penalty               ,
+        charge_speed            = charge_speed          ,
+        num_ports               = num_ports             ,
+        num_EVs                 = num_EVs               ,
+        charge_cost             = charge_cost           ,
+        L_min                   = L_min                 ,
+
+        # Metadata
+        timestamp               = timestamp             ,
+        file_name               = file_name             ,
+        results_name            = results_name          ,
+        
+        # Output results
+        obj                     = obj                   ,
+        x                       = x                     ,
+        s                       = s                     ,
+        u                       = u                     ,
+        e                       = e                     ,
+        total_service_revenue   = total_service_revenue ,
+        total_penalty_cost      = total_penalty_cost    ,
+        total_charge_cost       = total_charge_cost     ,
+
+        # Arcs
+        all_arcs                = all_arcs              ,
+        type_arcs               = type_arcs             ,
+        in_arcs                 = in_arcs               ,
+        out_arcs                = out_arcs              ,
+        service_arcs_ijt        = service_arcs_ijt      ,
+        charge_arcs_it          = charge_arcs_it        ,
+
+        # Sets
+        valid_travel_demand     = valid_travel_demand   ,
+        invalid_travel_demand   = invalid_travel_demand ,
+        ZONES                   = ZONES                 ,
+        TIMESTEPS               = TIMESTEPS             ,
+        LEVELS                  = LEVELS                ,
+        AGES                    = AGES                  ,
+    )
 
 
         
