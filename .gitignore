@@ -23,7 +23,10 @@ dist/
 .vscode/
 
 # Logs
+Logs/
 *.log
+*.lp
+*.ilp
 
 # Node.js
 node_modules/
