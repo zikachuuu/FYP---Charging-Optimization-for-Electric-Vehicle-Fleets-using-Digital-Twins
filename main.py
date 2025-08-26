@@ -7,16 +7,27 @@ from logger import Logger
 from model import model
 from networkClass import Node, Arc, ArcType
 from utility import convert_key_types
+from postprocessing import postprocessing
 
 timestamp = datetime.now().strftime("%Y%m%d_%H%M")
 
 logger = Logger("main", level="DEBUG", to_console=True, timestamp=timestamp)
 
 if __name__ == "__main__":
-
+    print ("---------------------------------------------------")
+    print ("Welcome to the EV Fleet Charging Optimization Model")
+    print ("---------------------------------------------------")    
+    print ()
+    print ("Find input test case files in the Testcases folder.")
+    print ("Output results will be saved in the Results folder.")
+    print ("Log files for debugging will be saved in the Logs folder.")
+    print ()
     file_name = input ("Enter the JSON test case file name, without the .json extension. It should be located in the Testcases folder: ").strip()
+    print ()
 
     logger.save("main_" + file_name)
+
+    results_name = f"Results/results_{file_name}_{timestamp}.xlsx"
 
     # Load data from the specified JSON file
     processed_data: dict = None
@@ -33,33 +44,44 @@ if __name__ == "__main__":
             logger.info("Data loaded successfully.")
 
     except FileNotFoundError as e:
-        logger.error(f"File {file_name}.json not found. Please ensure it exists in the Testcases folder.")
+        logger.error(f"File {file_name}.json not found. Please ensure it exists in the Testcases folder with json extension.")
         exit(1)
-
     except json.JSONDecodeError as e:
         logger.error(f"Error decoding JSON from {file_name}.json: {e}")
         exit(1)
-    
     except Exception as e:
         logger.error(f"An unexpected error occurred while loading data: {e}")
         exit(1)
 
-    N               : int                               = processed_data.get("N")               # number of operation zones (1, ..., N)
-    T               : int                               = processed_data.get("T")               # termination time of daily operations (0, ..., T)
-    L               : int                               = processed_data.get("L")               # max SoC level (all EVs start at this level) (0, ..., L)
-    W               : int                               = processed_data.get("W")               # maximum time intervals a passenger will wait for a ride (0, ..., W-1; demand expires at W)
-    travel_demand   : dict[tuple[int, int, int], int]   = processed_data.get("travel_demand")   # travel demand from zone i to j at starting at time t
-    travel_time     : dict[tuple[int, int, int], int]   = processed_data.get("travel_time")     # travel time from i to j at starting at time t
-    travel_energy   : dict[tuple[int, int], int]        = processed_data.get("travel_energy")   # energy consumed for trip from zone i to j
-    order_revenue   : dict[tuple[int, int, int], float] = processed_data.get("order_revenue")   # order revenue for each trip served from i to j at time t
-    penalty         : dict[tuple[int, int, int], float] = processed_data.get("penalty")         # penalty cost for each unserved trip from i to j at time t
-    charge_speed    : int                               = processed_data.get("charge_speed")    # charge speed (SoC levels per timestep)
-    num_ports       : dict[int, int]                    = processed_data.get("num_ports")       # number of chargers in each zone
-    num_EVs         : int                               = processed_data.get("num_EVs")         # total number of EVs in the fleet
-    charge_cost     : dict[int, float]                  = processed_data.get("charge_cost")     # price to charge one SoC level at time t
-    L_min           : int                               = processed_data.get("L_min")           # min SoC level all EV must end with at the end of the daily operations
-
+    # Extract parameters from processed_data
+    try:
+        obj_1_weight    : float                             = processed_data["obj_1_weight"]    # weight for objective 1 (maximizing Bluebird's profit)
+        obj_2_weight    : float                             = processed_data["obj_2_weight"]    # weight for objective 2 (flattening grid load across time)
+        N               : int                               = processed_data["N"]               # number of operation zones (1, ..., N)
+        T               : int                               = processed_data["T"]               # termination time of daily operations (0, ..., T)
+        L               : int                               = processed_data["L"]               # max SoC level (all EVs start at this level) (0, ..., L)
+        W               : int                               = processed_data["W"]               # maximum time intervals a passenger will wait for a ride (0, ..., W-1; demand expires at W)
+        travel_demand   : dict[tuple[int, int, int], int]   = processed_data["travel_demand"]   # travel demand from zone i to j at starting at time t
+        travel_time     : dict[tuple[int, int, int], int]   = processed_data["travel_time"]     # travel time from i to j at starting at time t
+        travel_energy   : dict[tuple[int, int], int]        = processed_data["travel_energy"]   # energy consumed for trip from zone i to j
+        order_revenue   : dict[tuple[int, int, int], float] = processed_data["order_revenue"]   # order revenue for each trip served from i to j at time t
+        penalty         : dict[tuple[int, int, int], float] = processed_data["penalty"]         # penalty cost for each unserved trip from i to j at time t
+        charge_speed    : int                               = processed_data["charge_speed"]    # charge speed (SoC levels per timestep)
+        num_ports       : dict[int, int]                    = processed_data["num_ports"]       # number of chargers in each zone
+        num_EVs         : int                               = processed_data["num_EVs"]         # total number of EVs in the fleet
+        charge_cost     : dict[int, float]                  = processed_data["charge_cost"]     # price to charge one SoC level at time t
+        L_min           : int                               = processed_data["L_min"]           # min SoC level all EV must end with at the end of the daily operations
+    
+    except KeyError as e:
+        logger.error(f"Missing required parameter in input data: {e}")
+        exit(1)
+    except Exception as e:
+        logger.error(f"An unexpected error occurred while extracting parameters: {e}")
+        exit(1)
+    
     output = model(
+        obj_1_weight    = obj_1_weight  ,
+        obj_2_weight    = obj_2_weight  ,
         N               = N             ,
         T               = T             ,
         L               = L             ,
@@ -74,7 +96,7 @@ if __name__ == "__main__":
         num_EVs         = num_EVs       ,
         charge_cost     = charge_cost   ,
         L_min           = L_min         ,
-
+        # Metadata
         timestamp       = timestamp     ,
         file_name       = file_name     ,
     )
@@ -86,8 +108,8 @@ if __name__ == "__main__":
 
     # Extract variables and sets from the output
     obj                     : float                                     = output["obj"]
-    x                       : dict[int, int]                            = output["sol"]["x"]  # flow variables
-    s                       : dict[tuple[int, int, int], int]           = output["sol"]["s"]  # unserved demand variables
+    x                       : dict[int, int]                            = output["sol"]["x"]  
+    s                       : dict[tuple[int, int, int], int]           = output["sol"]["s"]  
     u                       : dict[tuple[int, int, int, int], int]      = output["sol"]["u"]
     e                       : dict[tuple[int, int, int], int]           = output["sol"]["e"]
     total_service_revenue   : float                                     = output["sol"]["total_service_revenue"]
@@ -125,10 +147,7 @@ if __name__ == "__main__":
     logger.info(f"  Total service revenue: {total_service_revenue:.2f}")
     logger.info(f"  Total penalty cost: {total_penalty_cost:.2f}")
     logger.info(f"  Total charge cost: {total_charge_cost:.2f}")
-    
-    if not math.isclose(obj, total_service_revenue - total_penalty_cost - total_charge_cost):
-        logger.warning(f"Warning: Objective value ({obj}) does not match total service revenue ({total_service_revenue}) - total penalty cost ({total_penalty_cost}) - total charge cost ({total_charge_cost}).")
-    
+        
     
     # ----------------------------
     # EV flow in each arcs
@@ -152,46 +171,6 @@ if __name__ == "__main__":
         logger.info(f"      Flow: {x.get(arc_id, 0)}")
         if arc.type == ArcType.SERVICE:
             logger.info(f"      Unserved Demand: {s.get((arc.o.i, arc.d.i, arc.o.t), 0)}")
-
-    # ----------------------------
-    # Demand served per time step
-    # ----------------------------
-    logger.info ("Demand served per time step")
-    for t in TIMESTEPS:
-        demand = sum (
-            valid_travel_demand.get ((i, j, t), 0)
-            for i in ZONES 
-            for j in ZONES
-        )
-        served = sum ( 
-            x[e] 
-            for i in ZONES 
-            for j in ZONES 
-            for e in service_arcs_ijt.get((i, j, t), set()) 
-        )
-        unserved = sum(
-            s[(i, j, t)] 
-            for i in ZONES 
-            for j in ZONES
-        )
-        expired = sum (
-            e[(i, j, t)]
-            for i in ZONES
-            for j in ZONES
-        )
-        logger.info (f"  Time {t}:")
-        logger.info (f"    New Demand: {demand}")
-        logger.info (f"    Served demand: {served}")
-        for age in AGES:
-            unserved_age = sum (
-                u[i, j, t, age]
-                for i in ZONES
-                for j in ZONES
-            )
-            logger.info (f"    Unserved Demand of age {age}: {unserved_age}")
-        logger.info (f"    Remaining Unserved demand: {unserved}")
-        logger.info (f"    Expired demand: {expired}")
-
 
     # ----------------------------
     # Calculated information
@@ -238,22 +217,60 @@ if __name__ == "__main__":
         for e in type_arcs[ArcType.IDLE]    
     )
 
-    logger.info ("Vehicle Operations Summary:")
-    logger.info (f"  Total trips requested: {total_trips:.2f}")
-    logger.info (f"  Total trips served: {total_trips_served:.2f}")
-    logger.info (f"  Total trips unserved (expired): {total_trips_unserved:.2f}")
-
     if total_trips != total_trips_served + total_trips_unserved:
-        logger.warning(f"  Total trips requested ({total_trips}) does not match total trips served ({total_trips_served}) + unserved ({total_trips_unserved}).")
-    
-    logger.info (f"  Average trips served per vehicle: {total_trips_served / num_EVs:.2f}")
-    logger.info (f"  Total service time: {total_service_time}")
-    logger.info (f"  Total charging time: {total_charge_time}")
-    logger.info (f"  Total relocation time: {total_relocation_time}")
-    logger.info (f"  Total Idle time: {total_idle_time}")
+        logger.warning (f"  Total trips requested ({total_trips}) does not match total trips served ({total_trips_served}) + unserved ({total_trips_unserved}).")
 
     if total_service_time + total_charge_time + total_relocation_time + total_idle_time != T * num_EVs:
-        logger.warning (f"  Total time does not sum up!")
+        logger.warning (f"  Total time does not sum up! Total time: {T * num_EVs}, Service time: {total_service_time}, Charge time: {total_charge_time}, Relocation time: {total_relocation_time}, Idle time: {total_idle_time}")
+
+    postprocessing(
+        # Input parameters
+        N                       = N                     ,
+        T                       = T                     ,
+        L                       = L                     ,
+        W                       = W                     ,
+        travel_demand           = travel_demand         ,
+        travel_time             = travel_time           ,
+        travel_energy           = travel_energy         ,
+        order_revenue           = order_revenue         ,
+        penalty                 = penalty               ,
+        charge_speed            = charge_speed          ,
+        num_ports               = num_ports             ,
+        num_EVs                 = num_EVs               ,
+        charge_cost             = charge_cost           ,
+        L_min                   = L_min                 ,
+
+        # Metadata
+        timestamp               = timestamp             ,
+        file_name               = file_name             ,
+        results_name            = results_name          ,
+        
+        # Output results
+        obj                     = obj                   ,
+        x                       = x                     ,
+        s                       = s                     ,
+        u                       = u                     ,
+        e                       = e                     ,
+        total_service_revenue   = total_service_revenue ,
+        total_penalty_cost      = total_penalty_cost    ,
+        total_charge_cost       = total_charge_cost     ,
+
+        # Arcs
+        all_arcs                = all_arcs              ,
+        type_arcs               = type_arcs             ,
+        in_arcs                 = in_arcs               ,
+        out_arcs                = out_arcs              ,
+        service_arcs_ijt        = service_arcs_ijt      ,
+        charge_arcs_it          = charge_arcs_it        ,
+
+        # Sets
+        valid_travel_demand     = valid_travel_demand   ,
+        invalid_travel_demand   = invalid_travel_demand ,
+        ZONES                   = ZONES                 ,
+        TIMESTEPS               = TIMESTEPS             ,
+        LEVELS                  = LEVELS                ,
+        AGES                    = AGES                  ,
+    )
 
 
         
