@@ -22,6 +22,9 @@ def model(
     # ----------------------------
     # Parameters
     # ----------------------------
+    obj_1_weight   : float                             = kwargs.get("obj_1_weight")     # weight for objective 1 (maximizing Bluebird's profit)
+    obj_2_weight   : float                             = kwargs.get("obj_2_weight")     # weight for objective 2 (flattening grid load across time)
+
     N               : int                               = kwargs.get("N")               # number of operation zones (1, ..., N)
     T               : int                               = kwargs.get("T")               # termination time of daily operations (0, ..., T)
     L               : int                               = kwargs.get("L")               # max SoC level (all EVs start at this level) (0, ..., L)
@@ -49,6 +52,7 @@ def model(
     logger.save("model_" + file_name) 
     logger.info("Parameters loaded successfully")
 
+
     # --------------------------
     # Sets
     # --------------------------
@@ -58,6 +62,7 @@ def model(
     AGES        : list[int] = list (range(W))               # ages 0..W-1, at age = W any unserved demand expires
 
     logger.info ("Sets initialized successfully")
+
 
     # ----------------------------
     # Build nodes V
@@ -287,6 +292,7 @@ def model(
     for arc_type, arcs in type_arcs.items() :
         logger.info(f"  {arc_type.name} arcs: {len(arcs)}")
     
+    
     # ----------------------------
     # Arcs Information
     # ----------------------------    
@@ -341,6 +347,10 @@ def model(
             lb      = 0             , 
             name    = "e"           ,
         )
+
+        # h and l: upper and lower bounds for utilization rate of charging ports at any time period
+        h: gp.Var = model.addVar(vtype=GRB.CONTINUOUS, lb=0, ub=1, name="h")
+        l: gp.Var = model.addVar(vtype=GRB.CONTINUOUS, lb=0, ub=1, name="l")
 
         logger.info("Decision variables created")
         logger.info(f"  x_e variables: {len(x)}")
@@ -435,7 +445,7 @@ def model(
         logger.info ("Unserved demand expiry for t < T constraints (7) added")
 
 
-        # (9) Unserved demand base case
+        # (8) Unserved demand base case
         #     unserved demand with age a at time t does not exist if t < a
         model.addConstrs (
             u[i, j, t, a] == 0
@@ -445,10 +455,10 @@ def model(
             for a in AGES 
             if t < a
         )
-        logger.info ("Unserved demand base case constraints (9) added")
+        logger.info ("Unserved demand base case constraints (8) added")
 
 
-        # (10) Expired demand base case
+        # (9) Expired demand base case
         #      expired demand does not exist for t < W
         model.addConstrs (
             e[i, j, t] == 0
@@ -457,24 +467,44 @@ def model(
             for t in TIMESTEPS
             if t < W
         )
-        logger.info ("Expired demand base case constraints (10) added")
+        logger.info ("Expired demand base case constraints (9) added")
 
 
-        # (11) Number of EVs charging at each zone at each time period cannot exceed the number of ports available in that zone
+        # (10) Number of EVs charging at each zone at each time period cannot exceed the number of ports available in that zone
         model.addConstrs(
             gp.quicksum(x[e] for e in charge_arcs_it.get((i, t), set())) <= num_ports.get(i, 0)
             for i in ZONES  
             for t in TIMESTEPS
         )
-        logger.info("Charging port constraints (11) added")
+        logger.info("Charging port constraints (10) added")
 
 
-        # (12) Fleet size equals sum of wrap-around flows
+        # (11) Fleet size equals sum of wrap-around flows
         model.addConstr(
             gp.quicksum(x[e] for e in type_arcs[ArcType.WRAP]) == num_EVs
         )
-        logger.info("Fleet size constraint (12) added")
+        logger.info("Fleet size constraint (11) added")
 
+        # (12) Limit the utilization rate of charging ports across all time steps to be between lower and upper bounds
+        #      We do not include utilization rate of time step 0 or T as no charging can be done for these 2 time steps
+        total_num_ports = sum (num_ports.values())  # otal number of ports across all zones at any time period
+        model.addConstrs(
+            gp.quicksum(
+                x[e] 
+                for i in ZONES
+                for e in charge_arcs_it.get((i, t), set()) 
+            ) <= h * total_num_ports
+            for t in TIMESTEPS if t != 0 or t != T
+        )
+        model.addConstrs(
+            gp.quicksum(
+                x[e] 
+                for i in ZONES
+                for e in charge_arcs_it.get((i, t), set()) 
+            ) >= l * total_num_ports
+            for t in TIMESTEPS if t != 0 or t != T
+        )
+        logger.info("Charging port utilization rate constraints (12) added")
 
         # ----------------------------
         # Objective
@@ -516,8 +546,8 @@ def model(
         )
 
         model.setObjective(
-            total_service_revenue - total_penalty_cost - total_charge_cost,
-            GRB.MAXIMIZE
+            -obj_1_weight * (total_service_revenue - total_penalty_cost - total_charge_cost) + obj_2_weight * (h - l),
+            GRB.MINIMIZE
         )
         logger.info("Objective function set")
 

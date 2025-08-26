@@ -57,6 +57,16 @@ def postprocessing (
     logger = Logger("postprocessing", level="DEBUG", to_console=True, timestamp=timestamp)
     logger.save("postprocessing_" + file_name) 
     logger.info("Parameters loaded successfully")
+    
+    def _bluebird_profit():
+        summary_data = [
+            {"description": "Total Profit", "value": total_service_revenue - total_penalty_cost - total_charge_cost},
+            {"description": "Total Service Revenue", "value": total_service_revenue},
+            {"description": "Total Penalty Cost", "value": total_penalty_cost},
+            {"description": "Total Charging Cost", "value": total_charge_cost},
+        ]
+        df_summary = pd.DataFrame(summary_data, columns=["description", "value"])
+        return df_summary
 
     def _demand_served_to_dataframe(demand_served):
         """
@@ -269,8 +279,61 @@ def postprocessing (
 
         return df_ev_operations
     
+    def _ports_utilization_over_time():
+        """Plot Charging Ports Utilization, as well price of electricty, over time, on the same graph."""
+        total_ports = sum(num_ports.values())
+        ports_utilization = [0] * (T + 1)
+        for e_id in type_arcs[ArcType.CHARGE]:
+            arc = all_arcs[e_id]
+            start_t = arc.o.t
+            end_t = arc.d.t
+            for t in range(start_t, end_t):
+                ports_utilization[t] += x[e_id]
+
+        df_ports_utilization = pd.DataFrame({"Charging Ports Utilization": ports_utilization}, index=TIMESTEPS)
+        df_ports_utilization = df_ports_utilization.div(total_ports).mul(100)  # convert to percentage
+        df_ports_utilization.index.name = "Time Interval"
+        df_ports_utilization.columns = ["Percentage of Charging Ports Utilized"]
+
+        df_price = pd.DataFrame({"Electricity Price": [charge_cost[t] for t in TIMESTEPS]}, index=TIMESTEPS)
+        df_price.index.name = "Time Interval"
+        df_price.columns = ["Electricity Price (per kWh)"]
+        ax1 = df_ports_utilization.plot(
+            figsize=(10, 5), 
+            color="tab:blue", 
+            marker="", 
+            linewidth=2, 
+            legend=False
+        )
+        ax2 = ax1.twinx()
+        df_price.plot(
+            ax=ax2, 
+            color="tab:orange", 
+            marker="", 
+            linewidth=2, 
+            legend=False
+        )
+        ax1.set_xlabel("Time Intervals")
+        ax1.set_ylabel("% of Charging Ports Utilized", color="tab:blue")
+        ax2.set_ylabel("Electricity Price (per kWh)", color="tab:orange")
+        plt.title("Charging Ports Utilization and Electricity Price over Time")
+        ax1.grid(True, alpha=0.3)
+        plt.tight_layout()
+        lines, labels = ax1.get_legend_handles_labels()
+        lines2, labels2 = ax2.get_legend_handles_labels()
+        ax1.legend(lines + lines2, labels + labels2, title="Metrics", loc="best", frameon=False)
+        outfile = f"Results/ports_utilization_over_time_{file_name}_{timestamp}.png"
+        plt.savefig(outfile, dpi=150, bbox_inches="tight")
+        plt.close()
+        logger.info(f"Saved Charging Ports Utilization and Electricity Price over time plot to {outfile}")
+        return df_ports_utilization, df_price
+
     # Create an excel in the Results folder to save results
     with pd.ExcelWriter(results_name, engine="openpyxl") as writer:
+        df_summary = _bluebird_profit()
+        df_summary.to_excel(writer, sheet_name="Bluebird Profit Summary", index=False)
+        logger.info("Saved Bluebird profit summary to excel")
+
         df_ev_operations = _ev_operations_over_time()
         df_ev_operations.to_excel(writer, sheet_name="EV Operations Over Time", index_label="Time Step")
         logger.info("Saved EV operations over time to excel")
@@ -278,3 +341,10 @@ def postprocessing (
         df_demand_served = _demand_served_over_time()
         df_demand_served.to_excel(writer, sheet_name="Demand Served Over Time", index_label="Time Step")
         logger.info("Saved demand served over time to excel")
+
+        df_ports_utilization, df_price = _ports_utilization_over_time()
+        # Write both dataframes to the same sheet, first column time, second column ports utilization, third column price
+        df_ports_utilization.to_excel(writer, sheet_name="Ports Utilization & Price", index_label="Time Step", startcol=0)
+        # Write df_price without its index (time column) to avoid duplicate time columns
+        df_price.reset_index(drop=True).to_excel(writer, sheet_name="Ports Utilization & Price", index=False, startcol=2, header=True)
+        logger.info("Saved ports utilization and electricity price over time to excel")
