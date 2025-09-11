@@ -66,11 +66,14 @@ if __name__ == "__main__":
         travel_energy   : dict[tuple[int, int], int]        = processed_data["travel_energy"]   # energy consumed for trip from zone i to j
         order_revenue   : dict[tuple[int, int, int], float] = processed_data["order_revenue"]   # order revenue for each trip served from i to j at time t
         penalty         : dict[tuple[int, int, int], float] = processed_data["penalty"]         # penalty cost for each unserved trip from i to j at time t
-        charge_speed    : int                               = processed_data["charge_speed"]    # charge speed (SoC levels per timestep)
+        L_min           : int                               = processed_data["L_min"]           # min SoC level all EV must end with at the end of the daily operations
         num_ports       : dict[int, int]                    = processed_data["num_ports"]       # number of chargers in each zone
         num_EVs         : int                               = processed_data["num_EVs"]         # total number of EVs in the fleet
         charge_cost     : dict[int, float]                  = processed_data["charge_cost"]     # price to charge one SoC level at time t
-        L_min           : int                               = processed_data["L_min"]           # min SoC level all EV must end with at the end of the daily operations
+        max_zone_power  : dict[tuple[int, int], int]        = processed_data["max_zone_power"]  # max power (in SoC levels) that can be drawn from the grid at zone i at time t
+        rec_zone_power  : dict[tuple[int, int], int]        = processed_data["rec_zone_power"]  # recommended power for DR (in SoC levels) that can be drawn from the grid at zone i at time t
+        power_penalty   : float                             = processed_data["power_penalty"]   # penalty cost for exceeding recommended power draw for DR
+        max_ev_power    : int                               = processed_data["max_ev_power"]    # max power (in SoC levels) that can be drawn by one EV in one time step
     
     except KeyError as e:
         logger.error(f"Missing required parameter in input data: {e}")
@@ -91,11 +94,15 @@ if __name__ == "__main__":
         travel_energy   = travel_energy ,
         order_revenue   = order_revenue ,
         penalty         = penalty       ,
-        charge_speed    = charge_speed  ,
+        L_min           = L_min         ,
         num_ports       = num_ports     ,
         num_EVs         = num_EVs       ,
         charge_cost     = charge_cost   ,
-        L_min           = L_min         ,
+        max_zone_power  = max_zone_power,
+        rec_zone_power  = rec_zone_power,
+        power_penalty   = power_penalty ,
+        max_ev_power    = max_ev_power  ,
+
         # Metadata
         timestamp       = timestamp     ,
         file_name       = file_name     ,
@@ -115,6 +122,7 @@ if __name__ == "__main__":
     total_service_revenue   : float                                     = output["sol"]["total_service_revenue"]
     total_penalty_cost      : float                                     = output["sol"]["total_penalty_cost"]
     total_charge_cost       : float                                     = output["sol"]["total_charge_cost"]
+    total_dr_penalty        : float                                     = output["sol"]["total_dr_penalty"]
 
     all_arcs                : dict[int                  , Arc]          = output["arcs"]["all_arcs"]
     type_arcs               : dict[ArcType              , set[int]]     = output["arcs"]["type_arcs"]
@@ -147,6 +155,7 @@ if __name__ == "__main__":
     logger.info(f"  Total service revenue: {total_service_revenue:.2f}")
     logger.info(f"  Total penalty cost: {total_penalty_cost:.2f}")
     logger.info(f"  Total charge cost: {total_charge_cost:.2f}")
+    logger.info(f"  Total DR penalty cost: {total_dr_penalty:.2f}")
         
     
     # ----------------------------
@@ -234,11 +243,14 @@ if __name__ == "__main__":
         travel_energy           = travel_energy         ,
         order_revenue           = order_revenue         ,
         penalty                 = penalty               ,
-        charge_speed            = charge_speed          ,
+        L_min                   = L_min                 ,
         num_ports               = num_ports             ,
         num_EVs                 = num_EVs               ,
         charge_cost             = charge_cost           ,
-        L_min                   = L_min                 ,
+        max_zone_power          = max_zone_power        ,
+        rec_zone_power          = rec_zone_power        ,
+        power_penalty           = power_penalty         ,
+        max_ev_power            = max_ev_power          ,
 
         # Metadata
         timestamp               = timestamp             ,
@@ -254,6 +266,7 @@ if __name__ == "__main__":
         total_service_revenue   = total_service_revenue ,
         total_penalty_cost      = total_penalty_cost    ,
         total_charge_cost       = total_charge_cost     ,
+        total_dr_penalty        = total_dr_penalty      ,
 
         # Arcs
         all_arcs                = all_arcs              ,

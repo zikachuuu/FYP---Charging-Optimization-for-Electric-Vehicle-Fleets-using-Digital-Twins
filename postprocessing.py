@@ -22,6 +22,10 @@ def postprocessing (
     num_ports               : dict[int, int]                            = kwargs.get("num_ports")       # number of chargers in each zone
     num_EVs                 : int                                       = kwargs.get("num_EVs")         # total number of EVs in the fleet
     charge_cost             : dict[int, float]                          = kwargs.get("charge_cost")     # price to charge one SoC level at time t
+    max_zone_power          : dict[tuple[int, int], int]                = kwargs.get("max_zone_power")  # max power (in SoC levels) that can be drawn from the grid at zone i at time t
+    rec_zone_power          : dict[tuple[int, int], int]                = kwargs.get("rec_zone_penalty")# recommended power for DR (in SoC levels) that can be drawn from the grid at zone i at time t
+    power_penalty           : float                                     = kwargs.get("power_penalty")   # penalty cost for exceeding recommended power draw for DR
+    max_ev_power            : int                                       = kwargs.get("max_ev_power")    # max power (in SoC levels) that can be drawn by one EV in one time step
 
     # Metadata
     timestamp               : str                                       = kwargs.get("timestamp", "")   # timestamp for logging
