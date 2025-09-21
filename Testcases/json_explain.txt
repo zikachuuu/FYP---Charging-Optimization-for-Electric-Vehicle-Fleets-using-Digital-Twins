@@ -1,0 +1,21 @@
+N: Number of operation zones (zones 1, ..., N)
+T: Termination time of deailt operations (time step 0, ..., T)
+L: Max SoC level (level 0, ..., L)
+W: Maximum number of time intervals a passenger will wait for a ride (wait time step 0, ..., W-1; demand expires at W)
+
+travel_demand   [i,j,t] : number of rides request from zone i to j made at time step t
+travel_time     [i,j,t] : travel time from zone i to j at time step t 
+travel_energy   [i,j]   : number of SoC levels consumed travelling from zone i to j
+order_revenue   [i,j,t] : order revenue for each ride from zone i to j served at time step t 
+penalty         [i,j,t] : penalty for each ride unserved from zone i to j expired at time step t 
+L_min                   : minimum SoC level all EVs must end with at the end of the daily operations
+num_EVs                 : number of EVs in the fleet
+
+num_ports               [i]     : number of charging ports avaliable in zone i
+elec_supplied           [i,t]   : total number of SoC levels supplied to all charging ports in zone i at time step t 
+max_charge_speed                : maximum number of SoC levels that can be supplied to a charging EV
+wholesale_elec_price    [t]     : buying price of electricity (to charging operator) at time step t 
+
+charge_cost_low         [t]     : charging cost of 1 SoC level at time step t when electricty usage is below threshold
+charge_cost_high        [t]     : charging cost of 1 SoC level at time step t when electricty usage is above threshold
+elec_threshold          [t]     : threshold (in number of SoC levels) at time step t
