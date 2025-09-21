@@ -252,7 +252,7 @@ def model(
                         penalty = penalty[(i, j, t + wait_time)]        ,
                     )
 
-            valid_travel_demand[(i, j, t)] = demand_ijt
+        valid_travel_demand[(i, j, t)] = demand_ijt
 
     def _add_relocation_arc (i, j, t):
         # Only add relocation arcs if i != j and travel time is defined
