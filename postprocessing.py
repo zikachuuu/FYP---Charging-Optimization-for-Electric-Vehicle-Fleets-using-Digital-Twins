@@ -12,21 +12,24 @@ def postprocessing (
     T                       : int                                       = kwargs.get("T")               # termination time of daily operations (0, ..., T)
     L                       : int                                       = kwargs.get("L")               # max SoC level (all EVs start at this level) (0, ..., L)
     W                       : int                                       = kwargs.get("W")               # maximum time intervals a passenger will wait for a ride (0, ..., W-1; demand expires at W)
+    
     travel_demand           : dict[tuple[int, int, int], int]           = kwargs.get("travel_demand")   # travel demand from zone i to j at starting at time t
     travel_time             : dict[tuple[int, int, int], int]           = kwargs.get("travel_time")     # travel time from i to j at starting at time t
     travel_energy           : dict[tuple[int, int], int]                = kwargs.get("travel_energy")   # energy consumed for trip from zone i to j
     order_revenue           : dict[tuple[int, int, int], float]         = kwargs.get("order_revenue")   # order revenue for each trip served from i to j at time t
     penalty                 : dict[tuple[int, int, int], float]         = kwargs.get("penalty")         # penalty cost for each unserved trip from i to j at time t 
-    charge_speed            : int                                       = kwargs.get("charge_speed")    # charge speed (SoC levels per timestep)
     L_min                   : int                                       = kwargs.get("L_min")           # min SoC level all EV must end with at the end of the daily operations  
-    num_ports               : dict[int, int]                            = kwargs.get("num_ports")       # number of chargers in each zone
     num_EVs                 : int                                       = kwargs.get("num_EVs")         # total number of EVs in the fleet
-    charge_cost             : dict[int, float]                          = kwargs.get("charge_cost")     # price to charge one SoC level at time t
-    max_zone_power          : dict[tuple[int, int], int]                = kwargs.get("max_zone_power")  # max power (in SoC levels) that can be drawn from the grid at zone i at time t
-    rec_zone_power          : dict[tuple[int, int], int]                = kwargs.get("rec_zone_penalty")# recommended power for DR (in SoC levels) that can be drawn from the grid at zone i at time t
-    power_penalty           : float                                     = kwargs.get("power_penalty")   # penalty cost for exceeding recommended power draw for DR
-    max_ev_power            : int                                       = kwargs.get("max_ev_power")    # max power (in SoC levels) that can be drawn by one EV in one time step
+    
+    num_ports               : dict[int, int]                            = kwargs.get("num_ports")       # number of chargers in each zone
+    elec_supplied           : dict[tuple[int, int], int]                = kwargs.get("elec_supplied")   # electricity supplied at zone i at time t
+    max_charge_speed        : int                                       = kwargs.get("max_charge_speed")# max charge speed (kWh per time interval)
+    wholesale_elec_price    : dict[int, float]                          = kwargs.get("wholesale_elec_price") # wholesale electricity price at time t ($ per kWh)
 
+    charge_cost_low         : dict[int, float]                          = kwargs.get("charge_cost_low")     # low charge cost at time t ($ per kWh)
+    charge_cost_high        : dict[int, float]                          = kwargs.get("charge_cost_high")    # high charge cost at time t ($ per kWh)
+    elec_threshold          : dict[int, int]                            = kwargs.get("elec_threshold")      # threshold for low/high charge cost ($ per kWh)
+    
     # Metadata
     timestamp               : str                                       = kwargs.get("timestamp", "")   # timestamp for logging
     file_name               : str                                       = kwargs.get("file_name", "")   # filename for logging
@@ -38,6 +41,10 @@ def postprocessing (
     s                       : dict[tuple[int, int, int], int]           = kwargs["s"]  
     u                       : dict[tuple[int, int, int, int], int]      = kwargs["u"]  
     e                       : dict[tuple[int, int, int], int]           = kwargs["e"]  
+    z                       : dict[int, int]                            = kwargs["z"]
+    y                       : dict[int, float]                          = kwargs["y"]
+    h                       : float                                     = kwargs["h"]
+    l                       : float                                     = kwargs["l"]
     total_service_revenue   : float                                     = kwargs["total_service_revenue"]
     total_penalty_cost      : float                                     = kwargs["total_penalty_cost"]
     total_charge_cost       : float                                     = kwargs["total_charge_cost"]
@@ -49,6 +56,7 @@ def postprocessing (
     out_arcs                : dict[Node                 , set[int]]     = kwargs["out_arcs"]
     service_arcs_ijt        : dict[tuple[int, int, int] , set[int]]     = kwargs["service_arcs_ijt"]
     charge_arcs_it          : dict[tuple[int, int]      , set[int]]     = kwargs["charge_arcs_it"]
+    charge_arcs_t           : dict[int                  , set[int]]     = kwargs["charge_arcs_t"]
 
     # Sets
     valid_travel_demand     : dict[tuple[int, int, int], int]           = kwargs["valid_travel_demand"]

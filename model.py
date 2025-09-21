@@ -22,9 +22,6 @@ def model(
     # ----------------------------
     # Parameters
     # ----------------------------
-    obj_1_weight   : float                             = kwargs.get("obj_1_weight")     # weight for objective 1 (maximizing Bluebird's profit)
-    obj_2_weight   : float                             = kwargs.get("obj_2_weight")     # weight for objective 2 (flattening grid load across time)
-
     N               : int                               = kwargs.get("N")               # number of operation zones (1, ..., N)
     T               : int                               = kwargs.get("T")               # termination time of daily operations (0, ..., T)
     L               : int                               = kwargs.get("L")               # max SoC level (all EVs start at this level) (0, ..., L)
@@ -36,14 +33,17 @@ def model(
     order_revenue   : dict[tuple[int, int, int], float] = kwargs.get("order_revenue")   # order revenue for each trip served from i to j at time t
     penalty         : dict[tuple[int, int, int], float] = kwargs.get("penalty")         # penalty cost for each unserved trip from i to j at time t 
     L_min           : int                               = kwargs.get("L_min")           # min SoC level all EV must end with at the end of the daily operations
-    num_ports       : dict[int, int]                    = kwargs.get("num_ports")       # number of chargers in each zone
     num_EVs         : int                               = kwargs.get("num_EVs")         # total number of EVs in the fleet
-    charge_cost     : dict[int, float]                  = kwargs.get("charge_cost")     # price to charge one SoC level at time t
-    max_zone_power  : dict[tuple[int, int], int]        = kwargs.get("max_zone_power")  # max power (in SoC levels) that can be drawn from the grid at zone i at time t
-    rec_zone_power  : dict[tuple[int, int], int]        = kwargs.get("rec_zone_power")  # recommended power for DR (in SoC levels) that can be drawn from the grid at zone i at time t
-    power_penalty   : float                             = kwargs.get("power_penalty")   # penalty cost for exceeding recommended power draw for DR
-    max_ev_power    : int                               = kwargs.get("max_ev_power")    # max power (in SoC levels) that can be drawn by one EV in one time step
     
+    num_ports           : dict[int, int]                = kwargs.get("num_ports")               # number of chargers in each zone
+    elec_supplied       : dict[tuple[int, int], int]    = kwargs.get("elec_supplied")           # electricity supplied (in SoC levels) at zone i at time t
+    max_charge_speed    : int                           = kwargs.get("max_charge_speed")        # max charging speed (in SoC levels) of one EV in one time step
+    wholesale_elec_price: dict[int, float]              = kwargs.get("wholesale_elec_price")    # wholesale electricity price at time t
+    
+    charge_cost_low : dict[int, float]                  = kwargs.get("charge_cost_low")         # charge cost per unit of SoC at zone i at time t when usage is below threshold
+    charge_cost_high: dict[int, float]                  = kwargs.get("charge_cost_high")        # charge cost per unit of SOC at zone i at time t when usage is above threshold
+    elec_threshold  : dict[int, int]                    = kwargs.get("elec_threshold")          # electricity threshold at zone i at time t
+
     # Metadata
     timestamp       : str                               = kwargs.get("timestamp", "")   # timestamp for logging
     file_name       : str                               = kwargs.get("file_name", "")   # filename for logging
@@ -88,6 +88,7 @@ def model(
     out_arcs            : dict[Node                 , set[int]] = {v: set() for v in V}             # outgoing arc ids per node
     service_arcs_ijt    : dict[tuple[int, int, int] , set[int]] = {}                                # service arcs from node (i,t,l) to (j,t',l') for all l, t',l', indexed by (i,j,t)
     charge_arcs_it      : dict[tuple[int, int]      , set[int]] = {}                                # charging arcs from node (i,t,l) for all l, indexed by (i,t)
+    charge_arcs_t       : dict[int                  , set[int]] = {}                                # charging arcs from node (i,t,l) for all i,l, indexed by t
 
     # Keep track the valid and invalid travel demand
     # We will only reference the valid ones
@@ -128,14 +129,15 @@ def model(
         
         elif type == ArcType.CHARGE:
             e = ChargingArc(
-                id              = next_id               , 
-                type            = type                  , 
-                o               = o                     , 
-                d               = d                     , 
-                charge_speed    =kwargs["charge_speed"] ,
-                charging_cost   =kwargs["charging_cost"],
+                id              = next_id                   , 
+                type            = type                      , 
+                o               = o                         , 
+                d               = d                         , 
+                charge_speed    = kwargs["charge_speed"]    ,
+                charging_cost   = kwargs["charging_cost"]   ,
             )
             charge_arcs_it.setdefault((o.i, o.t), set()).add(e.id)
+            charge_arcs_t.setdefault(o.t, set()).add(e.id)
 
         elif type == ArcType.RELOCATION:
             e = RelocationArc(
@@ -276,17 +278,16 @@ def model(
                 _add_arc(ArcType.RELOCATION, o, d)
     
     def _add_charging_arc (i, j, t):
-        if (t not in charge_cost) or (t + 1 > T) or (t == 0) or (i != j):
+        if (t + 1 > T) or (t == 0) or (i != j):
             return
-        # Only add charging arcs if there is a charge cost defined for this time step
-        # and no charging at first time step t = 0 (since EVs are fully charged)
+        # no charging at first time step t = 0 (since EVs are fully charged)
         # EVs can only serve, relocate, or idle
 
-        for charge_speed in range(1, min(max_ev_power, max_zone_power) + 1):
+        for charge_speed in range(1, min(elec_supplied[(i, t)], max_charge_speed) + 1):
             # charge_speed is in SoC levels per time step
             # minimum charge speed is 1 level per time step
-            # maximum charge speed is limited by max_ev_power and max_zone_power
-            # e.g. if charge_speed = max_zone_power, then only one EV is being charged at fastest possible speed 
+            # maximum charge speed is limited by electricity supplied and max charge speed of one EV
+            # e.g. if charge_speed = electricity supplied, then only one EV is being charged at fastest possible speed 
 
             for l in LEVELS:
                 if l + charge_speed > L:
@@ -297,14 +298,16 @@ def model(
                 d = Node(i, t + 1, l + charge_speed)  
 
                 # charging cost per EV in one time step = charging cost per level * charge speed (levels charged in one time step)
-                cost = charge_cost.get(t) * charge_speed
+                cost_low    = charge_cost_low.get(t) * charge_speed
+                cost_high   = charge_cost_high.get(t) * charge_speed
 
                 _add_arc(
-                    ArcType.CHARGE                  , 
-                    o                               , 
-                    d                               , 
-                    charge_speed    = charge_speed  , 
-                    charging_cost   = cost          ,
+                    ArcType.CHARGE                      , 
+                    o                                   , 
+                    d                                   , 
+                    charge_speed        = charge_speed  , 
+                    charging_cost_low   = cost_low      ,
+                    charging_cost_high  = cost_high     ,
                 )
 
     def _add_idle_arc (i, j, t):
@@ -404,6 +407,21 @@ def model(
             vtype   = GRB.INTEGER   , 
             lb      = 0             , 
             name    = "e"           ,
+        )
+
+        # z_t: binary variable indicating if electricity usage at time t is above threshold
+        z: gp.tupledict[int, gp.Var] = model.addVars(
+            TIMESTEPS               ,
+            vtype   = GRB.BINARY    , 
+            name    = "z"           ,
+        )
+
+        # y_t: dummy variable where y = z * X
+        y: gp.tupledict[float, gp.Var] = model.addVars(
+            TIMESTEPS               ,
+            vtype   = GRB.CONTINUOUS , 
+            lb      = 0              ,
+            name    = "y"            ,
         )
 
         # h and l: upper and lower bounds for utilization rate of charging ports at any time period
@@ -545,39 +563,91 @@ def model(
         logger.info("Fleet size constraint (11) added")
 
 
-        # (12) Limit the utilization rate of charging ports across all time steps to be between lower and upper bounds
-        #      We do not include utilization rate of time step 0 or T as no charging can be done for these 2 time steps
-        total_num_ports = sum (num_ports.values())  # otal number of ports across all zones at any time period
+        # (12) Limit the upercentage electricty usage across all time steps to be below upper bounds
+        #      We do not include time step 0 or T as no charging can be done for these 2 time steps
         model.addConstrs(
             gp.quicksum(
-                x[e] 
-                for i in ZONES
-                for e in charge_arcs_it.get((i, t), set()) 
-            ) <= h * total_num_ports
+                x[e] * all_arcs[e].charge_speed
+                for e in charge_arcs_t.get(t, set()) 
+            ) <= h * sum (elec_supplied.get((i, t), 0) for i in ZONES)
             for t in TIMESTEPS if t != 0 or t != T
         )
+        logger.info("Electricty usage upper bound constraints (12) added")
+
+
+        # (13) Limit the upercentage electricty usage across all time steps to be above lower bounds     
         model.addConstrs(
             gp.quicksum(
-                x[e] 
-                for i in ZONES
-                for e in charge_arcs_it.get((i, t), set()) 
-            ) >= l * total_num_ports
-            for t in TIMESTEPS if t != 0 or t != T
+                x[e] * all_arcs[e].charge_speed
+                for e in charge_arcs_t.get(t, set()) 
+            ) >= l * sum (elec_supplied.get((i, t), 0) for i in ZONES)
+            for t in TIMESTEPS
         )
-        logger.info("Charging port utilization rate constraints (12) added")
+        logger.info("Electricity usage lower bound constraints (13) added")
 
 
-        # (13) Limit the total power drawn from the grid at each zone at each time period
+        # (14) Limit the total power drawn from the grid at each zone at each time period
         model.addConstrs(
             gp.quicksum(
                 x[e] * all_arcs[e].charge_speed
                 for e in charge_arcs_it.get((i, t), set())
-            ) <= max_zone_power.get((i, t), 0)
+            ) <= elec_supplied.get((i, t), 0)
             for i in ZONES
             for t in TIMESTEPS
         )
-        logger.info("Max power drawn from grid constraints (13) added")
+        logger.info("Max power drawn from grid constraints (14) added")
 
+        # (18) Enforce the indication of whether the total electricity usage is above threshold
+        model.addConstrs (
+            (z[t] == 1) >> (
+                gp.quicksum(
+                    x[e] * all_arcs[e].charge_speed
+                    for e in charge_arcs_t.get(t, set())
+                ) >= elec_threshold.get(t, 0) + 1
+            )
+            for t in TIMESTEPS
+        )
+        model.addConstrs (
+            (z[t] == 0) >> (
+                gp.quicksum(
+                    x[e] * all_arcs[e].charge_speed
+                    for e in charge_arcs_t.get(t, set())
+                ) <= elec_threshold.get(t, 0)
+            )
+            for t in TIMESTEPS
+        )
+        logger.info("Indicator constraints for electricity usage above threshold (18) added")
+
+        # (19) Linking constraint for y = z * X
+        model.addConstrs (
+            y[t] <= num_EVs * max_charge_speed * z[t]
+            for t in TIMESTEPS
+        )
+        logger.info("Linking constraints for y = z * X (19) added")
+
+        # (21) Linking constraint for y = z * X
+        model.addConstrs (
+            y[t] <= gp.quicksum(
+                x[e] * all_arcs[e].charge_speed
+                for e in charge_arcs_t.get(t, set())
+            )
+            for t in TIMESTEPS
+        )
+        logger.info("Linking constraints for y = z * X (21) added")
+
+        # (22) Linking constraint for y = z * X
+        model.addConstrs (
+            y[t] >= gp.quicksum(
+                x[e] * all_arcs[e].charge_speed
+                for e in charge_arcs_t.get(t, set())
+            ) - num_EVs * max_charge_speed * (1 - z[t])
+            for t in TIMESTEPS
+        )
+        logger.info("Linking constraints for y = z * X (22) added")
+
+        logger.info("All constraints added")
+        logger.info(f"  Constraint (15), (16), and (17) are not added for now")
+        model.update()  # Apply all changes to the model
 
         # ----------------------------
         # Objective
@@ -586,7 +656,6 @@ def model(
         total_service_revenue   = model.addVar (name = "total_service_revenue")
         total_penalty_cost      = model.addVar (name = "total_penalty_cost")
         total_charge_cost       = model.addVar (name = "total_charge_cost")
-        total_dr_penalty        = model.addVar (name = "total_dr_penalty")
 
         model.addConstr (
             total_service_revenue == gp.quicksum(
@@ -613,29 +682,18 @@ def model(
 
         model.addConstr (
             total_charge_cost == gp.quicksum(
-                x[e_id] * all_arcs[e_id].charging_cost
-                for e_id in type_arcs[ArcType.CHARGE]
+                charge_cost_low.get(t, 0) * gp.quicksum(
+                    x[e] * all_arcs[e].charge_speed
+                    for e in charge_arcs_t.get(t, set())
+                ) + \
+                (charge_cost_high.get(t, 0) - charge_cost_low.get(t, 0)) * y[t]
+                for t in TIMESTEPS
             ),
             name = "total_charge_cost"
         )
 
-        model.addConstr (
-            total_dr_penalty == gp.quicksum(
-                gp.max_(
-                    0,
-                    gp.quicksum(
-                        x[e] * all_arcs[e].charge_speed
-                        for e in charge_arcs_it.get((i, t), set())
-                    ) - rec_zone_power.get((i, t), 0)
-                ) * power_penalty
-                for i in ZONES
-                for t in TIMESTEPS
-            ),
-            name = "total_dr_penalty"
-        )
-
         model.setObjective(
-            -obj_1_weight * (total_service_revenue - total_penalty_cost - total_charge_cost - total_dr_penalty) + obj_2_weight * (h - l),
+            -total_service_revenue + total_penalty_cost + total_charge_cost ,
             GRB.MINIMIZE
         )
         logger.info("Objective function set")
@@ -667,10 +725,14 @@ def model(
         s_sol: dict[tuple[int, int, int], int]      = {k: v.X for k, v in s.items()} # Keys are (i, j, t) tuples
         u_sol: dict[tuple[int, int, int, int], int] = {k: v.X for k, v in u.items()}
         e_sol: dict[tuple[int, int, int], int]      = {k: v.X for k, v in e.items()}
+        z_sol: dict[int, int]                       = {t: v.X for t, v in z.items()}
+        y_sol: dict[int, float]                     = {t: v.X for t, v in y.items()}
+        h_sol: float                                = h.X
+        l_sol: float                                = l.X
+
         total_service_revenue_sol   : float     = total_service_revenue.X
         total_penalty_cost_sol      : float     = total_penalty_cost.X
         total_charge_cost_sol       : float     = total_charge_cost.X
-        total_dr_penalty_sol        : float     = total_dr_penalty.X
 
         return {
             "obj"                       : model.ObjVal,
@@ -679,11 +741,13 @@ def model(
                 "s"                     : s_sol,
                 "u"                     : u_sol,
                 "e"                     : e_sol,
+                "z"                     : z_sol,
+                "y"                     : y_sol,
+                "h"                     : h_sol,
+                "l"                     : l_sol,
                 "total_service_revenue" : total_service_revenue_sol,
                 "total_penalty_cost"    : total_penalty_cost_sol,
-                "total_charge_cost"     : total_charge_cost_sol,
-                "total_dr_penalty"      : total_dr_penalty_sol,
-            },
+                "total_charge_cost"     : total_charge_cost_sol,            },
             "arcs": {
                 "all_arcs"              : all_arcs,
                 "type_arcs"             : type_arcs,
@@ -691,6 +755,7 @@ def model(
                 "out_arcs"              : out_arcs,
                 "service_arcs_ijt"      : service_arcs_ijt,
                 "charge_arcs_it"        : charge_arcs_it,
+                "charge_arcs_t"         : charge_arcs_t,
             },
             "sets": {
                 "valid_travel_demand"   : valid_travel_demand,

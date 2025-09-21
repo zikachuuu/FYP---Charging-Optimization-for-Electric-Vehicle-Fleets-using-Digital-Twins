@@ -1,56 +1,43 @@
 def convert_key_types(data: dict) -> dict:
-    def to_tuple_keyed(d: dict, tuple_len: int) -> dict:
-        new_d = {}
+    """
+    Convert string keys to appropriate types (tuples or integers) based on their format.
+    - Keys with commas (e.g., "0,1,2") become tuples of integers
+    - Keys that are pure integers (e.g., "5") become integers
+    - Other keys remain as strings
+    """
+    def parse_key(k):
+        """Parse a single key to its appropriate type."""
+        if not isinstance(k, str):
+            return k  # Return non-string keys as-is
+        
+        # Check if it contains commas (tuple format)
+        if ',' in k:
+            try:
+                parts = k.split(',')
+                return tuple(int(p.strip()) for p in parts)
+            except ValueError:
+                return k  # Keep as string if conversion fails
+        
+        # Try to convert to integer
+        try:
+            return int(k.strip())
+        except ValueError:
+            return k  # Keep as string if not an integer
+    
+    def convert_dict_keys(d):
+        """Recursively convert keys in a dictionary."""
+        if not isinstance(d, dict):
+            return d
+        
+        new_dict = {}
         for k, v in d.items():
-            if isinstance(k, str):
-                parts = k.split(",")
-                if len(parts) != tuple_len:
-                    raise ValueError(f"Key {k!r} does not have {tuple_len} parts")
-                try:
-                    tkey = tuple(int(p) for p in parts)
-                except ValueError as e:
-                    raise ValueError(f"Key {k!r} has non-integer component") from e
-            elif isinstance(k, tuple) and len(k) == tuple_len:
-                # already a tuple, ensure ints
-                try:
-                    tkey = tuple(int(p) for p in k)
-                except ValueError as e:
-                    raise ValueError(f"Key {k!r} has non-integer component") from e
+            new_key = parse_key(k)
+            # Recursively process nested dictionaries
+            if isinstance(v, dict):
+                new_dict[new_key] = convert_dict_keys(v)
             else:
-                raise TypeError(f"Unexpected key type {type(k)} for key {k!r}")
-            new_d[tkey] = v
-        return new_d
-
-    def to_int_keyed(d: dict) -> dict:
-        new_d = {}
-        for k, v in d.items():
-            if isinstance(k, str):
-                try:
-                    ikey = int(k)
-                except ValueError as e:
-                    raise ValueError(f"Key {k!r} is not an int") from e
-            elif isinstance(k, int):
-                ikey = k
-            else:
-                raise TypeError(f"Unexpected key type {type(k)} for key {k!r}")
-            new_d[ikey] = v
-        return new_d
-
-    out = dict(data)  # shallow copy
-
-    # 3-tuple keyed dicts
-    for name in ("travel_demand", "travel_time", "order_revenue", "penalty"):
-        if name in out and isinstance(out[name], dict):
-            out[name] = to_tuple_keyed(out[name], 3)
-
-    # 2-tuple keyed dicts
-    for name in ("travel_energy",):
-        if name in out and isinstance(out[name], dict):
-            out[name] = to_tuple_keyed(out[name], 2)
-
-    # int-keyed dicts
-    for name in ("num_ports", "charge_cost"):
-        if name in out and isinstance(out[name], dict):
-            out[name] = to_int_keyed(out[name])
-
-    return out
+                new_dict[new_key] = v
+        return new_dict
+    
+    # Process the entire data structure
+    return convert_dict_keys(data)

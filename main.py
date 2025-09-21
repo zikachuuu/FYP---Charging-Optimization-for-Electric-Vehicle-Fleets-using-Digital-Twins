@@ -55,26 +55,28 @@ if __name__ == "__main__":
 
     # Extract parameters from processed_data
     try:
-        obj_1_weight    : float                             = processed_data["obj_1_weight"]    # weight for objective 1 (maximizing Bluebird's profit)
-        obj_2_weight    : float                             = processed_data["obj_2_weight"]    # weight for objective 2 (flattening grid load across time)
         N               : int                               = processed_data["N"]               # number of operation zones (1, ..., N)
         T               : int                               = processed_data["T"]               # termination time of daily operations (0, ..., T)
         L               : int                               = processed_data["L"]               # max SoC level (all EVs start at this level) (0, ..., L)
         W               : int                               = processed_data["W"]               # maximum time intervals a passenger will wait for a ride (0, ..., W-1; demand expires at W)
+        
         travel_demand   : dict[tuple[int, int, int], int]   = processed_data["travel_demand"]   # travel demand from zone i to j at starting at time t
         travel_time     : dict[tuple[int, int, int], int]   = processed_data["travel_time"]     # travel time from i to j at starting at time t
         travel_energy   : dict[tuple[int, int], int]        = processed_data["travel_energy"]   # energy consumed for trip from zone i to j
         order_revenue   : dict[tuple[int, int, int], float] = processed_data["order_revenue"]   # order revenue for each trip served from i to j at time t
         penalty         : dict[tuple[int, int, int], float] = processed_data["penalty"]         # penalty cost for each unserved trip from i to j at time t
         L_min           : int                               = processed_data["L_min"]           # min SoC level all EV must end with at the end of the daily operations
-        num_ports       : dict[int, int]                    = processed_data["num_ports"]       # number of chargers in each zone
         num_EVs         : int                               = processed_data["num_EVs"]         # total number of EVs in the fleet
-        charge_cost     : dict[int, float]                  = processed_data["charge_cost"]     # price to charge one SoC level at time t
-        max_zone_power  : dict[tuple[int, int], int]        = processed_data["max_zone_power"]  # max power (in SoC levels) that can be drawn from the grid at zone i at time t
-        rec_zone_power  : dict[tuple[int, int], int]        = processed_data["rec_zone_power"]  # recommended power for DR (in SoC levels) that can be drawn from the grid at zone i at time t
-        power_penalty   : float                             = processed_data["power_penalty"]   # penalty cost for exceeding recommended power draw for DR
-        max_ev_power    : int                               = processed_data["max_ev_power"]    # max power (in SoC levels) that can be drawn by one EV in one time step
-    
+        
+        num_ports           : dict[int, int]                = processed_data["num_ports"]               # number of charging ports in each zone
+        elec_supplied       : dict[tuple[int, int], int]    = processed_data["elec_supplied"]           # electricity supplied (in SoC levels) at zone i at time t
+        max_charge_speed    : int                           = processed_data["max_charge_speed"]        # max charging speed (in SoC levels) of one EV in one time step
+        wholesale_elec_price: dict[int, float]              = processed_data["wholesale_elec_price"]    # wholesale electricity price at time t
+        
+        charge_cost_low : dict[int, float]                  = processed_data["charge_cost_low"]         # charge cost per unit of SoC at zone i at time t when usage is below threshold
+        charge_cost_high: dict[int, float]                  = processed_data["charge_cost_high"]        # charge cost per unit of SOC at zone i at time t when usage is above threshold
+        elec_threshold  : dict[int, int]                    = processed_data["elec_threshold"]          # electricity threshold at zone i at time t
+
     except KeyError as e:
         logger.error(f"Missing required parameter in input data: {e}")
         exit(1)
@@ -83,29 +85,31 @@ if __name__ == "__main__":
         exit(1)
     
     output = model(
-        obj_1_weight    = obj_1_weight  ,
-        obj_2_weight    = obj_2_weight  ,
-        N               = N             ,
-        T               = T             ,
-        L               = L             ,
-        W               = W             ,
-        travel_demand   = travel_demand ,
-        travel_time     = travel_time   ,
-        travel_energy   = travel_energy ,
-        order_revenue   = order_revenue ,
-        penalty         = penalty       ,
-        L_min           = L_min         ,
-        num_ports       = num_ports     ,
-        num_EVs         = num_EVs       ,
-        charge_cost     = charge_cost   ,
-        max_zone_power  = max_zone_power,
-        rec_zone_power  = rec_zone_power,
-        power_penalty   = power_penalty ,
-        max_ev_power    = max_ev_power  ,
+        N                       = N                     ,
+        T                       = T                     ,
+        L                       = L                     ,
+        W                       = W                     ,
+
+        travel_demand           = travel_demand         ,
+        travel_time             = travel_time           ,
+        travel_energy           = travel_energy         ,
+        order_revenue           = order_revenue         ,
+        penalty                 = penalty               ,
+        L_min                   = L_min                 ,
+        num_EVs                 = num_EVs               ,
+
+        num_ports               = num_ports             ,
+        elec_supplied           = elec_supplied         ,
+        max_charge_speed        = max_charge_speed      ,
+        wholesale_elec_price    = wholesale_elec_price  ,
+
+        charge_cost_low         = charge_cost_low       ,
+        charge_cost_high        = charge_cost_high      ,
+        elec_threshold          = elec_threshold        ,
 
         # Metadata
-        timestamp       = timestamp     ,
-        file_name       = file_name     ,
+        timestamp               = timestamp             ,
+        file_name               = file_name             ,
     )
     logger.info("Solution retreived from model.")
 
@@ -115,14 +119,18 @@ if __name__ == "__main__":
 
     # Extract variables and sets from the output
     obj                     : float                                     = output["obj"]
+    
     x                       : dict[int, int]                            = output["sol"]["x"]  
     s                       : dict[tuple[int, int, int], int]           = output["sol"]["s"]  
     u                       : dict[tuple[int, int, int, int], int]      = output["sol"]["u"]
     e                       : dict[tuple[int, int, int], int]           = output["sol"]["e"]
+    z                       : dict[int, int]                            = output["sol"]["z"]
+    y                       : dict[int, float]                          = output["sol"]["y"]
+    h                       : float                                     = output["sol"]["h"]  
+    l                       : float                                     = output["sol"]["l"]
     total_service_revenue   : float                                     = output["sol"]["total_service_revenue"]
     total_penalty_cost      : float                                     = output["sol"]["total_penalty_cost"]
     total_charge_cost       : float                                     = output["sol"]["total_charge_cost"]
-    total_dr_penalty        : float                                     = output["sol"]["total_dr_penalty"]
 
     all_arcs                : dict[int                  , Arc]          = output["arcs"]["all_arcs"]
     type_arcs               : dict[ArcType              , set[int]]     = output["arcs"]["type_arcs"]
@@ -130,6 +138,7 @@ if __name__ == "__main__":
     out_arcs                : dict[Node                 , set[int]]     = output["arcs"]["out_arcs"]
     service_arcs_ijt        : dict[tuple[int, int, int] , set[int]]     = output["arcs"]["service_arcs_ijt"]
     charge_arcs_it          : dict[tuple[int, int]      , set[int]]     = output["arcs"]["charge_arcs_it"]
+    charge_arcs_t           : dict[int                  , set[int]]     = output["arcs"]["charge_arcs_t"]
 
     valid_travel_demand     : dict[tuple[int, int, int], int]           = output["sets"]["valid_travel_demand"]
     invalid_travel_demand   : set[tuple[int, int, int]]                 = output["sets"]["invalid_travel_demand"]
@@ -154,9 +163,7 @@ if __name__ == "__main__":
     logger.info(f"  Objective value: {obj:.2f}")
     logger.info(f"  Total service revenue: {total_service_revenue:.2f}")
     logger.info(f"  Total penalty cost: {total_penalty_cost:.2f}")
-    logger.info(f"  Total charge cost: {total_charge_cost:.2f}")
-    logger.info(f"  Total DR penalty cost: {total_dr_penalty:.2f}")
-        
+    logger.info(f"  Total charge cost: {total_charge_cost:.2f}")    
     
     # ----------------------------
     # EV flow in each arcs
@@ -238,19 +245,23 @@ if __name__ == "__main__":
         T                       = T                     ,
         L                       = L                     ,
         W                       = W                     ,
+
         travel_demand           = travel_demand         ,
         travel_time             = travel_time           ,
         travel_energy           = travel_energy         ,
         order_revenue           = order_revenue         ,
         penalty                 = penalty               ,
         L_min                   = L_min                 ,
-        num_ports               = num_ports             ,
         num_EVs                 = num_EVs               ,
-        charge_cost             = charge_cost           ,
-        max_zone_power          = max_zone_power        ,
-        rec_zone_power          = rec_zone_power        ,
-        power_penalty           = power_penalty         ,
-        max_ev_power            = max_ev_power          ,
+
+        num_ports               = num_ports             ,
+        elec_supplied           = elec_supplied         ,
+        max_charge_speed        = max_charge_speed      ,
+        wholesale_elec_price    = wholesale_elec_price  ,
+
+        charge_cost_low         = charge_cost_low       ,
+        charge_cost_high        = charge_cost_high      ,
+        elec_threshold          = elec_threshold        ,
 
         # Metadata
         timestamp               = timestamp             ,
@@ -263,10 +274,13 @@ if __name__ == "__main__":
         s                       = s                     ,
         u                       = u                     ,
         e                       = e                     ,
+        z                       = z                     ,
+        y                       = y                     ,
+        h                       = h                     ,
+        l                       = l                     ,
         total_service_revenue   = total_service_revenue ,
         total_penalty_cost      = total_penalty_cost    ,
         total_charge_cost       = total_charge_cost     ,
-        total_dr_penalty        = total_dr_penalty      ,
 
         # Arcs
         all_arcs                = all_arcs              ,
@@ -275,6 +289,7 @@ if __name__ == "__main__":
         out_arcs                = out_arcs              ,
         service_arcs_ijt        = service_arcs_ijt      ,
         charge_arcs_it          = charge_arcs_it        ,
+        charge_arcs_t           = charge_arcs_t         ,
 
         # Sets
         valid_travel_demand     = valid_travel_demand   ,
