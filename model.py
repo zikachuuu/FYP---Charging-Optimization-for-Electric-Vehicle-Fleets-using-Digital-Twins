@@ -327,7 +327,7 @@ def model(
                 _add_arc(ArcType.IDLE, o, d)
 
     def _add_wraparound_arc (i, j, t):
-        if (t != T) or (i != j):
+        if (t != T):
             return
         
         for l in range (L_min, L + 1):
