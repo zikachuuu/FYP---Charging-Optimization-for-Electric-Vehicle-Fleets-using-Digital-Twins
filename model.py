@@ -129,12 +129,13 @@ def model(
         
         elif type == ArcType.CHARGE:
             e = ChargingArc(
-                id              = next_id                   , 
-                type            = type                      , 
-                o               = o                         , 
-                d               = d                         , 
-                charge_speed    = kwargs["charge_speed"]    ,
-                charging_cost   = kwargs["charging_cost"]   ,
+                id                  = next_id                       , 
+                type                = type                          , 
+                o                   = o                             , 
+                d                   = d                             , 
+                charge_speed        = kwargs["charge_speed"]        ,
+                charging_cost_low   = kwargs["charging_cost_low"]   ,
+                charging_cost_high  = kwargs["charging_cost_high"]  ,
             )
             charge_arcs_it.setdefault((o.i, o.t), set()).add(e.id)
             charge_arcs_t.setdefault(o.t, set()).add(e.id)
