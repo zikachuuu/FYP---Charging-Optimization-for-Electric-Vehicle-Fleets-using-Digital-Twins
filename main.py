@@ -2,6 +2,7 @@ import gurobipy as gp
 from datetime import datetime
 import json
 import math
+import os
 
 from logger import Logger
 from model import model
@@ -22,12 +23,31 @@ if __name__ == "__main__":
     print ("Output results will be saved in the Results folder.")
     print ("Log files for debugging will be saved in the Logs folder.")
     print ()
-    file_name = input ("Enter the JSON test case file name, without the .json extension. It should be located in the Testcases folder: ").strip()
+    print ("Enter the JSON test case file name, without the .json extension.")
+    file_name = input ("It should be located in the Testcases folder: ").strip()
     print ()
+    print ("Give a unique name for this run, to be used as folder name for the log files and results.")
+    folder_name = input ("If empty, default name of <testcase file name>_<timestamp> will be used: ").strip()
+    print()
 
-    logger.save("main_" + file_name)
+    if folder_name == "":
+        folder_name = f"{file_name}_{timestamp}"
+    else:
+        folder_name = f"{folder_name}_{file_name}_{timestamp}"
 
-    results_name = f"Results/results_{file_name}_{timestamp}.xlsx"
+    # Create necessary directories if they do not exist
+    if not os.path.exists("Logs"):
+        os.makedirs("Logs")
+    if not os.path.exists(os.path.join("Logs", folder_name)):
+        os.makedirs(os.path.join("Logs", folder_name))
+    if not os.path.exists("Results"):
+        os.makedirs("Results")
+    if not os.path.exists(os.path.join("Results", folder_name)):
+        os.makedirs(os.path.join("Results", folder_name))
+
+    logger.save(os.path.join(folder_name, f"main_{file_name}"))  # Save log file in the specific folder for this run
+
+    results_name = os.path.join("Results", folder_name, f"results_{file_name}_{timestamp}.xlsx")
 
     # Load data from the specified JSON file
     processed_data: dict = None
@@ -110,6 +130,7 @@ if __name__ == "__main__":
         # Metadata
         timestamp               = timestamp             ,
         file_name               = file_name             ,
+        folder_name             = folder_name           ,
     )
     logger.info("Solution retreived from model.")
 
@@ -128,9 +149,9 @@ if __name__ == "__main__":
     y                       : dict[int, float]                          = output["sol"]["y"]
     h                       : float                                     = output["sol"]["h"]  
     l                       : float                                     = output["sol"]["l"]
-    total_service_revenue   : float                                     = output["sol"]["total_service_revenue"]
-    total_penalty_cost      : float                                     = output["sol"]["total_penalty_cost"]
-    total_charge_cost       : float                                     = output["sol"]["total_charge_cost"]
+    service_revenues        : dict[int, float]                          = output["sol"]["service_revenues"]
+    penalty_costs           : dict[int, float]                          = output["sol"]["penalty_costs"]
+    charge_costs            : dict[int, float]                          = output["sol"]["charge_costs"]                                                                                        
 
     all_arcs                : dict[int                  , Arc]          = output["arcs"]["all_arcs"]
     type_arcs               : dict[ArcType              , set[int]]     = output["arcs"]["type_arcs"]
@@ -159,6 +180,10 @@ if __name__ == "__main__":
     # ----------------------------
     # Summarised Information
     # ----------------------------
+    total_service_revenue   : float = sum(service_revenues.values())
+    total_penalty_cost      : float = sum(penalty_costs.values())
+    total_charge_cost       : float = sum(charge_costs.values())
+
     logger.info("Model results:")
     logger.info(f"  Objective value: {obj:.2f}")
     logger.info(f"  Total service revenue: {total_service_revenue:.2f}")
@@ -267,6 +292,7 @@ if __name__ == "__main__":
         timestamp               = timestamp             ,
         file_name               = file_name             ,
         results_name            = results_name          ,
+        folder_name             = folder_name           ,
         
         # Output results
         obj                     = obj                   ,
@@ -278,6 +304,9 @@ if __name__ == "__main__":
         y                       = y                     ,
         h                       = h                     ,
         l                       = l                     ,
+        service_revenues        = service_revenues       ,
+        penalty_costs           = penalty_costs         ,
+        charge_costs            = charge_costs          ,
         total_service_revenue   = total_service_revenue ,
         total_penalty_cost      = total_penalty_cost    ,
         total_charge_cost       = total_charge_cost     ,

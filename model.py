@@ -45,12 +45,13 @@ def model(
     elec_threshold  : dict[int, int]                    = kwargs.get("elec_threshold")          # electricity threshold at zone i at time t
 
     # Metadata
-    timestamp       : str                               = kwargs.get("timestamp", "")   # timestamp for logging
-    file_name       : str                               = kwargs.get("file_name", "")   # filename for logging
+    timestamp       : str                               = kwargs.get("timestamp", "")           # timestamp for logging
+    file_name       : str                               = kwargs.get("file_name", "")           # filename for logging
+    folder_name     : str                               = kwargs.get("folder_name", "")         # folder name for logging
 
     logger = Logger("model", level="DEBUG", to_console=True, timestamp=timestamp)
 
-    logger.save("model_" + file_name) 
+    logger.save (os.path.join (folder_name, f"model_{file_name}"))
     logger.info("Parameters loaded successfully")
 
 
@@ -366,8 +367,8 @@ def model(
     # ----------------------------
     # Model
     # ----------------------------
-    with gp.Env() as env, gp.Model(env=env) as model:        
-        model.Params.LogFile = f"Logs/gurobi_logs_{file_name}_{timestamp}.log"  # Set log file for Gurobi
+    with gp.Env() as env, gp.Model(env=env) as model:  
+        model.Params.LogFile = os.path.join ("Logs", folder_name, f"gurobi_logs_{file_name}_{timestamp}.log")      
 
         # ----------------------------
         # Decision variables
@@ -418,11 +419,11 @@ def model(
         )
 
         # y_t: dummy variable where y = z * X
-        y: gp.tupledict[float, gp.Var] = model.addVars(
+        y: gp.tupledict[int, gp.Var] = model.addVars(
             TIMESTEPS               ,
-            vtype   = GRB.CONTINUOUS , 
-            lb      = 0              ,
-            name    = "y"            ,
+            vtype   = GRB.CONTINUOUS, 
+            lb      = 0             ,
+            name    = "y"           ,
         )
 
         # h and l: upper and lower bounds for utilization rate of charging ports at any time period
@@ -526,7 +527,7 @@ def model(
         # (8) Unserved demand base case
         #     unserved demand with age a at time t does not exist if t < a
         model.addConstrs (
-            u[i, j, t, a] == 0
+            u[(i, j, t, a)] == 0
             for i in ZONES
             for j in ZONES
             for t in TIMESTEPS
@@ -539,7 +540,7 @@ def model(
         # (9) Expired demand base case
         #      expired demand does not exist for t < W
         model.addConstrs (
-            e[i, j, t] == 0
+            e[(i, j, t)] == 0
             for i in ZONES
             for j in ZONES
             for t in TIMESTEPS
@@ -654,55 +655,66 @@ def model(
         # Objective
         # ----------------------------
 
-        total_service_revenue   = model.addVar (name = "total_service_revenue")
-        total_penalty_cost      = model.addVar (name = "total_penalty_cost")
-        total_charge_cost       = model.addVar (name = "total_charge_cost")
-
-        model.addConstr (
-            total_service_revenue == gp.quicksum(
-                x[e_id] * all_arcs[e_id].revenue
-                for e_id in type_arcs[ArcType.SERVICE]
-            ),
-            name = "total_service_revenue"
+        service_revenues: gp.tupledict[int, gp.Var] = model.addVars (
+            TIMESTEPS                   ,
+            name = "service_revenues"  ,
+        )
+        penalty_costs: gp.tupledict[int, gp.Var] = model.addVars (
+            TIMESTEPS                   ,
+            name = "penalty_costs"     ,
+        )
+        charge_costs: gp.tupledict[int, gp.Var] = model.addVars (
+            TIMESTEPS                   ,
+            name = "charge_costs"      ,
         )
 
-        model.addConstr (
-            total_penalty_cost == gp.quicksum(
+        model.addConstrs (
+            service_revenues[t] == gp.quicksum(
+                x[e_id] * all_arcs[e_id].revenue
+                for i in ZONES
+                for j in ZONES
+                for e_id in service_arcs_ijt.get((i, j, t), set())
+            )
+            for t in TIMESTEPS
+        )
+
+        model.addConstrs (
+            penalty_costs[t] == gp.quicksum(
                 e[(i, j, t)] * penalty.get((i, j, t), 0)
                 for i in ZONES
                 for j in ZONES
-                for t in TIMESTEPS
             ) \
-            + gp.quicksum(
-                s[(i, j, T)] * penalty.get((i, j, T), 0) # any unserved demand at the last time step T will become expired
-                for i in ZONES 
-                for j in ZONES
-            ) ,
-            name = "total_penalty_cost"
+            + (
+                gp.quicksum(
+                    s[(i, j, t)] * penalty.get((i, j, t), 0) # any unserved demand at the last time step T will become expired
+                    for i in ZONES 
+                    for j in ZONES
+                ) if t == T else 0
+            )
+            for t in TIMESTEPS
         )
 
-        model.addConstr (
-            total_charge_cost == gp.quicksum(
-                charge_cost_low.get(t, 0) * gp.quicksum(
-                    x[e] * all_arcs[e].charge_speed
-                    for e in charge_arcs_t.get(t, set())
-                ) + \
-                (charge_cost_high.get(t, 0) - charge_cost_low.get(t, 0)) * y[t]
-                for t in TIMESTEPS
-            ),
-            name = "total_charge_cost"
+        model.addConstrs (
+            charge_costs[t] == charge_cost_low.get(t, 0) * gp.quicksum(
+                x[e] * all_arcs[e].charge_speed
+                for e in charge_arcs_t.get(t, set())
+            ) + \
+            (charge_cost_high.get(t, 0) - charge_cost_low.get(t, 0)) * y[t]
+            for t in TIMESTEPS
         )
 
         model.setObjective(
-            -total_service_revenue + total_penalty_cost + total_charge_cost ,
-            GRB.MINIMIZE
+            gp.quicksum(service_revenues[t] for t in TIMESTEPS) -
+            gp.quicksum(penalty_costs[t] for t in TIMESTEPS) -
+            gp.quicksum(charge_costs[t] for t in TIMESTEPS) ,
+            GRB.MAXIMIZE
         )
         logger.info("Objective function set")
 
         model.update()  # Apply all changes to the model
         logger.info("Model built successfully")
         logger.info(f"Optimizing model with {model.NumVars} variables and {model.NumConstrs} constraints")
-        model.write (f"Logs/gurobi_model_{file_name}_{timestamp}.lp")
+        model.write (os.path.join ("Logs", folder_name, f"gurobi_model_{file_name}_{timestamp}.lp"))
 
         model.Params.DualReductions = 0 # debug infeasible or unbounded
 
@@ -715,7 +727,9 @@ def model(
 
             if model.Status == GRB.INFEASIBLE:
                 model.computeIIS()
-                model.write (f"Logs/gurobi_model_{file_name}_{timestamp}.ilp")
+                model.write (os.path.join ("Logs", folder_name, f"gurobi_model_infeasible_{file_name}_{timestamp}.ilp"))
+                logger.error("Model is infeasible. IIS written to file.")
+
             return None
         
         logger.info("Optimization successful.")
@@ -731,9 +745,9 @@ def model(
         h_sol: float                                = h.X
         l_sol: float                                = l.X
 
-        total_service_revenue_sol   : float     = total_service_revenue.X
-        total_penalty_cost_sol      : float     = total_penalty_cost.X
-        total_charge_cost_sol       : float     = total_charge_cost.X
+        service_revenues_sol: dict[int, float] = {t: v.X for t, v in service_revenues.items()}
+        penalty_costs_sol: dict[int, float]    = {t: v.X for t, v in penalty_costs.items()}
+        charge_costs_sol: dict[int, float]     = {t: v.X for t, v in charge_costs.items()}
 
         return {
             "obj"                       : model.ObjVal,
@@ -746,9 +760,10 @@ def model(
                 "y"                     : y_sol,
                 "h"                     : h_sol,
                 "l"                     : l_sol,
-                "total_service_revenue" : total_service_revenue_sol,
-                "total_penalty_cost"    : total_penalty_cost_sol,
-                "total_charge_cost"     : total_charge_cost_sol,            },
+                "service_revenues"      : service_revenues_sol,
+                "penalty_costs"         : penalty_costs_sol,
+                "charge_costs"          : charge_costs_sol,          
+            },
             "arcs": {
                 "all_arcs"              : all_arcs,
                 "type_arcs"             : type_arcs,

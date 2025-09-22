@@ -1,5 +1,6 @@
 import pandas as pd
 import matplotlib.pyplot as plt
+import os
 
 from logger import Logger
 from networkClass import Node, Arc, ArcType
@@ -32,6 +33,7 @@ def postprocessing(**kwargs):
     timestamp               : str                                       = kwargs.get("timestamp", "")           # timestamp for logging
     file_name               : str                                       = kwargs.get("file_name", "")           # filename for logging
     results_name            : str                                       = kwargs.get("results_name", "")        # filename for results
+    folder_name             : str                                       = kwargs.get("folder_name", "")         # folder name for logs and results
     
     # Output results
     obj                     : float                                     = kwargs["obj"]
@@ -43,6 +45,9 @@ def postprocessing(**kwargs):
     y                       : dict[int, float]                          = kwargs["y"]
     h                       : float                                     = kwargs["h"]
     l                       : float                                     = kwargs["l"]
+    service_revenues        : dict[int, float]                          = kwargs["service_revenues"]
+    penalty_costs           : dict[int, float]                          = kwargs["penalty_costs"]
+    charge_costs            : dict[int, float]                          = kwargs["charge_costs"]
     total_service_revenue   : float                                     = kwargs["total_service_revenue"]
     total_penalty_cost      : float                                     = kwargs["total_penalty_cost"]
     total_charge_cost       : float                                     = kwargs["total_charge_cost"]
@@ -65,28 +70,66 @@ def postprocessing(**kwargs):
     AGES                    : list[int]                                 = kwargs["AGES"]
     
     logger = Logger("postprocessing", level="DEBUG", to_console=True, timestamp=timestamp)
-    logger.save("postprocessing_" + file_name) 
+    logger.save(os.path.join (folder_name, f"postprocessing_{file_name}"))
     logger.info("Parameters loaded successfully")
     
-    def _bluebird_profit():
+    def _fleet_operator_profit():
         """
-        Build a DataFrame with profit summary:
-        - Total Profit
-        - Total Service Revenue
-        - Total Penalty Cost
-        - Total Charging Cost
+        Build a DataFrame with profit breakdown by time:
+        - Rows: time intervals (0 to T) plus a 'total' row
+        - Columns: Profit, Service Revenue, Penalty Cost, Charging Cost
+        - Values: metrics for each time step (not cumulative)
+        
+        Also creates a plot showing all metrics over time.
         
         Returns:
-            pd.DataFrame: Summary of profit breakdown
+            pd.DataFrame: Profit breakdown by time
         """
-        summary_data = [
-            {"description": "Total Profit", "value": total_service_revenue - total_penalty_cost - total_charge_cost},
-            {"description": "Total Service Revenue", "value": total_service_revenue},
-            {"description": "Total Penalty Cost", "value": total_penalty_cost},
-            {"description": "Total Charging Cost", "value": total_charge_cost},
-        ]
-        df_summary = pd.DataFrame(summary_data, columns=["description", "value"])
-        return df_summary
+        df_profit = pd.DataFrame({
+            "Profit"            : [service_revenues[t] - penalty_costs[t] - charge_costs[t] for t in TIMESTEPS] ,
+            "Service Revenue"   : service_revenues.values()                                                     ,
+            "Penalty Cost"      : penalty_costs.values()                                                        ,
+            "Charging Cost"     : charge_costs.values()
+        }, index=TIMESTEPS)
+
+        total_row = pd.DataFrame({
+            "Profit"            : obj                       ,
+            "Service Revenue"   : [total_service_revenue]   ,
+            "Penalty Cost"      : [total_penalty_cost]      ,
+            "Charging Cost"     : [total_charge_cost]
+        }, index=["total"])
+
+        df_profit = pd.concat([df_profit, total_row])
+        df_profit.index.name = "Time Interval"
+
+        # Create plot (excluding total row)
+        df_plot = df_profit.iloc[:-1] # exclude total row for plotting
+        plt.figure(figsize=(10, 5))
+
+        # Plot each metric
+        plt.plot(df_plot.index, df_plot["Profit"], 
+                color='tab:green', linewidth=2.5, label='Profit')
+        plt.plot(df_plot.index, df_plot["Service Revenue"], 
+                color='tab:blue', linewidth=2, label='Service Revenue')
+        plt.plot(df_plot.index, df_plot["Penalty Cost"], 
+                color='tab:red', linewidth=2, label='Penalty Cost')
+        plt.plot(df_plot.index, df_plot["Charging Cost"], 
+                color='tab:orange', linewidth=2, label='Charging Cost')
+        
+        plt.xlabel('Time Intervals')
+        plt.ylabel('Money ($)')
+        plt.title('Bluebird Profit Breakdown Over Time')
+        plt.grid(True, alpha=0.3)
+        plt.legend(loc='best', frameon=False)
+
+        plt.tight_layout()
+        
+        outfile = os.path.join ("Results", folder_name, f"fleet_operator_profit_{file_name}_{timestamp}.png")
+        plt.savefig(outfile, dpi=150, bbox_inches="tight")
+        plt.close()
+        logger.info(f"Saved Fleet Operator Profit plot to {outfile}")
+        
+        return df_profit
 
     def _calculate_ev_operations_by_type():
         """
@@ -140,10 +183,10 @@ def postprocessing(**kwargs):
         plt.legend(title="ArcType", loc="best", frameon=False)
         plt.tight_layout()
 
-        outfile = f"Results/ev_operations_over_time_{file_name}_{timestamp}.png"
+        outfile = os.path.join ("Results", folder_name, f"ev_operations_{file_name}_{timestamp}.png")
         plt.savefig(outfile, dpi=150, bbox_inches="tight")
         plt.close()
-        logger.info(f"Saved EV operations over time plot to {outfile}")
+        logger.info(f"Saved EV Operations plot to {outfile}")
 
         return df_ev_operations
 
@@ -372,7 +415,7 @@ def postprocessing(**kwargs):
         ax1.set_xlabel('Time Intervals')
         ax1.set_ylabel('% of EVs in Service', color=color)
         line1 = ax1.plot(df_combined.index, df_combined["EV Service %"], 
-                        color=color, linewidth=2, label='EV Service %', marker='o', markersize=4)
+                        color=color, linewidth=2, label='EV Service %')
         ax1.tick_params(axis='y', labelcolor=color)
         ax1.grid(True, alpha=0.3)
         
@@ -380,11 +423,11 @@ def postprocessing(**kwargs):
         ax2 = ax1.twinx()
         ax2.set_ylabel('Number of Rides', color='tab:red')
         line2 = ax2.plot(df_combined.index, df_combined["New Demand"], 
-                        color='tab:green', linewidth=2, label='New Demand', marker='s', markersize=4)
+                        color='tab:green', linewidth=2, label='New Demand', linestyle='--')
         line3 = ax2.plot(df_combined.index, df_combined["Remaining Unfulfilled"], 
-                        color='tab:orange', linewidth=2, label='Remaining Unfulfilled', marker='^', markersize=4)
+                        color='tab:orange', linewidth=2, label='Remaining Unfulfilled', linestyle='--')
         line4 = ax2.plot(df_combined.index, df_combined["Cumulative Expired Demand"], 
-                        color='tab:red', linewidth=2, label='Cumulative Expired Demand', marker='d', markersize=4)
+                        color='tab:red', linewidth=2, label='Cumulative Expired Demand', linestyle='--')
         ax2.tick_params(axis='y', labelcolor='tab:red')
         
         # Combined legend
@@ -395,10 +438,10 @@ def postprocessing(**kwargs):
         plt.title('EV Service Operations vs Demand Metrics')
         plt.tight_layout()
         
-        outfile = f"Results/service_demand_comparison_{file_name}_{timestamp}.png"
+        outfile = os.path.join ("Results", folder_name, f"service_demand_comparison_{file_name}_{timestamp}.png")
         plt.savefig(outfile, dpi=150, bbox_inches="tight")
         plt.close()
-        logger.info(f"Saved service and demand comparison plot to {outfile}")
+        logger.info(f"Saved Service and Demand Comparison plot to {outfile}")
         
         return df_combined
 
@@ -446,11 +489,11 @@ def postprocessing(**kwargs):
         ax1.set_xlabel('Time Intervals')
         ax1.set_ylabel('SoC Levels', color='tab:blue')
         line1 = ax1.plot(df_electricity.index, df_electricity["Electricity Usage (SoC)"], 
-                        color='tab:blue', linewidth=2, label='Electricity Usage', marker='o', markersize=4)
+                        color='tab:blue', linewidth=2, label='Electricity Usage')
         line2 = ax1.plot(df_electricity.index, df_electricity["Max Supply (SoC)"], 
-                        color='tab:cyan', linewidth=2, label='Max Supply', linestyle='--', marker='s', markersize=4)
+                        color='tab:red', linewidth=2, label='Max Supply', linestyle='--')
         line3 = ax1.plot(df_electricity.index, df_electricity["Threshold (SoC)"], 
-                        color='tab:purple', linewidth=2, label='Threshold', linestyle=':', marker='^', markersize=4)
+                        color='tab:orange', linewidth=2, label='Threshold', linestyle='--')
         ax1.tick_params(axis='y', labelcolor='tab:blue')
         ax1.grid(True, alpha=0.3)
         
@@ -458,9 +501,9 @@ def postprocessing(**kwargs):
         ax2 = ax1.twinx()
         ax2.set_ylabel('Price ($/SoC)', color='tab:red')
         line4 = ax2.plot(df_electricity.index, df_electricity["Price High ($/SoC)"], 
-                        color='tab:red', linewidth=2, label='Price High', marker='d', markersize=4)
+                        color='tab:pink', linewidth=2, label='Price High', linestyle=':')
         line5 = ax2.plot(df_electricity.index, df_electricity["Price Low ($/SoC)"], 
-                        color='tab:orange', linewidth=2, label='Price Low', marker='v', markersize=4)
+                        color='tab:olive', linewidth=2, label='Price Low', linestyle=':')
         ax2.tick_params(axis='y', labelcolor='tab:red')
         
         # Combined legend
@@ -471,10 +514,10 @@ def postprocessing(**kwargs):
         plt.title('Electricity Usage and Pricing Over Time')
         plt.tight_layout()
         
-        outfile = f"Results/electricity_usage_pricing_{file_name}_{timestamp}.png"
+        outfile = os.path.join ("Results", folder_name, f"electricity_usage_pricing_{file_name}_{timestamp}.png")
         plt.savefig(outfile, dpi=150, bbox_inches="tight")
         plt.close()
-        logger.info(f"Saved electricity usage and pricing plot to {outfile}")
+        logger.info(f"Saved Electricity Usage and Pricing plot to {outfile}")
         
         return df_electricity
 
@@ -482,60 +525,108 @@ def postprocessing(**kwargs):
         """
         Create a DataFrame with electricity usage and max supply broken down by zone.
         Rows: time intervals
-        Columns: each zone's usage and max supply
+        Columns: MultiIndex with zones as main headers and metrics as subheaders
         
         Returns:
             pd.DataFrame: Electricity metrics by zone and time
         """
-        # Initialize data structure
-        data = {}
-        for zone in ZONES:
-            data[f"Zone {zone} Usage (SoC)"] = [0] * (T + 1)
-            data[f"Zone {zone} Max Supply (SoC)"] = [0] * (T + 1)
+        # Initialize data structure to collect metrics
+        electricity_data = [{} for _ in range(T + 1)]
         
-        # Calculate electricity usage by zone and time
+        # Calculate electricity metrics by zone and time
         for t in TIMESTEPS:
             for zone in ZONES:
                 # Calculate electricity used in this zone at time t
+                usage = 0
+                num_charging = 0
                 for e_id in charge_arcs_it.get((zone, t), set()):
                     arc = all_arcs[e_id]
                     charge_amount = arc.d.l - arc.o.l  # SoC levels charged
-                    data[f"Zone {zone} Usage (SoC)"][t] += x[e_id] * charge_amount
+                    usage += x[e_id] * charge_amount
+                    num_charging += x[e_id]
                 
-                # Max supply for this zone at time t
-                data[f"Zone {zone} Max Supply (SoC)"][t] = elec_supplied.get((zone, t), 0)
+                # Store metrics for this zone at time t
+                electricity_data[t][zone] = {
+                    "Usage (SoC)": usage,
+                    "Max Supply (SoC)": elec_supplied.get((zone, t), 0),
+                    "EVs Charging": num_charging
+                }
         
-        # Create DataFrame
-        df_zone_electricity = pd.DataFrame(data, index=TIMESTEPS)
-        df_zone_electricity.index.name = "Time Interval"
+        # Convert to DataFrame with MultiIndex columns
+        metrics = ["Usage (SoC)", "Max Supply (SoC)", "EVs Charging"]
         
-        return df_zone_electricity
-
+        # Build column MultiIndex: zones and metrics
+        cols = pd.MultiIndex.from_product(
+            [ZONES, metrics], 
+            names=["Zone", "Metric"]
+        )
+        
+        # Index: all time intervals
+        index = TIMESTEPS
+        
+        # Initialize DataFrame
+        df = pd.DataFrame(index=index, columns=cols, dtype=float)
+        df.index.name = "Time Interval"
+        
+        # Fill values from electricity_data
+        for t in TIMESTEPS:
+            for zone in ZONES:
+                zone_dict = electricity_data[t].get(zone, {})
+                for metric in metrics:
+                    df.loc[t, (zone, metric)] = zone_dict.get(metric, 0)
+        
+        # Optionally add a total row
+        total_row_data = {}
+        for zone in ZONES:
+            total_usage = sum(
+                electricity_data[t].get(zone, {}).get("Usage (SoC)", 0)
+                for t in TIMESTEPS
+            )
+            # For max supply, we might want the sum or the max across time
+            # Using sum here to show total capacity over all time
+            total_max_supply = sum(
+                electricity_data[t].get(zone, {}).get("Max Supply (SoC)", 0)
+                for t in TIMESTEPS
+            )
+            total_evs = sum(
+                electricity_data[t].get(zone, {}).get("EVs Charging", 0)
+                for t in TIMESTEPS
+            )
+            
+            total_row_data[(zone, "Usage (SoC)")] = total_usage
+            total_row_data[(zone, "Max Supply (SoC)")] = total_max_supply
+            total_row_data[(zone, "EVs Charging")] = total_evs
+        
+        # Add total row
+        df.loc["total"] = total_row_data
+        
+        return df
+    
     # Create an excel in the Results folder to save results
     with pd.ExcelWriter(results_name, engine="openpyxl") as writer:
         # 1. Bluebird profit summary
-        df_summary = _bluebird_profit()
-        df_summary.to_excel(writer, sheet_name="Bluebird Profit Summary", index=False)
-        logger.info("Saved Bluebird profit summary to excel")
+        df_summary = _fleet_operator_profit()
+        df_summary.to_excel(writer, sheet_name="Fleet Operator Profit", index_label="Time Step")
+        logger.info("Saved Fleet Operator Profit to excel")
 
         # 2. EV operations over time
         df_ev_operations = _ev_operations_over_time()
-        df_ev_operations.to_excel(writer, sheet_name="EV Operations Over Time", index_label="Time Step")
-        logger.info("Saved EV operations over time to excel")
+        df_ev_operations.to_excel(writer, sheet_name="EV Operations", index_label="Time Step")
+        logger.info("Saved EV Operations to excel")
 
         # 3. Demand served over time
         df_demand_served = _demand_served_over_time()
-        df_demand_served.to_excel(writer, sheet_name="Demand Served Over Time", index_label="Time Step")
-        logger.info("Saved demand served over time to excel")
+        df_demand_served.to_excel(writer, sheet_name="Demand Served", index_label="Time Step")
+        logger.info("Saved Demand Served to excel")
 
         # 4. Service and demand comparison
         df_service_demand = _service_and_demand_comparison()
         df_service_demand.to_excel(writer, sheet_name="Service vs Demand", index_label="Time Step")
-        logger.info("Saved service and demand comparison to excel")
+        logger.info("Saved Service and Demand Comparison to excel")
 
         # 6. Electricity usage and pricing
         df_electricity = _electricity_usage_and_pricing()
-        df_electricity.to_excel(writer, sheet_name="Electricity Usage & Pricing", index_label="Time Step")
+        df_electricity.to_excel(writer, sheet_name="Electricity Usage vs Pricing", index_label="Time Step")
         logger.info("Saved electricity usage and pricing to excel")
 
         # 7. Electricity by zone
