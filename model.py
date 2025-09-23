@@ -49,7 +49,7 @@ def model(
     file_name       : str                               = kwargs.get("file_name", "")           # filename for logging
     folder_name     : str                               = kwargs.get("folder_name", "")         # folder name for logging
 
-    logger = Logger("model", level="DEBUG", to_console=True, timestamp=timestamp)
+    logger = Logger("model", level="DEBUG", to_console=False, timestamp=timestamp)
 
     logger.save (os.path.join (folder_name, f"model_{file_name}"))
     logger.info("Parameters loaded successfully")
@@ -179,11 +179,12 @@ def model(
         return e.id
     
     def _add_service_arc (i, j, t):
+        # No travelling within the same zone
         # We only add service arcs if there is demand
-        if (i, j, t) not in travel_demand:
+        if (i == j) or ((i, j, t) not in travel_demand):
             return
 
-        demand_ijt: int = travel_demand[(i, j, t)]
+        demand_ijt: int = travel_demand.get((i, j, t), 0)
 
         if demand_ijt <= 0:
             invalid_travel_demand.add((i, j, t))
@@ -261,7 +262,7 @@ def model(
         if (i == j) or ((i, j, t) not in travel_time):
             return
 
-        travel_time_ijt = travel_time[(i, j, t)]
+        travel_time_ijt = travel_time.get((i, j, t), 0)
         travel_energy_ij = travel_energy.get((i, j), 0)
 
         if travel_time_ijt <= 0 or travel_energy_ij <= 0 or travel_time_ijt + t > T:

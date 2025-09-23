@@ -69,7 +69,7 @@ def postprocessing(**kwargs):
     LEVELS                  : list[int]                                 = kwargs["LEVELS"]
     AGES                    : list[int]                                 = kwargs["AGES"]
     
-    logger = Logger("postprocessing", level="DEBUG", to_console=True, timestamp=timestamp)
+    logger = Logger("postprocessing", level="DEBUG", to_console=False, timestamp=timestamp)
     logger.save(os.path.join (folder_name, f"postprocessing_{file_name}"))
     logger.info("Parameters loaded successfully")
     
