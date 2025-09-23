@@ -1,0 +1,41 @@
+19 zones (indexed 0, 1, ..., 18)
+7 time steps (indexed 0, 1, ..., 6)
+6 SOC level (indexed 0, 1, ... 5)
+demand expires after 3 times intervals (0, 1, 2, 3)
+
+for travel demand, travel time, order revenue, penalty, we expect 19 start zones * 19 end zones * 7 time steps = 2527 entries
+and we have to remove the entries where start zone = end zone, so 19 zones * 7 time steps = 133 entries
+
+travel time is from row 9 to row 2174, so 2166 entries
+we are missing 2527 - 2166 = 361 entries
+from AI, we are missing all 19 * 19 = 361 entries for time step 6
+this is fine as at the last time step, no EV travel (only wrap around)
+also it has travelling within same zone, we have to remove that too
+
+travel energy is from row 2177 to row 4342, so 2166 entries
+same issue as travel_time.
+also travel energy is supposed to be not time dependent... 
+since it is dependent on distance travelled
+
+travel demand is from row 4345 to row 6510, so 2166 entries
+same issue
+
+order revenue is from row 6513 to row 8678, so 2166 entries
+
+penalty is from row 8681 to row 10846, so 2166 entries
+
+charge speed is 2 soc per time step, ok
+
+num_ports is totally wrong, num ports is defined for per zone (not time specific)
+
+num_EVs is ok
+
+charge_cost is totally wrong, charge cost is defined for per time step (not zone specific)
+
+L_min is ok
+
+
+
+
+
+
