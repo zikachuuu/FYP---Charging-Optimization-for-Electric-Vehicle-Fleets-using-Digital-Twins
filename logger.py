@@ -146,8 +146,6 @@ class Logger:
                 pass
             self._file_handler = None
 
-
-
         file_path = os.path.join(os.getcwd(), "Logs", file_name + "_" + self._timestamp + ".log")
 
         fh = logging.FileHandler(file_path, mode=mode, encoding=encoding)

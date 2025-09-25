@@ -1,16 +1,19 @@
 # FYP---Charging-Optimization-for-Electric-Vehicle-Fleets-using-Digital-Twins
 
+## What is this?
+Research paper for it coming soon...
+
 ## Steps to run
 1. Clone the repository
 2. `pip install requirements.txt`
 3. Create `.env` by following the format in `.env.sample`
 4. (Optional) Build your own testcase (json format only) by following the format in `test1.json`, and place it in `Testcases` folder.
 5. Run `main.py` and follow any instructions given
-6. View results and logs in `Logs` folder
+6. View results in `Results` folder and logs in `Logs` folder
 
 ## QnA
 1. What does each parameter in the input testcase file stands for? <br>
-Ans: Check their meaning at the top of `main.py`. 
+Ans: Check their meaning in `Testcases/json_explain.txt`.
 
 2. Where does each EV start at? <br>
 Ans: There is no restriction on the number of EVs placed at each zone at the beginning. The model will choose the optimal number of EV to start at each zone.
