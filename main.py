@@ -23,8 +23,8 @@ if __name__ == "__main__":
     print ("Output results will be saved in the Results folder.")
     print ("Log files for debugging will be saved in the Logs folder.")
     print ()
-    print ("Enter the JSON test case file name, without the .json extension.")
-    file_name = input ("It should be located in the Testcases folder: ").strip()
+    directory = input ("Enter the specific folder in the Testcases folder (or press Enter if the file is directly in the Testcases folder): ").strip()
+    file_name = input ("Enter the JSON test case file name, without the .json extension. It should be located in the specified folder: ").strip()
     print ()
     print ("Give a unique name for this run, to be used as folder name for the log files and results.")
     folder_name = input ("If empty, default name of <testcase file name>_<timestamp> will be used: ").strip()
@@ -52,7 +52,7 @@ if __name__ == "__main__":
     # Load data from the specified JSON file
     processed_data: dict = None
     try:
-        with open(f"Testcases/{file_name}.json", "r") as f:
+        with open(os.path.join ("Testcases", directory, file_name + ".json"), "r") as f:
             logger.info(f"Loading data from {file_name}.json")
 
             data = json.load(f)
