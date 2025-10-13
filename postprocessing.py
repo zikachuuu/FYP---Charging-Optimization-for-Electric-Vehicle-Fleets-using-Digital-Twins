@@ -69,6 +69,9 @@ def postprocessing(**kwargs):
     LEVELS                  : list[int]                                 = kwargs["LEVELS"]
     AGES                    : list[int]                                 = kwargs["AGES"]
     
+    # markers for plot
+    markers = ["o", "v", "^", "<", ">", "1", "2", "3", "4", "8", "s", "p", "*", "h", "H", "+", "x", "D", "d", "|", "_"]
+
     logger = Logger("postprocessing", level="DEBUG", to_console=False, timestamp=timestamp)
     logger.save(os.path.join (folder_name, f"postprocessing_{file_name}"))
     logger.info("Parameters loaded successfully")
@@ -107,20 +110,44 @@ def postprocessing(**kwargs):
         plt.figure(figsize=(10, 5))
 
         # Plot each metric
-        plt.plot(df_plot.index, df_plot["Profit"], 
-                color='tab:green', linewidth=2.5, label='Profit')
-        plt.plot(df_plot.index, df_plot["Service Revenue"], 
-                color='tab:blue', linewidth=2, label='Service Revenue')
-        plt.plot(df_plot.index, df_plot["Penalty Cost"], 
-                color='tab:red', linewidth=2, label='Penalty Cost')
-        plt.plot(df_plot.index, df_plot["Charging Cost"], 
-                color='tab:orange', linewidth=2, label='Charging Cost')
+        plt.plot(
+            df_plot.index, 
+            df_plot["Profit"]               , 
+            color       = 'tab:green'       , 
+            linewidth   = 2.5               , 
+            marker      = markers[0]        , 
+            label       = 'Profit'          ,
+        )
+        plt.plot(
+            df_plot.index                   , 
+            df_plot["Service Revenue"]      , 
+            color       = 'tab:blue'        , 
+            linewidth   = 2                 , 
+            marker      = markers[1]        ,
+            label       = 'Service Revenue' ,
+        )
+        plt.plot(
+            df_plot.index                   , 
+            df_plot["Penalty Cost"]         , 
+            color       = 'tab:red'         , 
+            linewidth   = 2                 , 
+            marker      = markers[2]        ,
+            label       = 'Penalty Cost'    ,
+        )
+        plt.plot(
+            df_plot.index                   , 
+            df_plot["Charging Cost"]        , 
+            color       = 'tab:orange'      , 
+            linewidth   = 2                 , 
+            marker      = markers[3]        ,
+            label       = 'Charging Cost'   ,
+        )
         
-        plt.xlabel('Time Intervals')
-        plt.ylabel('Money ($)')
-        plt.title('Bluebird Profit Breakdown Over Time')
-        plt.grid(True, alpha=0.3)
-        plt.legend(loc='best', frameon=False)
+        plt.xlabel  ('Time Intervals')
+        plt.ylabel  ('Money ($)')
+        plt.title   ('Bluebird Profit Breakdown Over Time')
+        plt.grid    (True, alpha=0.3)
+        plt.legend  (loc='best', frameon=False)
 
         plt.tight_layout()
         
@@ -174,13 +201,20 @@ def postprocessing(**kwargs):
         plt.figure(figsize=(10, 5))
         for col in df_ev_operations.columns:
             label = col.split("Percentage of ")[1].split(" EVs")[0]  # Extract arc type name
-            plt.plot(df_ev_operations.index, df_ev_operations[col], marker="", linewidth=2, label=label)
+            marker = markers[df_ev_operations.columns.get_loc(col) % len(markers)]
+            plt.plot(
+                df_ev_operations.index  , 
+                df_ev_operations[col]   , 
+                marker      = marker    , 
+                linewidth   = 2         , 
+                label       = label     ,
+            )
 
-        plt.xlabel("Time Intervals")
-        plt.ylabel("% of EVs")
-        plt.title("EV Operations by ArcType over Time")
-        plt.grid(True, alpha=0.3)
-        plt.legend(title="ArcType", loc="best", frameon=False)
+        plt.xlabel  ("Time Intervals")
+        plt.ylabel  ("% of EVs")
+        plt.title   ("EV Operations by ArcType over Time")
+        plt.grid    (True, alpha=0.3)
+        plt.legend  (title="ArcType", loc="best", frameon=False)
         plt.tight_layout()
 
         outfile = os.path.join ("Results", folder_name, f"ev_operations_{file_name}_{timestamp}.png")
@@ -245,10 +279,10 @@ def postprocessing(**kwargs):
             )
             
             demand_served[t]["total"] = {
-                "new demand":                   total_new_demand_by_time,
-                "served demand":                total_served_by_time,
-                "remaining unserved demand":    total_unserved_by_time,
-                "expired demand":               total_expired_by_time
+                "new demand"                : total_new_demand_by_time,
+                "served demand"             : total_served_by_time,
+                "remaining unserved demand" : total_unserved_by_time,
+                "expired demand"            : total_expired_by_time
             }
             for age in AGES:
                 demand_served[t]["total"][f"unserved demand of age {age}"] = sum(
@@ -389,9 +423,9 @@ def postprocessing(**kwargs):
         demand_metrics = _calculate_demand_metrics()
         
         # Extract total metrics over time
-        new_demand = []
-        unfulfilled = []
-        cumulative_expired_demand = []
+        new_demand                  = []
+        unfulfilled                 = []
+        cumulative_expired_demand   = []
         
         for t in TIMESTEPS:
             new_demand.append(demand_metrics[t]["total"]["new demand"])
@@ -400,10 +434,10 @@ def postprocessing(**kwargs):
         
         # Create DataFrame
         df_combined = pd.DataFrame({
-            "EV Service %": service_percentage,
-            "New Demand": new_demand,
-            "Remaining Unfulfilled": unfulfilled,
-            "Cumulative Expired Demand": cumulative_expired_demand
+            "EV Service %"              : service_percentage        ,
+            "New Demand"                : new_demand                ,
+            "Remaining Unfulfilled"     : unfulfilled               ,
+            "Cumulative Expired Demand" : cumulative_expired_demand ,
         }, index=TIMESTEPS)
         df_combined.index.name = "Time Interval"
         
@@ -414,20 +448,47 @@ def postprocessing(**kwargs):
         color = 'tab:blue'
         ax1.set_xlabel('Time Intervals')
         ax1.set_ylabel('% of EVs in Service', color=color)
-        line1 = ax1.plot(df_combined.index, df_combined["EV Service %"], 
-                        color=color, linewidth=2, label='EV Service %')
+        line1 = ax1.plot(
+            df_combined.index           , 
+            df_combined["EV Service %"] , 
+            color       = color         , 
+            linewidth   = 2             , 
+            marker      = markers[0]    ,
+            label       = 'EV Service %',
+        )
         ax1.tick_params(axis='y', labelcolor=color)
         ax1.grid(True, alpha=0.3)
         
         # Right axis - Demand metrics
         ax2 = ax1.twinx()
         ax2.set_ylabel('Number of Rides', color='tab:red')
-        line2 = ax2.plot(df_combined.index, df_combined["New Demand"], 
-                        color='tab:green', linewidth=2, label='New Demand', linestyle='--')
-        line3 = ax2.plot(df_combined.index, df_combined["Remaining Unfulfilled"], 
-                        color='tab:orange', linewidth=2, label='Remaining Unfulfilled', linestyle='--')
-        line4 = ax2.plot(df_combined.index, df_combined["Cumulative Expired Demand"], 
-                        color='tab:red', linewidth=2, label='Cumulative Expired Demand', linestyle='--')
+        line2 = ax2.plot(
+            df_combined.index           ,  
+            df_combined["New Demand"]   , 
+            color       = 'tab:green'   , 
+            linewidth   = 2             , 
+            marker      = markers[1]    ,
+            label       = 'New Demand'  , 
+            linestyle   = '--'          ,
+        )
+        line3 = ax2.plot(
+            df_combined.index                       , 
+            df_combined["Remaining Unfulfilled"]    , 
+            color       = 'tab:orange'              , 
+            linewidth   = 2                         , 
+            marker      = markers[2]                ,
+            label       = 'Remaining Unfulfilled'   , 
+            linestyle   = '--'                      ,
+        )
+        line4 = ax2.plot(
+            df_combined.index                           , 
+            df_combined["Cumulative Expired Demand"]    , 
+            color       = 'tab:red'                     , 
+            linewidth   = 2                             , 
+            marker      = markers[3]                    ,
+            label       = 'Cumulative Expired Demand'   , 
+            linestyle   = '--'                          ,
+        )
         ax2.tick_params(axis='y', labelcolor='tab:red')
         
         # Combined legend
@@ -474,11 +535,11 @@ def postprocessing(**kwargs):
         
         # Create DataFrame
         df_electricity = pd.DataFrame({
-            "Electricity Usage (SoC)": electricity_usage,
-            "Max Supply (SoC)": max_supply,
-            "Threshold (SoC)": threshold,
-            "Price High ($/SoC)": [charge_cost_high.get(t, 0) for t in TIMESTEPS],
-            "Price Low ($/SoC)": [charge_cost_low.get(t, 0) for t in TIMESTEPS]
+            "Electricity Usage (SoC)"   : electricity_usage                                 ,
+            "Max Supply (SoC)"          : max_supply                                        ,
+            "Threshold (SoC)"           : threshold                                         ,
+            "Price High ($/SoC)"        : [charge_cost_high.get(t, 0) for t in TIMESTEPS]   ,
+            "Price Low ($/SoC)"         : [charge_cost_low.get(t, 0) for t in TIMESTEPS]    ,
         }, index=TIMESTEPS)
         df_electricity.index.name = "Time Interval"
         
@@ -488,22 +549,56 @@ def postprocessing(**kwargs):
         # Left axis - SoC levels
         ax1.set_xlabel('Time Intervals')
         ax1.set_ylabel('SoC Levels', color='tab:blue')
-        line1 = ax1.plot(df_electricity.index, df_electricity["Electricity Usage (SoC)"], 
-                        color='tab:blue', linewidth=2, label='Electricity Usage')
-        line2 = ax1.plot(df_electricity.index, df_electricity["Max Supply (SoC)"], 
-                        color='tab:red', linewidth=2, label='Max Supply', linestyle='--')
-        line3 = ax1.plot(df_electricity.index, df_electricity["Threshold (SoC)"], 
-                        color='tab:orange', linewidth=2, label='Threshold', linestyle='--')
+        line1 = ax1.plot(
+            df_electricity.index                        , 
+            df_electricity["Electricity Usage (SoC)"]   , 
+            color       = 'tab:blue'                    , 
+            linewidth   = 2                             , 
+            marker      = markers[0]                    ,
+            label       = 'Electricity Usage'           ,
+        )
+        line2 = ax1.plot(
+            df_electricity.index                , 
+            df_electricity["Max Supply (SoC)"]  , 
+            color       = 'tab:red'             , 
+            linewidth   = 2                     , 
+            marker      = markers[1]            ,            
+            label       = 'Max Supply'          , 
+            linestyle   = '--'                  ,
+        )
+        line3 = ax1.plot(
+            df_electricity.index                , 
+            df_electricity["Threshold (SoC)"]   , 
+            color       = 'tab:orange'          , 
+            linewidth   = 2                     , 
+            marker      = markers[2]            ,
+            label       = 'Threshold'           , 
+            linestyle   = '--'                  ,
+        )
         ax1.tick_params(axis='y', labelcolor='tab:blue')
         ax1.grid(True, alpha=0.3)
         
         # Right axis - Prices
         ax2 = ax1.twinx()
         ax2.set_ylabel('Price ($/SoC)', color='tab:red')
-        line4 = ax2.plot(df_electricity.index, df_electricity["Price High ($/SoC)"], 
-                        color='tab:pink', linewidth=2, label='Price High', linestyle=':')
-        line5 = ax2.plot(df_electricity.index, df_electricity["Price Low ($/SoC)"], 
-                        color='tab:olive', linewidth=2, label='Price Low', linestyle=':')
+        line4 = ax2.plot(
+            df_electricity.index                , 
+            df_electricity["Price High ($/SoC)"], 
+            color       = 'tab:pink'            , 
+            linewidth   = 2                     , 
+            marker      = markers[3]            ,
+            label       = 'Price High'          , 
+            linestyle   = ':'                   ,
+        )
+        line5 = ax2.plot(
+            df_electricity.index                , 
+            df_electricity["Price Low ($/SoC)"] , 
+            color       = 'tab:olive'           , 
+            linewidth   = 2                     , 
+            marker      = markers[4]            ,
+            label       = 'Price Low'           , 
+            linestyle   = ':'                   ,
+        )
         ax2.tick_params(axis='y', labelcolor='tab:red')
         
         # Combined legend
