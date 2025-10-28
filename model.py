@@ -573,7 +573,7 @@ def model(
                 x[e] * all_arcs[e].charge_speed
                 for e in charge_arcs_t.get(t, set()) 
             ) <= h * sum (elec_supplied.get((i, t), 0) for i in ZONES)
-            for t in TIMESTEPS if t != 0 or t != T
+            for t in TIMESTEPS if t != 0 and t != T
         )
         logger.info("Electricty usage upper bound constraints (12) added")
 
