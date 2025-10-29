@@ -12,7 +12,7 @@ from postprocessing import postprocessing
 
 timestamp = datetime.now().strftime("%Y%m%d_%H%M")
 
-logger = Logger("main", level="DEBUG", to_console=True, timestamp=timestamp)
+logger = Logger("main", level="DEBUG", to_console=False, timestamp=timestamp)
 
 if __name__ == "__main__":
     print ("---------------------------------------------------")
