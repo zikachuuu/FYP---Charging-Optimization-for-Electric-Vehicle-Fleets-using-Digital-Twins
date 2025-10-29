@@ -49,7 +49,7 @@ def model(
     file_name       : str                               = kwargs.get("file_name", "")           # filename for logging
     folder_name     : str                               = kwargs.get("folder_name", "")         # folder name for logging
 
-    logger = Logger("model", level="DEBUG", to_console=True, timestamp=timestamp)
+    logger = Logger("model", level="DEBUG", to_console=False, timestamp=timestamp)
 
     logger.save (os.path.join (folder_name, f"model_{file_name}"))
     logger.info("Parameters loaded successfully")
@@ -188,7 +188,7 @@ def model(
 
         if demand_ijt <= 0:
             invalid_travel_demand.add((i, j, t))
-            # logger.warning(f"No demand for service arc ({i}, {j}, {t}), skipping")
+            logger.warning(f"No demand for service arc ({i}, {j}, {t}), skipping")
             return  # no demand, skip this arc
 
         travel_time_ijt : int = travel_time.get((i, j, t), 0)
@@ -353,16 +353,16 @@ def model(
     if invalid_travel_demand:
         logger.warning (f"Original number travel demand: {sum (travel_demand.values())} in {len(travel_demand)} entries")
         logger.warning (f"Valid number of travel demand: {sum (valid_travel_demand.values())} in {len(valid_travel_demand)} entries")
-        # logger.warning (f"Skipped {len(invalid_travel_demand)} invalid demand entries: {invalid_travel_demand}")
+        logger.warning (f"Skipped {len(invalid_travel_demand)} invalid demand entries: {invalid_travel_demand}")
     
     logger.info(f"Arcs built with {len(all_arcs)} arcs")
     # Log the number of arcs by type
     for arc_type, arcs in type_arcs.items() :
         logger.info(f"  {arc_type.name} arcs: {len(arcs)}")
      
-    # logger.debug("Arcs information:")
-    # for id, arc in all_arcs.items():
-    #     logger.debug (f"  Arc {id}: type {arc.type} from node ({arc.o.i}, {arc.o.t}, {arc.o.l}) to ({arc.d.i}, {arc.d.t}, {arc.d.l})")
+    logger.debug("Arcs information:")
+    for id, arc in all_arcs.items():
+        logger.debug (f"  Arc {id}: type {arc.type} from node ({arc.o.i}, {arc.o.t}, {arc.o.l}) to ({arc.d.i}, {arc.d.t}, {arc.d.l})")
 
 
     # ----------------------------
