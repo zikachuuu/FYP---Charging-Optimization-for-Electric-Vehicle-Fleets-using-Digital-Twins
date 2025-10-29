@@ -12,7 +12,7 @@ from postprocessing import postprocessing
 
 timestamp = datetime.now().strftime("%Y%m%d_%H%M")
 
-logger = Logger("main", level="DEBUG", to_console=False, timestamp=timestamp)
+logger = Logger("main", level="DEBUG", to_console=True, timestamp=timestamp)
 
 if __name__ == "__main__":
     print ("---------------------------------------------------")
@@ -56,10 +56,11 @@ if __name__ == "__main__":
             logger.info(f"Loading data from {file_name}.json")
 
             data = json.load(f)
-            logger.debug(f"Raw data loaded: {data}")
+            # logger.debug(f"Raw data loaded: {data}")
+            logger.info ("Converting keys in data to appropriate types...")
 
             processed_data = convert_key_types(data)  # Convert keys to tuples of integers
-            logger.debug(f"Processed data: {processed_data}")
+            # logger.debug(f"Processed data: {processed_data}")
 
             logger.info("Data loaded successfully.")
 

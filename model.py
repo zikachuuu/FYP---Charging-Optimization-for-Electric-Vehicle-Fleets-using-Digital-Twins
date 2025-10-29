@@ -49,7 +49,7 @@ def model(
     file_name       : str                               = kwargs.get("file_name", "")           # filename for logging
     folder_name     : str                               = kwargs.get("folder_name", "")         # folder name for logging
 
-    logger = Logger("model", level="DEBUG", to_console=False, timestamp=timestamp)
+    logger = Logger("model", level="DEBUG", to_console=True, timestamp=timestamp)
 
     logger.save (os.path.join (folder_name, f"model_{file_name}"))
     logger.info("Parameters loaded successfully")
@@ -360,9 +360,9 @@ def model(
     for arc_type, arcs in type_arcs.items() :
         logger.info(f"  {arc_type.name} arcs: {len(arcs)}")
      
-    logger.debug("Arcs information:")
-    for id, arc in all_arcs.items():
-        logger.debug (f"  Arc {id}: type {arc.type} from node ({arc.o.i}, {arc.o.t}, {arc.o.l}) to ({arc.d.i}, {arc.d.t}, {arc.d.l})")
+    # logger.debug("Arcs information:")
+    # for id, arc in all_arcs.items():
+    #     logger.debug (f"  Arc {id}: type {arc.type} from node ({arc.o.i}, {arc.o.t}, {arc.o.l}) to ({arc.d.i}, {arc.d.t}, {arc.d.l})")
 
 
     # ----------------------------
