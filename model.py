@@ -343,11 +343,30 @@ def model(
     for i in ZONES:                 # Starting zone
         for j in ZONES:             # Destination zone
             for t in TIMESTEPS:     # Time when starting the trip
-                _add_service_arc    (i, j, t)
-                _add_relocation_arc (i, j, t)
-                _add_charging_arc   (i, j, t)
-                _add_idle_arc       (i, j, t)
-                _add_wraparound_arc (i, j, t)
+                try:
+                    _add_service_arc    (i, j, t)
+                except Exception as e:
+                    logger.critical (f"Error adding service arc ({i}, {j}, {t}): {e}")
+                
+                try:
+                    _add_relocation_arc (i, j, t)
+                except Exception as e:
+                    logger.critical (f"Error adding relocation arc ({i}, {j}, {t}): {e}")
+                
+                try:
+                    _add_charging_arc   (i, j, t)
+                except Exception as e:
+                    logger.critical (f"Error adding charging arc ({i}, {j}, {t}): {e}")
+
+                try:
+                    _add_idle_arc       (i, j, t)
+                except Exception as e:
+                    logger.critical (f"Error adding idle arc ({i}, {j}, {t}): {e}")
+                
+                try:
+                    _add_wraparound_arc (i, j, t)
+                except Exception as e:
+                    logger.critical (f"Error adding wraparound arc ({i}, {j}, {t}): {e}")
 
     # Log any invalid demand that was skipped
     if invalid_travel_demand:
