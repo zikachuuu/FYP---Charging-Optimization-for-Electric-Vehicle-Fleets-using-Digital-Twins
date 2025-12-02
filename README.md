@@ -1,7 +1,7 @@
 # FYP---Charging-Optimization-for-Electric-Vehicle-Fleets-using-Digital-Twins
 
 ## What is this?
-Research paper for it coming soon...
+My FYP
 
 ## Steps to run
 1. Clone the repository
@@ -10,6 +10,12 @@ Research paper for it coming soon...
 4. (Optional) Build your own testcase (json format only) by following the format in `test1.json`, and place it in `Testcases` folder.
 5. Run `main.py` and follow any instructions given
 6. View results in `Results` folder and logs in `Logs` folder
+
+## Differences in Branch
+- main: copy of original model from paper (should be)
+- dev/operations: added ride expiry and second obj of flattening electricty usage
+- dev/operations-advanced: added charging speed decision, removed second obj of flattening electricty usage (to prepare for bilevel)
+-dev/operations-advanced-benders: working on bilevel.
 
 ## QnA
 1. What does each parameter in the input testcase file stands for? <br>
