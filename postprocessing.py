@@ -711,7 +711,13 @@ def postprocessing(**kwargs):
 
         # 3. Demand served over time
         df_demand_served = _demand_served_over_time()
-        df_demand_served.to_excel(writer, sheet_name="Demand Served", index_label="Time Step")
+        if df_demand_served.shape[1] > 10000:
+            logger.warning("Demand Served DataFrame has more than 10,000 columns. Saving only final \"total\" columns in Excel.")
+            df_demand_served["total"].to_excel(writer, sheet_name="Demand Served", index_label="Time Step")
+            logger.warning("Saving full detailed version as CSV")
+            df_demand_served.to_csv(results_name.replace(".xlsx", "_demand_served_full.csv"), index_label="Time Step")
+        else:
+            df_demand_served.to_excel(writer, sheet_name="Demand Served", index_label="Time Step")
         logger.info("Saved Demand Served to excel")
 
         # 4. Service and demand comparison
