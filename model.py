@@ -397,7 +397,7 @@ def model(
         # x_e: number of vehicles flow in arc id e
         x: gp.tupledict[int, gp.Var] = model.addVars(
             all_arcs.keys()         ,
-            vtype   = GRB.INTEGER   , 
+            # vtype   = GRB.INTEGER   , 
             lb      = 0             , 
             name    = "x"           ,
         )
@@ -407,7 +407,7 @@ def model(
         #        (eg if t=3, w=2, then s consideres unserved demand for t=2 and t=3, whereas demand for t=1 has expired)
         s: gp.tupledict[tuple[int, int, int], gp.Var] = model.addVars(
             ((i, j, t) for i in ZONES for j in ZONES for t in TIMESTEPS) ,
-            vtype   = GRB.INTEGER   , 
+            # vtype   = GRB.INTEGER   , 
             lb      = 0             , 
             name    = "s"           ,
         )
@@ -417,7 +417,7 @@ def model(
         #    a = 1: unserved demand from the demand made at t-1
         u: gp.tupledict[tuple[int, int, int, int], gp.Var] = model.addVars(
             ((i, j, t, a) for i in ZONES for j in ZONES for t in TIMESTEPS for a in AGES) ,
-            vtype   = GRB.INTEGER   , 
+            # vtype   = GRB.INTEGER   , 
             lb      = 0             , 
             name    = "u"           ,
         )
@@ -426,7 +426,7 @@ def model(
         # ie if an demand expired at t, it must have been made at t - W
         e: gp.tupledict[tuple[int, int, int], gp.Var] = model.addVars(
             ((i, j, t) for i in ZONES for j in ZONES for t in TIMESTEPS) ,
-            vtype   = GRB.INTEGER   , 
+            # vtype   = GRB.INTEGER   , 
             lb      = 0             , 
             name    = "e"           ,
         )
