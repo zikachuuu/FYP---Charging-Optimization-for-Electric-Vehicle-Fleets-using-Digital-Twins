@@ -44,6 +44,8 @@ def model(
     charge_cost_high: dict[int, float]                  = kwargs.get("charge_cost_high")        # charge cost per unit of SOC at zone i at time t when usage is above threshold
     elec_threshold  : dict[int, int]                    = kwargs.get("elec_threshold")          # electricity threshold at zone i at time t
 
+    relaxed         : bool                              = kwargs.get("relaxed", True)           # whether to relax integrality constraints
+
     # Metadata
     timestamp       : str                               = kwargs.get("timestamp", "")           # timestamp for logging
     file_name       : str                               = kwargs.get("file_name", "")           # filename for logging
@@ -396,59 +398,63 @@ def model(
 
         # x_e: number of vehicles flow in arc id e
         x: gp.tupledict[int, gp.Var] = model.addVars(
-            all_arcs.keys()         ,
-            vtype   = GRB.INTEGER   , 
-            lb      = 0             , 
-            name    = "x"           ,
+            all_arcs.keys()                                     ,
+            vtype   = GRB.CONTINUOUS if relaxed else GRB.INTEGER,
+            lb      = 0                                         , 
+            name    = "x"                                       ,
         )
 
         # s_ijt: number of cumulative unserved demand from zone i to j, considered at time interval t 
         #        = sum of unserved demand from t to t - W + 1
         #        (eg if t=3, w=2, then s consideres unserved demand for t=2 and t=3, whereas demand for t=1 has expired)
         s: gp.tupledict[tuple[int, int, int], gp.Var] = model.addVars(
-            ((i, j, t) for i in ZONES for j in ZONES for t in TIMESTEPS) ,
-            vtype   = GRB.INTEGER   , 
-            lb      = 0             , 
-            name    = "s"           ,
+            ((i, j, t) for i in ZONES for j in ZONES for t in TIMESTEPS),
+            vtype   = GRB.CONTINUOUS if relaxed else GRB.INTEGER        ,
+            lb      = 0                                                 , 
+            name    = "s"                                               ,
         )
 
         # u_ijta: number of unserved demand from zone i to j, considered at time interval t, of age a
         # eg a = 0: unserved demand from the demand made at t
         #    a = 1: unserved demand from the demand made at t-1
         u: gp.tupledict[tuple[int, int, int, int], gp.Var] = model.addVars(
-            ((i, j, t, a) for i in ZONES for j in ZONES for t in TIMESTEPS for a in AGES) ,
-            vtype   = GRB.INTEGER   , 
-            lb      = 0             , 
-            name    = "u"           ,
+            ((i, j, t, a) for i in ZONES for j in ZONES for t in TIMESTEPS for a in AGES)   ,
+            vtype   = GRB.CONTINUOUS if relaxed else GRB.INTEGER                            ,
+            lb      = 0                                                                     , 
+            name    = "u"                                                                   ,
         )
 
         # e_ijt: number of unserved demand from zone i to j, that expired at t (can no longer be served)
         # ie if an demand expired at t, it must have been made at t - W
         e: gp.tupledict[tuple[int, int, int], gp.Var] = model.addVars(
-            ((i, j, t) for i in ZONES for j in ZONES for t in TIMESTEPS) ,
-            vtype   = GRB.INTEGER   , 
-            lb      = 0             , 
-            name    = "e"           ,
+            ((i, j, t) for i in ZONES for j in ZONES for t in TIMESTEPS),
+            vtype   = GRB.CONTINUOUS if relaxed else GRB.INTEGER        ,
+            lb      = 0                                                 , 
+            name    = "e"                                               ,
         )
 
-        # z_t: binary variable indicating if electricity usage at time t is above threshold
-        z: gp.tupledict[int, gp.Var] = model.addVars(
-            TIMESTEPS               ,
-            vtype   = GRB.BINARY    , 
-            name    = "z"           ,
-        )
-
-        # y_t: dummy variable where y = z * X
-        y: gp.tupledict[int, gp.Var] = model.addVars(
-            TIMESTEPS               ,
-            vtype   = GRB.CONTINUOUS, 
-            lb      = 0             ,
-            name    = "y"           ,
+        # q_t: number of SoC levels charged across all zones that is charged above threshold r_t
+        q: gp.tupledict[int, gp.Var] = model.addVars(
+            TIMESTEPS                                           ,
+            vtype   = GRB.CONTINUOUS if relaxed else GRB.BINARY ,
+            lb      = 0                                         ,
+            name    = "q"                                       ,
         )
 
         # h and l: upper and lower bounds for utilization rate of charging ports at any time period
-        h: gp.Var = model.addVar(vtype=GRB.CONTINUOUS, lb=0, ub=1, name="h")
-        l: gp.Var = model.addVar(vtype=GRB.CONTINUOUS, lb=0, ub=1, name="l")
+        h: gp.Var = model.addVar(
+            vtype   = GRB.CONTINUOUS, 
+            lb      = 0             , 
+            ub      = 1             , 
+            name    = "h"           ,
+        )
+        
+        l: gp.Var = model.addVar(
+            vtype   = GRB.CONTINUOUS, 
+            lb      = 0             , 
+            ub      = 1             , 
+            name    = "l"           ,
+        )
 
         logger.info("Decision variables created")
         logger.info(f"  x_e variables: {len(x)}")
@@ -585,7 +591,7 @@ def model(
         logger.info("Fleet size constraint (11) added")
 
 
-        # (12) Limit the upercentage electricty usage across all time steps to be below upper bounds
+        # (12) Limit the percentage electricty usage across all time steps to be below upper bounds
         #      We do not include time step 0 or T as no charging can be done for these 2 time steps
         model.addConstrs(
             gp.quicksum(
@@ -597,7 +603,7 @@ def model(
         logger.info("Electricty usage upper bound constraints (12) added")
 
 
-        # (13) Limit the upercentage electricty usage across all time steps to be above lower bounds     
+        # (13) Limit the percentage electricty usage across all time steps to be above lower bounds     
         model.addConstrs(
             gp.quicksum(
                 x[e] * all_arcs[e].charge_speed
@@ -619,56 +625,23 @@ def model(
         )
         logger.info("Max power drawn from grid constraints (14) added")
 
-        # (18) Enforce the indication of whether the total electricity usage is above threshold
+
+        logger.info("Retail electricty pricing constraint (15) not added for now")
+        logger.info("IBR constraint (16) not added for now")
+
+
+        # (17) Enforce the indication of whether the total electricity usage is above threshold
         model.addConstrs (
-            (z[t] == 1) >> (
+            q[t] >= \
                 gp.quicksum(
                     x[e] * all_arcs[e].charge_speed
                     for e in charge_arcs_t.get(t, set())
-                ) >= elec_threshold.get(t, 0) + 1
-            )
+                ) - elec_threshold.get(t, 0)
             for t in TIMESTEPS
         )
-        model.addConstrs (
-            (z[t] == 0) >> (
-                gp.quicksum(
-                    x[e] * all_arcs[e].charge_speed
-                    for e in charge_arcs_t.get(t, set())
-                ) <= elec_threshold.get(t, 0)
-            )
-            for t in TIMESTEPS
-        )
-        logger.info("Indicator constraints for electricity usage above threshold (18) added")
-
-        # (19) Linking constraint for y = z * X
-        model.addConstrs (
-            y[t] <= num_EVs * max_charge_speed * z[t]
-            for t in TIMESTEPS
-        )
-        logger.info("Linking constraints for y = z * X (19) added")
-
-        # (21) Linking constraint for y = z * X
-        model.addConstrs (
-            y[t] <= gp.quicksum(
-                x[e] * all_arcs[e].charge_speed
-                for e in charge_arcs_t.get(t, set())
-            )
-            for t in TIMESTEPS
-        )
-        logger.info("Linking constraints for y = z * X (21) added")
-
-        # (22) Linking constraint for y = z * X
-        model.addConstrs (
-            y[t] >= gp.quicksum(
-                x[e] * all_arcs[e].charge_speed
-                for e in charge_arcs_t.get(t, set())
-            ) - num_EVs * max_charge_speed * (1 - z[t])
-            for t in TIMESTEPS
-        )
-        logger.info("Linking constraints for y = z * X (22) added")
+        logger.info("Threshold indication constraints (17) added")
 
         logger.info("All constraints added")
-        logger.info(f"  Constraint (15), (16), and (17) are not added for now")
         model.update()  # Apply all changes to the model
 
         # ----------------------------
@@ -715,11 +688,11 @@ def model(
         )
 
         model.addConstrs (
-            charge_costs[t] == charge_cost_low.get(t, 0) * gp.quicksum(
+            charge_costs[t] == charge_cost_low.get(t, 0) * gp.quicksum(     # base cost
                 x[e] * all_arcs[e].charge_speed
                 for e in charge_arcs_t.get(t, set())
-            ) + \
-            (charge_cost_high.get(t, 0) - charge_cost_low.get(t, 0)) * y[t]
+            ) \
+            + charge_cost_high.get(t, 0) * q[t]                             # additional cost for usage above threshold
             for t in TIMESTEPS
         )
 
@@ -737,6 +710,8 @@ def model(
         model.write (os.path.join ("Logs", folder_name, f"gurobi_model_{file_name}_{timestamp}.lp"))
 
         model.Params.DualReductions = 0 # debug infeasible or unbounded
+
+        model.setParam('Crossover', 0)  # skip crossover, no dual solution, sensitivity analysis, warm start
 
         model.optimize()
 
@@ -756,18 +731,18 @@ def model(
         logger.info(f"  Runtime: {model.Runtime:.4f} seconds")
         logger.info(f"  Objective value: {model.ObjVal:.4f}")
 
-        x_sol: dict[int, int]                       = {e: v.X for e, v in x.items()} # Keys are arc ids
-        s_sol: dict[tuple[int, int, int], int]      = {k: v.X for k, v in s.items()} # Keys are (i, j, t) tuples
-        u_sol: dict[tuple[int, int, int, int], int] = {k: v.X for k, v in u.items()}
-        e_sol: dict[tuple[int, int, int], int]      = {k: v.X for k, v in e.items()}
-        z_sol: dict[int, int]                       = {t: v.X for t, v in z.items()}
-        y_sol: dict[int, float]                     = {t: v.X for t, v in y.items()}
-        h_sol: float                                = h.X
-        l_sol: float                                = l.X
+        # all float to allow relaxed solutions
+        x_sol: dict[int                         , float] = {e: v.X for e, v in x.items()} # Keys are arc ids
+        s_sol: dict[tuple[int, int, int]        , float] = {k: v.X for k, v in s.items()} # Keys are (i, j, t) tuples
+        u_sol: dict[tuple[int, int, int, int]   , float] = {k: v.X for k, v in u.items()}
+        e_sol: dict[tuple[int, int, int]        , float] = {k: v.X for k, v in e.items()}
+        q_sol: dict[int                         , float] = {t: v.X for t, v in q.items()}
+        h_sol: float                                     = h.X
+        l_sol: float                                     = l.X
 
         service_revenues_sol: dict[int, float] = {t: v.X for t, v in service_revenues.items()}
-        penalty_costs_sol: dict[int, float]    = {t: v.X for t, v in penalty_costs.items()}
-        charge_costs_sol: dict[int, float]     = {t: v.X for t, v in charge_costs.items()}
+        penalty_costs_sol   : dict[int, float] = {t: v.X for t, v in penalty_costs.items()}
+        charge_costs_sol    : dict[int, float] = {t: v.X for t, v in charge_costs.items()}
 
         return {
             "obj"                       : model.ObjVal,
@@ -776,8 +751,7 @@ def model(
                 "s"                     : s_sol,
                 "u"                     : u_sol,
                 "e"                     : e_sol,
-                "z"                     : z_sol,
-                "y"                     : y_sol,
+                "q"                     : q_sol,
                 "h"                     : h_sol,
                 "l"                     : l_sol,
                 "service_revenues"      : service_revenues_sol,
