@@ -37,12 +37,11 @@ def postprocessing(**kwargs):
     
     # Output results
     obj                     : float                                     = kwargs["obj"]
-    x                       : dict[int, int]                            = kwargs["x"]  
-    s                       : dict[tuple[int, int, int], int]           = kwargs["s"]  
-    u                       : dict[tuple[int, int, int, int], int]      = kwargs["u"]  
-    e                       : dict[tuple[int, int, int], int]           = kwargs["e"]  
-    z                       : dict[int, int]                            = kwargs["z"]
-    y                       : dict[int, float]                          = kwargs["y"]
+    x                       : dict[int, float]                          = kwargs["x"]  
+    s                       : dict[tuple[int, int, int], float]         = kwargs["s"]  
+    u                       : dict[tuple[int, int, int, int], float]    = kwargs["u"]  
+    e                       : dict[tuple[int, int, int], float]         = kwargs["e"]  
+    q                       : dict[int, float]                          = kwargs["q"]
     h                       : float                                     = kwargs["h"]
     l                       : float                                     = kwargs["l"]
     service_revenues        : dict[int, float]                          = kwargs["service_revenues"]
@@ -75,6 +74,7 @@ def postprocessing(**kwargs):
     logger = Logger("postprocessing", level="DEBUG", to_console=False, timestamp=timestamp)
     logger.save(os.path.join (folder_name, f"postprocessing_{file_name}"))
     logger.info("Parameters loaded successfully")
+    
     
     def _fleet_operator_profit():
         """
@@ -696,21 +696,39 @@ def postprocessing(**kwargs):
         df.loc["total"] = total_row_data
         
         return df
+
+    def _round_df(df):
+        """
+        Round numeric values in a DataFrame to 3 decimal places.
+        Returns a new DataFrame with numeric columns rounded.
+        """
+        try:
+            return df.round(3)
+        except Exception:
+            # Fallback: round numeric columns in-place
+            numeric_cols = df.select_dtypes(include=["number"]).columns
+            for col in numeric_cols:
+                df[col] = df[col].round(3)
+            return df
     
     # Create an excel in the Results folder to save results
     with pd.ExcelWriter(results_name, engine="openpyxl") as writer:
         # 1. Bluebird profit summary
         df_summary = _fleet_operator_profit()
+        df_summary = _round_df(df_summary)
         df_summary.to_excel(writer, sheet_name="Fleet Operator Profit", index_label="Time Step")
         logger.info("Saved Fleet Operator Profit to excel")
 
         # 2. EV operations over time
         df_ev_operations = _ev_operations_over_time()
+        df_ev_operations = _round_df(df_ev_operations)
         df_ev_operations.to_excel(writer, sheet_name="EV Operations", index_label="Time Step")
         logger.info("Saved EV Operations to excel")
 
         # 3. Demand served over time
         df_demand_served = _demand_served_over_time()
+        # Round values before saving
+        df_demand_served = _round_df(df_demand_served)
         if df_demand_served.shape[1] > 10000:
             logger.warning("Demand Served DataFrame has more than 10,000 columns. Saving only final \"total\" columns in Excel.")
             df_demand_served["total"].to_excel(writer, sheet_name="Demand Served", index_label="Time Step")
@@ -722,16 +740,19 @@ def postprocessing(**kwargs):
 
         # 4. Service and demand comparison
         df_service_demand = _service_and_demand_comparison()
+        df_service_demand = _round_df(df_service_demand)
         df_service_demand.to_excel(writer, sheet_name="Service vs Demand", index_label="Time Step")
         logger.info("Saved Service and Demand Comparison to excel")
 
         # 6. Electricity usage and pricing
         df_electricity = _electricity_usage_and_pricing()
+        df_electricity = _round_df(df_electricity)
         df_electricity.to_excel(writer, sheet_name="Electricity Usage vs Pricing", index_label="Time Step")
         logger.info("Saved electricity usage and pricing to excel")
 
         # 7. Electricity by zone
         df_zone_electricity = _electricity_by_zone()
+        df_zone_electricity = _round_df(df_zone_electricity)
         df_zone_electricity.to_excel(writer, sheet_name="Electricity by Zone", index_label="Time Step")
         logger.info("Saved electricity by zone to excel")
 

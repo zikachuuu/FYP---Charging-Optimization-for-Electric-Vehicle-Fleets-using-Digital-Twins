@@ -128,6 +128,8 @@ if __name__ == "__main__":
         charge_cost_high        = charge_cost_high      ,
         elec_threshold          = elec_threshold        ,
 
+        relaxed                 = True                  ,
+
         # Metadata
         timestamp               = timestamp             ,
         file_name               = file_name             ,
@@ -142,12 +144,11 @@ if __name__ == "__main__":
     # Extract variables and sets from the output
     obj                     : float                                     = output["obj"]
     
-    x                       : dict[int, int]                            = output["sol"]["x"]  
-    s                       : dict[tuple[int, int, int], int]           = output["sol"]["s"]  
-    u                       : dict[tuple[int, int, int, int], int]      = output["sol"]["u"]
-    e                       : dict[tuple[int, int, int], int]           = output["sol"]["e"]
-    z                       : dict[int, int]                            = output["sol"]["z"]
-    y                       : dict[int, float]                          = output["sol"]["y"]
+    x                       : dict[int, float]                          = output["sol"]["x"]  
+    s                       : dict[tuple[int, int, int], float]         = output["sol"]["s"]  
+    u                       : dict[tuple[int, int, int, int], float]    = output["sol"]["u"]
+    e                       : dict[tuple[int, int, int], float]         = output["sol"]["e"]
+    q                       : dict[int, float]                          = output["sol"]["q"]
     h                       : float                                     = output["sol"]["h"]  
     l                       : float                                     = output["sol"]["l"]
     service_revenues        : dict[int, float]                          = output["sol"]["service_revenues"]
@@ -301,8 +302,7 @@ if __name__ == "__main__":
         s                       = s                     ,
         u                       = u                     ,
         e                       = e                     ,
-        z                       = z                     ,
-        y                       = y                     ,
+        q                       = q                     ,
         h                       = h                     ,
         l                       = l                     ,
         service_revenues        = service_revenues       ,
