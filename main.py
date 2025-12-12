@@ -5,7 +5,7 @@ import math
 import os
 
 from logger import Logger
-from model import model
+from model_follower import follower_model
 from networkClass import Node, Arc, ArcType
 from utility import convert_key_types
 from postprocessing import postprocessing
@@ -105,7 +105,7 @@ if __name__ == "__main__":
         logger.error(f"An unexpected error occurred while extracting parameters: {e}")
         exit(1)
     
-    output = model(
+    output = follower_model(
         N                       = N                     ,
         T                       = T                     ,
         L                       = L                     ,
