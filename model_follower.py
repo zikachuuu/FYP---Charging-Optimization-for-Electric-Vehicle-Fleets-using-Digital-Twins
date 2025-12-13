@@ -446,20 +446,20 @@ def follower_model(
             name    = "q"                                       ,
         )
 
-        # h and l: upper and lower bounds for utilization rate of charging ports at any time period
-        h: gp.Var = model.addVar(
-            vtype   = GRB.CONTINUOUS, 
-            lb      = 0             , 
-            ub      = 1             , 
-            name    = "h"           ,
-        )
+        # # h and l: upper and lower bounds for utilization rate of charging ports at any time period
+        # h: gp.Var = model.addVar(
+        #     vtype   = GRB.CONTINUOUS, 
+        #     lb      = 0             , 
+        #     ub      = 1             , 
+        #     name    = "h"           ,
+        # )
         
-        l: gp.Var = model.addVar(
-            vtype   = GRB.CONTINUOUS, 
-            lb      = 0             , 
-            ub      = 1             , 
-            name    = "l"           ,
-        )
+        # l: gp.Var = model.addVar(
+        #     vtype   = GRB.CONTINUOUS, 
+        #     lb      = 0             , 
+        #     ub      = 1             , 
+        #     name    = "l"           ,
+        # )
 
         logger.info("Decision variables created")
         logger.info(f"  x_e variables: {len(x)}")
@@ -596,27 +596,27 @@ def follower_model(
         logger.info("Fleet size constraint (11) added")
 
 
-        # (12) Limit the percentage electricty usage across all time steps to be below upper bounds
-        #      We do not include time step 0 or T as no charging can be done for these 2 time steps
-        model.addConstrs(
-            gp.quicksum(
-                x[e] * all_arcs[e].charge_speed
-                for e in charge_arcs_t.get(t, set()) 
-            ) <= h * sum (elec_supplied.get((i, t), 0) for i in ZONES)
-            for t in TIMESTEPS if t != 0 and t != T
-        )
-        logger.info("Electricty usage upper bound constraints (12) added")
+        # # (12) Limit the percentage electricty usage across all time steps to be below upper bounds
+        # #      We do not include time step 0 or T as no charging can be done for these 2 time steps
+        # model.addConstrs(
+        #     gp.quicksum(
+        #         x[e] * all_arcs[e].charge_speed
+        #         for e in charge_arcs_t.get(t, set()) 
+        #     ) <= h * sum (elec_supplied.get((i, t), 0) for i in ZONES)
+        #     for t in TIMESTEPS if t != 0 and t != T
+        # )
+        # logger.info("Electricty usage upper bound constraints (12) added")
 
 
-        # (13) Limit the percentage electricty usage across all time steps to be above lower bounds     
-        model.addConstrs(
-            gp.quicksum(
-                x[e] * all_arcs[e].charge_speed
-                for e in charge_arcs_t.get(t, set()) 
-            ) >= l * sum (elec_supplied.get((i, t), 0) for i in ZONES)
-            for t in TIMESTEPS if t != 0 and t != T
-        )
-        logger.info("Electricity usage lower bound constraints (13) added")
+        # # (13) Limit the percentage electricty usage across all time steps to be above lower bounds     
+        # model.addConstrs(
+        #     gp.quicksum(
+        #         x[e] * all_arcs[e].charge_speed
+        #         for e in charge_arcs_t.get(t, set()) 
+        #     ) >= l * sum (elec_supplied.get((i, t), 0) for i in ZONES)
+        #     for t in TIMESTEPS if t != 0 and t != T
+        # )
+        # logger.info("Electricity usage lower bound constraints (13) added")
 
 
         # (14) Limit the total power drawn from the grid at each zone at each time period
@@ -742,8 +742,8 @@ def follower_model(
         u_sol: dict[tuple[int, int, int, int]   , float] = {k: v.X for k, v in u.items()}
         e_sol: dict[tuple[int, int, int]        , float] = {k: v.X for k, v in e.items()}
         q_sol: dict[int                         , float] = {t: v.X for t, v in q.items()}
-        h_sol: float                                     = h.X
-        l_sol: float                                     = l.X
+        # h_sol: float                                     = h.X
+        # l_sol: float                                     = l.X
 
         service_revenues_sol: dict[int, float] = {t: v.X for t, v in service_revenues.items()}
         penalty_costs_sol   : dict[int, float] = {t: v.X for t, v in penalty_costs.items()}
@@ -757,8 +757,8 @@ def follower_model(
                 "u"                     : u_sol,
                 "e"                     : e_sol,
                 "q"                     : q_sol,
-                "h"                     : h_sol,
-                "l"                     : l_sol,
+                # "h"                     : h_sol,
+                # "l"                     : l_sol,
                 "service_revenues"      : service_revenues_sol,
                 "penalty_costs"         : penalty_costs_sol,
                 "charge_costs"          : charge_costs_sol,          

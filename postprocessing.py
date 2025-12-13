@@ -7,66 +7,66 @@ from networkClass import Node, Arc, ArcType
 
 def postprocessing(**kwargs):
     # Input parameters
-    N                       : int                                       = kwargs.get("N")                       # number of operation zones (1, ..., N)
-    T                       : int                                       = kwargs.get("T")                       # termination time of daily operations (0, ..., T)
-    L                       : int                                       = kwargs.get("L")                       # max SoC level (all EVs start at this level) (0, ..., L)
-    W                       : int                                       = kwargs.get("W")                       # maximum time intervals a passenger will wait for a ride (0, ..., W-1; demand expires at W)
+    N                       : int                                       = kwargs.get("N", 0)                        # number of operation zones (1, ..., N)
+    T                       : int                                       = kwargs.get("T", 0)                        # termination time of daily operations (0, ..., T)
+    L                       : int                                       = kwargs.get("L", 0)                        # max SoC level (all EVs start at this level) (0, ..., L)
+    W                       : int                                       = kwargs.get("W", 0)                        # maximum time intervals a passenger will wait for a ride (0, ..., W-1; demand expires at W)
     
-    travel_demand           : dict[tuple[int, int, int], int]           = kwargs.get("travel_demand")           # travel demand from zone i to j at starting at time t
-    travel_time             : dict[tuple[int, int, int], int]           = kwargs.get("travel_time")             # travel time from i to j at starting at time t
-    travel_energy           : dict[tuple[int, int], int]                = kwargs.get("travel_energy")           # energy consumed for trip from zone i to j
-    order_revenue           : dict[tuple[int, int, int], float]         = kwargs.get("order_revenue")           # order revenue for each trip served from i to j at time t
-    penalty                 : dict[tuple[int, int, int], float]         = kwargs.get("penalty")                 # penalty cost for each unserved trip from i to j at time t 
-    L_min                   : int                                       = kwargs.get("L_min")                   # min SoC level all EV must end with at the end of the daily operations  
-    num_EVs                 : int                                       = kwargs.get("num_EVs")                 # total number of EVs in the fleet
+    travel_demand           : dict[tuple[int, int, int], int]           = kwargs.get("travel_demand", {})           # travel demand from zone i to j at starting at time t
+    travel_time             : dict[tuple[int, int, int], int]           = kwargs.get("travel_time", {})             # travel time from i to j at starting at time t
+    travel_energy           : dict[tuple[int, int], int]                = kwargs.get("travel_energy", {})           # energy consumed for trip from zone i to j
+    order_revenue           : dict[tuple[int, int, int], float]         = kwargs.get("order_revenue", {})           # order revenue for each trip served from i to j at time t
+    penalty                 : dict[tuple[int, int, int], float]         = kwargs.get("penalty", {})                 # penalty cost for each unserved trip from i to j at time t 
+    L_min                   : int                                       = kwargs.get("L_min", 0)                    # min SoC level all EV must end with at the end of the daily operations  
+    num_EVs                 : int                                       = kwargs.get("num_EVs", 0)                  # total number of EVs in the fleet
     
-    num_ports               : dict[int, int]                            = kwargs.get("num_ports")               # number of chargers in each zone
-    elec_supplied           : dict[tuple[int, int], int]                = kwargs.get("elec_supplied")           # electricity supplied at zone i at time t
-    max_charge_speed        : int                                       = kwargs.get("max_charge_speed")        # max charge speed (kWh per time interval)
-    wholesale_elec_price    : dict[int, float]                          = kwargs.get("wholesale_elec_price")    # wholesale electricity price at time t ($ per kWh)
+    num_ports               : dict[int, int]                            = kwargs.get("num_ports", {})               # number of chargers in each zone
+    elec_supplied           : dict[tuple[int, int], int]                = kwargs.get("elec_supplied", {})           # electricity supplied at zone i at time t
+    max_charge_speed        : int                                       = kwargs.get("max_charge_speed", 0)         # max charge speed (kWh per time interval)
+    wholesale_elec_price    : dict[int, float]                          = kwargs.get("wholesale_elec_price", {})    # wholesale electricity price at time t ($ per kWh)
 
-    charge_cost_low         : dict[int, float]                          = kwargs.get("charge_cost_low")         # low charge cost at time t ($ per kWh)
-    charge_cost_high        : dict[int, float]                          = kwargs.get("charge_cost_high")        # high charge cost at time t ($ per kWh)
-    elec_threshold          : dict[int, int]                            = kwargs.get("elec_threshold")          # threshold for low/high charge cost ($ per kWh)
+    charge_cost_low         : dict[int, float]                          = kwargs.get("charge_cost_low", {})         # low charge cost at time t ($ per kWh)
+    charge_cost_high        : dict[int, float]                          = kwargs.get("charge_cost_high", {})        # high charge cost at time t ($ per kWh)
+    elec_threshold          : dict[int, int]                            = kwargs.get("elec_threshold", {})          # threshold for low/high charge cost ($ per kWh)
     
     # Metadata
-    timestamp               : str                                       = kwargs.get("timestamp", "")           # timestamp for logging
-    file_name               : str                                       = kwargs.get("file_name", "")           # filename for logging
-    results_name            : str                                       = kwargs.get("results_name", "")        # filename for results
-    folder_name             : str                                       = kwargs.get("folder_name", "")         # folder name for logs and results
+    timestamp               : str                                       = kwargs.get("timestamp", "")               # timestamp for logging
+    file_name               : str                                       = kwargs.get("file_name", "")               # filename for logging
+    results_name            : str                                       = kwargs.get("results_name", "")            # filename for results
+    folder_name             : str                                       = kwargs.get("folder_name", "")             # folder name for logs and results
     
     # Output results
-    obj                     : float                                     = kwargs["obj"]
-    x                       : dict[int, float]                          = kwargs["x"]  
-    s                       : dict[tuple[int, int, int], float]         = kwargs["s"]  
-    u                       : dict[tuple[int, int, int, int], float]    = kwargs["u"]  
-    e                       : dict[tuple[int, int, int], float]         = kwargs["e"]  
-    q                       : dict[int, float]                          = kwargs["q"]
-    h                       : float                                     = kwargs["h"]
-    l                       : float                                     = kwargs["l"]
-    service_revenues        : dict[int, float]                          = kwargs["service_revenues"]
-    penalty_costs           : dict[int, float]                          = kwargs["penalty_costs"]
-    charge_costs            : dict[int, float]                          = kwargs["charge_costs"]
-    total_service_revenue   : float                                     = kwargs["total_service_revenue"]
-    total_penalty_cost      : float                                     = kwargs["total_penalty_cost"]
-    total_charge_cost       : float                                     = kwargs["total_charge_cost"]
+    obj                     : float                                     = kwargs.get("obj", 0.0)
+    x                       : dict[int, float]                          = kwargs.get("x", {})
+    s                       : dict[tuple[int, int, int], float]         = kwargs.get("s", {})
+    u                       : dict[tuple[int, int, int, int], float]    = kwargs.get("u", {})
+    e                       : dict[tuple[int, int, int], float]         = kwargs.get("e", {})
+    q                       : dict[int, float]                          = kwargs.get("q", {})
+    h                       : float                                     = kwargs.get("h", 0.0)
+    l                       : float                                     = kwargs.get("l", 0.0)
+    service_revenues        : dict[int, float]                          = kwargs.get("service_revenues", {})
+    penalty_costs           : dict[int, float]                          = kwargs.get("penalty_costs", {})
+    charge_costs            : dict[int, float]                          = kwargs.get("charge_costs", {})
+    total_service_revenue   : float                                     = kwargs.get("total_service_revenue", 0.0)
+    total_penalty_cost      : float                                     = kwargs.get("total_penalty_cost", 0.0)
+    total_charge_cost       : float                                     = kwargs.get("total_charge_cost", 0.0)
 
     # Arcs
-    all_arcs                : dict[int                  , Arc]          = kwargs["all_arcs"]
-    type_arcs               : dict[ArcType              , set[int]]     = kwargs["type_arcs"]
-    in_arcs                 : dict[Node                 , set[int]]     = kwargs["in_arcs"]
-    out_arcs                : dict[Node                 , set[int]]     = kwargs["out_arcs"]
-    service_arcs_ijt        : dict[tuple[int, int, int] , set[int]]     = kwargs["service_arcs_ijt"]
-    charge_arcs_it          : dict[tuple[int, int]      , set[int]]     = kwargs["charge_arcs_it"]
-    charge_arcs_t           : dict[int                  , set[int]]     = kwargs["charge_arcs_t"]
+    all_arcs                : dict[int                  , Arc]          = kwargs.get("all_arcs", {})
+    type_arcs               : dict[ArcType              , set[int]]     = kwargs.get("type_arcs", {})
+    in_arcs                 : dict[Node                 , set[int]]     = kwargs.get("in_arcs", {})
+    out_arcs                : dict[Node                 , set[int]]     = kwargs.get("out_arcs", {})
+    service_arcs_ijt        : dict[tuple[int, int, int] , set[int]]     = kwargs.get("service_arcs_ijt", {})
+    charge_arcs_it          : dict[tuple[int, int]      , set[int]]     = kwargs.get("charge_arcs_it", {})
+    charge_arcs_t           : dict[int                  , set[int]]     = kwargs.get("charge_arcs_t", {})
 
     # Sets
-    valid_travel_demand     : dict[tuple[int, int, int], int]           = kwargs["valid_travel_demand"]
-    invalid_travel_demand   : set[tuple[int, int, int]]                 = kwargs["invalid_travel_demand"]
-    ZONES                   : list[int]                                 = kwargs["ZONES"]
-    TIMESTEPS               : list[int]                                 = kwargs["TIMESTEPS"]
-    LEVELS                  : list[int]                                 = kwargs["LEVELS"]
-    AGES                    : list[int]                                 = kwargs["AGES"]
+    valid_travel_demand     : dict[tuple[int, int, int], int]           = kwargs.get("valid_travel_demand", {})
+    invalid_travel_demand   : set[tuple[int, int, int]]                 = kwargs.get("invalid_travel_demand", set())
+    ZONES                   : list[int]                                 = kwargs.get("ZONES", [])
+    TIMESTEPS               : list[int]                                 = kwargs.get("TIMESTEPS", [])
+    LEVELS                  : list[int]                                 = kwargs.get("LEVELS", [])
+    AGES                    : list[int]                                 = kwargs.get("AGES", [])
     
     # markers for plot
     markers = ["o", "v", "^", "<", ">", "1", "2", "3", "4", "8", "s", "p", "*", "h", "H", "+", "x", "D", "d", "|", "_"]

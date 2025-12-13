@@ -142,33 +142,33 @@ if __name__ == "__main__":
         exit (1)
 
     # Extract variables and sets from the output
-    obj                     : float                                     = output["obj"]
+    obj                     : float                                     = output.get("obj", 0.0)
     
-    x                       : dict[int, float]                          = output["sol"]["x"]  
-    s                       : dict[tuple[int, int, int], float]         = output["sol"]["s"]  
-    u                       : dict[tuple[int, int, int, int], float]    = output["sol"]["u"]
-    e                       : dict[tuple[int, int, int], float]         = output["sol"]["e"]
-    q                       : dict[int, float]                          = output["sol"]["q"]
-    h                       : float                                     = output["sol"]["h"]  
-    l                       : float                                     = output["sol"]["l"]
-    service_revenues        : dict[int, float]                          = output["sol"]["service_revenues"]
-    penalty_costs           : dict[int, float]                          = output["sol"]["penalty_costs"]
-    charge_costs            : dict[int, float]                          = output["sol"]["charge_costs"]                                                                                        
+    x                       : dict[int, float]                          = output.get("sol", {}).get("x", {})
+    s                       : dict[tuple[int, int, int], float]         = output.get("sol", {}).get("s", {})
+    u                       : dict[tuple[int, int, int, int], float]    = output.get("sol", {}).get("u", {})
+    e                       : dict[tuple[int, int, int], float]         = output.get("sol", {}).get("e", {})
+    q                       : dict[int, float]                          = output.get("sol", {}).get("q", {})
+    h                       : float                                     = output.get("sol", {}).get("h", 0.0)
+    l                       : float                                     = output.get("sol", {}).get("l", 0.0)
+    service_revenues        : dict[int, float]                          = output.get("sol", {}).get("service_revenues", {})
+    penalty_costs           : dict[int, float]                          = output.get("sol", {}).get("penalty_costs", {})
+    charge_costs            : dict[int, float]                          = output.get("sol", {}).get("charge_costs", {})
 
-    all_arcs                : dict[int                  , Arc]          = output["arcs"]["all_arcs"]
-    type_arcs               : dict[ArcType              , set[int]]     = output["arcs"]["type_arcs"]
-    in_arcs                 : dict[Node                 , set[int]]     = output["arcs"]["in_arcs"]
-    out_arcs                : dict[Node                 , set[int]]     = output["arcs"]["out_arcs"]
-    service_arcs_ijt        : dict[tuple[int, int, int] , set[int]]     = output["arcs"]["service_arcs_ijt"]
-    charge_arcs_it          : dict[tuple[int, int]      , set[int]]     = output["arcs"]["charge_arcs_it"]
-    charge_arcs_t           : dict[int                  , set[int]]     = output["arcs"]["charge_arcs_t"]
+    all_arcs                : dict[int                  , Arc]          = output.get("arcs", {}).get("all_arcs", {})
+    type_arcs               : dict[ArcType              , set[int]]     = output.get("arcs", {}).get("type_arcs", {})
+    in_arcs                 : dict[Node                 , set[int]]     = output.get("arcs", {}).get("in_arcs", {})
+    out_arcs                : dict[Node                 , set[int]]     = output.get("arcs", {}).get("out_arcs", {})
+    service_arcs_ijt        : dict[tuple[int, int, int] , set[int]]     = output.get("arcs", {}).get("service_arcs_ijt", {})
+    charge_arcs_it          : dict[tuple[int, int]      , set[int]]     = output.get("arcs", {}).get("charge_arcs_it", {})
+    charge_arcs_t           : dict[int                  , set[int]]     = output.get("arcs", {}).get("charge_arcs_t", {})
 
-    valid_travel_demand     : dict[tuple[int, int, int], int]           = output["sets"]["valid_travel_demand"]
-    invalid_travel_demand   : set[tuple[int, int, int]]                 = output["sets"]["invalid_travel_demand"]
-    ZONES                   : list[int]                                 = output["sets"]["ZONES"]
-    TIMESTEPS               : list[int]                                 = output["sets"]["TIMESTEPS"]
-    LEVELS                  : list[int]                                 = output["sets"]["LEVELS"]
-    AGES                    : list[int]                                 = output["sets"]["AGES"]
+    valid_travel_demand     : dict[tuple[int, int, int], int]           = output.get("sets", {}).get("valid_travel_demand", {})
+    invalid_travel_demand   : set[tuple[int, int, int]]                 = output.get("sets", {}).get("invalid_travel_demand", set())
+    ZONES                   : list[int]                                 = output.get("sets", {}).get("ZONES", [])
+    TIMESTEPS               : list[int]                                 = output.get("sets", {}).get("TIMESTEPS", [])
+    LEVELS                  : list[int]                                 = output.get("sets", {}).get("LEVELS", [])
+    AGES                    : list[int]                                 = output.get("sets", {}).get("AGES", [])
 
 
     # ----------------------------
