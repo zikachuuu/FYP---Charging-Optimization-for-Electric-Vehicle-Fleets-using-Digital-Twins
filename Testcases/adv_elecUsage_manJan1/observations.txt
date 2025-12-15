@@ -1,0 +1,74 @@
+Problem: why is the electricity_usage flat?
+Possible explainations: 
+    1) the electrity supply is too low and usage hit some kind of upper bound
+    2) charge price is flat
+
+
+1_increase_elec_supply
+    - modified from og.json
+    - increase in elec_supplied for all (zone, time) by 1 from 5 to 6
+    - purpose: see if charging decisions responds to increased supply
+    - result: overall increase in electricty usage, but still same pattern (flat)
+
+
+2_fluc_price
+    - modified from og.json
+    - fluctuate charge_cost_low and charge_cost_high st it reflects travel demand
+    - highest travel demand across all time steps is assigned to charge_cost_low of 0.5
+    - lowest travel demand across all time step is assigned to charge_cost_low of 1
+    - all other time steps are scaled in between
+    - charge_cost_high is set to be double of charge_cost_low
+    - purpose: see if charging decisions correctly responds to price
+    - result: no fluctuations in electricity usage despite price fluctuations, same charging decisions as og.json
+
+
+3_peak_price
+    - modified from og.json
+    - drastically increased charge_cost_low and charge_cost_high for time step 16 only from 0.2 to 200 and 0.4 to 400
+    - purpose: see if charging decisions correctly responds to price
+    - result: no charging done at time step 16, suggesting correct charging decisions made
+    - maybe price needs to be set higher...
+
+
+4_fluc_price_agg
+    - modified from og.json
+    - fluctuate charge_cost_low and charge_cost_high same as 2_fluc_price, but more aggressively
+    - scaled between 10 and 100
+    - result: only charged when price is very low, between time 5 to 8, no charging at other time step
+
+
+4_1_fluc_price_agg_need_charge
+    - modified from 4_fluc_price_agg
+    - increased elec_threshold from 30 to 200 (more realistic)
+    - increased L_min from 2 to 6
+    - result: still only charge between time 5 to 8, but now up to threshold
+
+
+5_increase_price
+    - modified from og.json
+    - increased charge_cost_low and charge_cost_high to 50 and 100 for all time 
+    - result: no charging at all
+    - we need it to charge...
+
+
+We now give more reasons for EV to charge
+    - reduce num_EV from 10000 to 5000
+    - increase L_min from 2 to 7
+    - but charging cost cant be set too high, else the optimal decision might be to do nothing (revenue from service cant cover)
+
+
+5_1_increase_price_need_charge
+    - still not charging... service merely decreased
+
+5_2_must_charge
+    - increase L_min to 10 (must charge or all idle)
+    - surprisingly theres charging, but very little charging (and service)
+    - if charging price is set higher, then probably no charging at all.
+
+summary
+    - when charge price is set very low (even with fluctuations), charging will be flat
+        - we need to increase wholesale_elec_price
+
+    - when charge price is set higher, it will avoid charging entirely or only charge at low price (create fluctuations)
+        - we cant have too high wholesale_elec_price
+    
