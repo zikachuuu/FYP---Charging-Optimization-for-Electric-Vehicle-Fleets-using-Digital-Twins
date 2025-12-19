@@ -27,38 +27,39 @@ def follower_model(
     # ----------------------------
     # Parameters
     # ----------------------------
-    N               : int                               = kwargs.get("N")               # number of operation zones (1, ..., N)
-    T               : int                               = kwargs.get("T")               # termination time of daily operations (0, ..., T)
-    L               : int                               = kwargs.get("L")               # max SoC level (all EVs start at this level) (0, ..., L)
-    W               : int                               = kwargs.get("W")               # maximum time intervals a passenger will wait for a ride (0, ..., W-1; demand expires at W)
+    N                   : int                               = kwargs.get("N")                       # number of operation zones (1, ..., N)
+    T                   : int                               = kwargs.get("T")                       # termination time of daily operations (0, ..., T)
+    L                   : int                               = kwargs.get("L")                       # max SoC level (all EVs start at this level) (0, ..., L)
+    W                   : int                               = kwargs.get("W")                       # maximum time intervals a passenger will wait for a ride (0, ..., W-1; demand expires at W)
+    travel_demand       : dict[tuple[int, int, int], int]   = kwargs.get("travel_demand")           # travel demand from zone i to j at starting at time t
+    travel_time         : dict[tuple[int, int, int], int]   = kwargs.get("travel_time")             # travel time from i to j at starting at time t
+    travel_energy       : dict[tuple[int, int], int]        = kwargs.get("travel_energy")           # energy consumed for trip from zone i to j
+    order_revenue       : dict[tuple[int, int, int], float] = kwargs.get("order_revenue")           # order revenue for each trip served from i to j at time t
+    penalty             : dict[tuple[int, int, int], float] = kwargs.get("penalty")                 # penalty cost for each unserved trip from i to j at time t 
+    L_min               : int                               = kwargs.get("L_min")                   # min SoC level all EV must end with at the end of the daily operations
+    num_EVs             : int                               = kwargs.get("num_EVs")                 # total number of EVs in the fleet
+    num_ports           : dict[int, int]                    = kwargs.get("num_ports")               # number of chargers in each zone
+    elec_supplied       : dict[tuple[int, int], int]        = kwargs.get("elec_supplied")           # electricity supplied (in SoC levels) at zone i at time t
+    max_charge_speed    : int                               = kwargs.get("max_charge_speed")        # max charging speed (in SoC levels) of one EV in one time step
+        
+    charge_cost_low     : dict[int, float]                  = kwargs.get("charge_cost_low")         # charge cost per unit of SoC at zone i at time t when usage is below threshold
+    charge_cost_high    : dict[int, float]                  = kwargs.get("charge_cost_high")        # charge cost per unit of SOC at zone i at time t when usage is above threshold
+    elec_threshold      : dict[int, int]                    = kwargs.get("elec_threshold")          # electricity threshold at zone i at time t
 
-    travel_demand   : dict[tuple[int, int, int], int]   = kwargs.get("travel_demand")   # travel demand from zone i to j at starting at time t
-    travel_time     : dict[tuple[int, int, int], int]   = kwargs.get("travel_time")     # travel time from i to j at starting at time t
-    travel_energy   : dict[tuple[int, int], int]        = kwargs.get("travel_energy")   # energy consumed for trip from zone i to j
-    order_revenue   : dict[tuple[int, int, int], float] = kwargs.get("order_revenue")   # order revenue for each trip served from i to j at time t
-    penalty         : dict[tuple[int, int, int], float] = kwargs.get("penalty")         # penalty cost for each unserved trip from i to j at time t 
-    L_min           : int                               = kwargs.get("L_min")           # min SoC level all EV must end with at the end of the daily operations
-    num_EVs         : int                               = kwargs.get("num_EVs")         # total number of EVs in the fleet
-    
-    num_ports           : dict[int, int]                = kwargs.get("num_ports")               # number of chargers in each zone
-    elec_supplied       : dict[tuple[int, int], int]    = kwargs.get("elec_supplied")           # electricity supplied (in SoC levels) at zone i at time t
-    max_charge_speed    : int                           = kwargs.get("max_charge_speed")        # max charging speed (in SoC levels) of one EV in one time step
-    wholesale_elec_price: dict[int, float]              = kwargs.get("wholesale_elec_price")    # wholesale electricity price at time t
-    
-    charge_cost_low : dict[int, float]                  = kwargs.get("charge_cost_low")         # charge cost per unit of SoC at zone i at time t when usage is below threshold
-    charge_cost_high: dict[int, float]                  = kwargs.get("charge_cost_high")        # charge cost per unit of SOC at zone i at time t when usage is above threshold
-    elec_threshold  : dict[int, int]                    = kwargs.get("elec_threshold")          # electricity threshold at zone i at time t
-
-    relaxed         : bool                              = kwargs.get("relaxed", True)           # whether to relax integrality constraints
+    relaxed             : bool                              = kwargs.get("relaxed"      , True)     # whether to relax integrality constraints
 
     # Metadata
-    timestamp       : str                               = kwargs.get("timestamp", "")           # timestamp for logging
-    file_name       : str                               = kwargs.get("file_name", "")           # filename for logging
-    folder_name     : str                               = kwargs.get("folder_name", "")         # folder name for logging
+    to_console          : bool                              = kwargs.get("to_console"   , False)    # whether to print logs to console
+    to_file             : bool                              = kwargs.get("to_file"      , True)     # whether to save logs to file
+    timestamp           : str                               = kwargs.get("timestamp"    , "")       # timestamp for logging
+    file_name           : str                               = kwargs.get("file_name"    , "")       # filename for logging
+    folder_name         : str                               = kwargs.get("folder_name"  , "")       # folder name for logging
+    
+    
+    logger = Logger("model_follower", level="DEBUG", to_console=to_console, timestamp=timestamp)
+    if to_file:
+        logger.save (os.path.join (folder_name, f"model_follower_{file_name}"))
 
-    logger = Logger("model_follower", level="DEBUG", to_console=False, timestamp=timestamp)
-
-    logger.save (os.path.join (folder_name, f"model_follower_{file_name}"))
     logger.info("Parameters loaded successfully")
 
 
@@ -395,7 +396,8 @@ def follower_model(
     # Model
     # ----------------------------
     with gp.Env() as env, gp.Model(env=env) as model:  
-        model.Params.LogFile = os.path.join ("Logs", folder_name, f"gurobi_logs_{file_name}_{timestamp}.log")      
+        model.Params.LogFile    = os.path.join ("Logs", folder_name, f"gurobi_logs_{file_name}_{timestamp}.log")      
+        model.Params.Seed       = 67 # for reproducibility
 
         # ----------------------------
         # Decision variables
@@ -441,25 +443,10 @@ def follower_model(
         # q_t: number of SoC levels charged across all zones that is charged above threshold r_t
         q: gp.tupledict[int, gp.Var] = model.addVars(
             TIMESTEPS                                           ,
-            vtype   = GRB.CONTINUOUS if relaxed else GRB.BINARY ,
+            vtype   = GRB.CONTINUOUS if relaxed else GRB.INTEGER,
             lb      = 0                                         ,
             name    = "q"                                       ,
         )
-
-        # # h and l: upper and lower bounds for utilization rate of charging ports at any time period
-        # h: gp.Var = model.addVar(
-        #     vtype   = GRB.CONTINUOUS, 
-        #     lb      = 0             , 
-        #     ub      = 1             , 
-        #     name    = "h"           ,
-        # )
-        
-        # l: gp.Var = model.addVar(
-        #     vtype   = GRB.CONTINUOUS, 
-        #     lb      = 0             , 
-        #     ub      = 1             , 
-        #     name    = "l"           ,
-        # )
 
         logger.info("Decision variables created")
         logger.info(f"  x_e variables: {len(x)}")
@@ -596,30 +583,7 @@ def follower_model(
         logger.info("Fleet size constraint (11) added")
 
 
-        # # (12) Limit the percentage electricty usage across all time steps to be below upper bounds
-        # #      We do not include time step 0 or T as no charging can be done for these 2 time steps
-        # model.addConstrs(
-        #     gp.quicksum(
-        #         x[e] * all_arcs[e].charge_speed
-        #         for e in charge_arcs_t.get(t, set()) 
-        #     ) <= h * sum (elec_supplied.get((i, t), 0) for i in ZONES)
-        #     for t in TIMESTEPS if t != 0 and t != T
-        # )
-        # logger.info("Electricty usage upper bound constraints (12) added")
-
-
-        # # (13) Limit the percentage electricty usage across all time steps to be above lower bounds     
-        # model.addConstrs(
-        #     gp.quicksum(
-        #         x[e] * all_arcs[e].charge_speed
-        #         for e in charge_arcs_t.get(t, set()) 
-        #     ) >= l * sum (elec_supplied.get((i, t), 0) for i in ZONES)
-        #     for t in TIMESTEPS if t != 0 and t != T
-        # )
-        # logger.info("Electricity usage lower bound constraints (13) added")
-
-
-        # (14) Limit the total power drawn from the grid at each zone at each time period
+        # (12) Limit the total power drawn from the grid at each zone at each time period
         model.addConstrs(
             gp.quicksum(
                 x[e] * all_arcs[e].charge_speed
@@ -628,14 +592,10 @@ def follower_model(
             for i in ZONES
             for t in TIMESTEPS
         )
-        logger.info("Max power drawn from grid constraints (14) added")
+        logger.info("Max power drawn from grid constraints (12) added")
 
 
-        logger.info("Retail electricty pricing constraint (15) not added for now")
-        logger.info("IBR constraint (16) not added for now")
-
-
-        # (17) Enforce the indication of whether the total electricity usage is above threshold
+        # (13) Enforce the indication of whether the total electricity usage is above threshold
         model.addConstrs (
             q[t] >= \
                 gp.quicksum(
@@ -644,7 +604,7 @@ def follower_model(
                 ) - elec_threshold.get(t, 0)
             for t in TIMESTEPS
         )
-        logger.info("Threshold indication constraints (17) added")
+        logger.info("Threshold indication constraints (13) added")
 
         logger.info("All constraints added")
         model.update()  # Apply all changes to the model
@@ -742,8 +702,6 @@ def follower_model(
         u_sol: dict[tuple[int, int, int, int]   , float] = {k: v.X for k, v in u.items()}
         e_sol: dict[tuple[int, int, int]        , float] = {k: v.X for k, v in e.items()}
         q_sol: dict[int                         , float] = {t: v.X for t, v in q.items()}
-        # h_sol: float                                     = h.X
-        # l_sol: float                                     = l.X
 
         service_revenues_sol: dict[int, float] = {t: v.X for t, v in service_revenues.items()}
         penalty_costs_sol   : dict[int, float] = {t: v.X for t, v in penalty_costs.items()}
@@ -757,8 +715,6 @@ def follower_model(
                 "u"                     : u_sol,
                 "e"                     : e_sol,
                 "q"                     : q_sol,
-                # "h"                     : h_sol,
-                # "l"                     : l_sol,
                 "service_revenues"      : service_revenues_sol,
                 "penalty_costs"         : penalty_costs_sol,
                 "charge_costs"          : charge_costs_sol,          
