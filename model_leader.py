@@ -48,67 +48,34 @@ def leader_model(
     # ----------------------------
     
     # Follower parameters
-    N                       : int                                       = kwargs.get("N")                       # number of operation zones (1, ..., N)
-    T                       : int                                       = kwargs.get("T")                       # termination time of daily operations (0, ..., T)
-    L                       : int                                       = kwargs.get("L")                       # max SoC level (all EVs start at this level) (0, ..., L)
-    W                       : int                                       = kwargs.get("W")                       # maximum time intervals a passenger will wait for a ride (0, ..., W-1; demand expires at W)
-    travel_demand           : dict[tuple[int, int, int], int]           = kwargs.get("travel_demand")           # travel demand from zone i to j at starting at time t
-    travel_time             : dict[tuple[int, int, int], int]           = kwargs.get("travel_time")             # travel time from i to j at starting at time t
-    travel_energy           : dict[tuple[int, int], int]                = kwargs.get("travel_energy")           # energy consumed for trip from zone i to j
-    order_revenue           : dict[tuple[int, int, int], float]         = kwargs.get("order_revenue")           # order revenue for each trip served from i to j at time t
-    penalty                 : dict[tuple[int, int, int], float]         = kwargs.get("penalty")                 # penalty cost for each unserved trip from i to j at time t 
-    L_min                   : int                                       = kwargs.get("L_min")                   # min SoC level all EV must end with at the end of the daily operations
-    num_EVs                 : int                                       = kwargs.get("num_EVs")                 # total number of EVs in the fleet
-    num_ports               : dict[int, int]                            = kwargs.get("num_ports")               # number of chargers in each zone
-    elec_supplied           : dict[tuple[int, int], int]                = kwargs.get("elec_supplied")           # electricity supplied (in SoC levels) at zone i at time t
-    max_charge_speed        : int                                       = kwargs.get("max_charge_speed")        # max charging speed (in SoC levels) of one EV in one time step
+    T                       : int                           = kwargs.get("T")                       # termination time of daily operations (0, ..., T)
+    elec_supplied           : dict[tuple[int, int], int]    = kwargs.get("elec_supplied")           # electricity supplied (in SoC levels) at zone i at time t
         
-    charge_cost_low         : dict[int, float]                          = kwargs.get("charge_cost_low")         # charge cost per unit of SoC at zone i at time t when usage is below threshold
-    charge_cost_high        : dict[int, float]                          = kwargs.get("charge_cost_high")        # charge cost per unit of SOC at zone i at time t when usage is above threshold
-    elec_threshold          : dict[int, int]                            = kwargs.get("elec_threshold")          # electricity threshold at zone i at time t
+    charge_cost_low         : dict[int, float]              = kwargs.get("charge_cost_low")         # charge cost per unit of SoC at zone i at time t when usage is below threshold
+    charge_cost_high        : dict[int, float]              = kwargs.get("charge_cost_high")        # charge cost per unit of SOC at zone i at time t when usage is above threshold
+    elec_threshold          : dict[int, int]                = kwargs.get("elec_threshold")          # electricity threshold at zone i at time t
 
     # leader parameters
-    penalty_weight          : float                                     = kwargs.get("penalty_weight")          # weight for penalty on high price settings
-    wholesale_elec_price    : dict[int, float]                          = kwargs.get("wholesale_elec_price")    # wholesale electricity price at time t ($ per kWh)
-    reference_variance      : float                                     = kwargs.get("reference_variance")      # reference variance for normalization
+    penalty_weight          : float                         = kwargs.get("penalty_weight")          # weight for penalty on high price settings
+    wholesale_elec_price    : dict[int, float]              = kwargs.get("wholesale_elec_price")    # wholesale electricity price at time t ($ per kWh)
+    reference_variance      : float                         = kwargs.get("reference_variance")      # reference variance for normalization
 
     # Output solutions
-    obj                     : float                                     = kwargs.get("obj", 0.0)
-    x                       : dict[int, float]                          = kwargs.get("x", {})
-    s                       : dict[tuple[int, int, int], float]         = kwargs.get("s", {})
-    u                       : dict[tuple[int, int, int, int], float]    = kwargs.get("u", {})
-    e                       : dict[tuple[int, int, int], float]         = kwargs.get("e", {})
-    q                       : dict[int, float]                          = kwargs.get("q", {})
-    h                       : float                                     = kwargs.get("h", 0.0)
-    l                       : float                                     = kwargs.get("l", 0.0)
-    service_revenues        : dict[int, float]                          = kwargs.get("service_revenues", {})
-    penalty_costs           : dict[int, float]                          = kwargs.get("penalty_costs", {})
-    charge_costs            : dict[int, float]                          = kwargs.get("charge_costs", {})
+    x                       : dict[int, float]              = kwargs.get("x", {})
 
     # Arcs
-    all_arcs                : dict[int                  , Arc]          = kwargs["all_arcs"]
-    type_arcs               : dict[ArcType              , set[int]]     = kwargs["type_arcs"]
-    in_arcs                 : dict[Node                 , set[int]]     = kwargs["in_arcs"]
-    out_arcs                : dict[Node                 , set[int]]     = kwargs["out_arcs"]
-    service_arcs_ijt        : dict[tuple[int, int, int] , set[int]]     = kwargs["service_arcs_ijt"]
-    charge_arcs_it          : dict[tuple[int, int]      , set[int]]     = kwargs["charge_arcs_it"]
-    charge_arcs_t           : dict[int                  , set[int]]     = kwargs["charge_arcs_t"]
+    all_arcs                : dict[int, Arc]                = kwargs["all_arcs"]
+    charge_arcs_t           : dict[int, set[int]]           = kwargs["charge_arcs_t"]
 
     # Sets
-    valid_travel_demand     : dict[tuple[int, int, int], int]           = kwargs["valid_travel_demand"]
-    invalid_travel_demand   : set[tuple[int, int, int]]                 = kwargs["invalid_travel_demand"]
-    ZONES                   : list[int]                                 = kwargs["ZONES"]
-    TIMESTEPS               : list[int]                                 = kwargs["TIMESTEPS"]
-    LEVELS                  : list[int]                                 = kwargs["LEVELS"]
-    AGES                    : list[int]                                 = kwargs["AGES"]
+    ZONES                   : list[int]                     = kwargs["ZONES"]
 
     # Metadata
-    to_console              : bool                                      = kwargs.get("to_console", False)       # whether to log to console
-    to_file                 : bool                                      = kwargs.get("to_file", True)           # whether to log to file
-    timestamp               : str                                       = kwargs.get("timestamp", "")           # timestamp for logging
-    file_name               : str                                       = kwargs.get("file_name", "")           # filename for logging
-    folder_name             : str                                       = kwargs.get("folder_name", "")         # folder name for logs and results
-
+    to_console              : bool                          = kwargs.get("to_console", False)       # whether to log to console
+    to_file                 : bool                          = kwargs.get("to_file", True)           # whether to log to file
+    timestamp               : str                           = kwargs.get("timestamp", "")           # timestamp for logging
+    file_name               : str                           = kwargs.get("file_name", "")           # filename for logging
+    folder_name             : str                           = kwargs.get("folder_name", "")         # folder name for logs and results
 
     # Create logger
     logger = Logger("model_leader", level="DEBUG", to_console=to_console, timestamp=timestamp)
@@ -129,7 +96,7 @@ def leader_model(
         # Calculate total electricity used at time t
         for e_id in charge_arcs_t.get(t, set()):
             arc = all_arcs[e_id]
-            
+
             # Electricity used = number of EVs * charge amount
             charge_amount = arc.d.l - arc.o.l  # SoC levels charged
             electricity_usage[t] += x[e_id] * charge_amount
@@ -175,11 +142,6 @@ def leader_model(
     fitness                     : float = variance_ratio + penalty_weight * percentage_price_increase
 
     logger.info("Leader model computation completed.")
-    return {
-        "fitness"                   : fitness,
-        "variance"                  : variance,
-        "variance_ratio"            : variance_ratio,
-        "percentage_price_increase" : percentage_price_increase
-    }
+    return fitness, variance, variance_ratio, percentage_price_increase
 
         

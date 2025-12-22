@@ -9,6 +9,7 @@ from model_follower import follower_model
 from networkClass import Node, Arc, ArcType
 from utility import convert_key_types
 from postprocessing import postprocessing
+from bilevel_DE import run_parallel_de
 
 timestamp = datetime.now().strftime("%Y%m%d_%H%M")
 
@@ -76,27 +77,38 @@ if __name__ == "__main__":
 
     # Extract parameters from processed_data
     try:
-        N               : int                               = processed_data["N"]               # number of operation zones (1, ..., N)
-        T               : int                               = processed_data["T"]               # termination time of daily operations (0, ..., T)
-        L               : int                               = processed_data["L"]               # max SoC level (all EVs start at this level) (0, ..., L)
-        W               : int                               = processed_data["W"]               # maximum time intervals a passenger will wait for a ride (0, ..., W-1; demand expires at W)
+        # Follower model parameters
+        N                   : int                               = processed_data["N"]                       # number of operation zones (1, ..., N)
+        T                   : int                               = processed_data["T"]                       # termination time of daily operations (0, ..., T)
+        L                   : int                               = processed_data["L"]                       # max SoC level (all EVs start at this level) (0, ..., L)
+        W                   : int                               = processed_data["W"]                       # maximum time intervals a passenger will wait for a ride (0, ..., W-1; demand expires at W)
+        travel_demand       : dict[tuple[int, int, int], int]   = processed_data["travel_demand"]           # travel demand from zone i to j at starting at time t
+        travel_time         : dict[tuple[int, int, int], int]   = processed_data["travel_time"]             # travel time from i to j at starting at time t
+        travel_energy       : dict[tuple[int, int], int]        = processed_data["travel_energy"]           # energy consumed for trip from zone i to j
+        order_revenue       : dict[tuple[int, int, int], float] = processed_data["order_revenue"]           # order revenue for each trip served from i to j at time t
+        penalty             : dict[tuple[int, int, int], float] = processed_data["penalty"]                 # penalty cost for each unserved trip from i to j at time t
+        L_min               : int                               = processed_data["L_min"]                   # min SoC level all EV must end with at the end of the daily operations
+        num_EVs             : int                               = processed_data["num_EVs"]                 # total number of EVs in the fleet 
+        num_ports           : dict[int, int]                    = processed_data["num_ports"]               # number of charging ports in each zone
+        elec_supplied       : dict[tuple[int, int], int]        = processed_data["elec_supplied"]           # electricity supplied (in SoC levels) at zone i at time t
+        max_charge_speed    : int                               = processed_data["max_charge_speed"]        # max charging speed (in SoC levels) of one EV in one time step
         
-        travel_demand   : dict[tuple[int, int, int], int]   = processed_data["travel_demand"]   # travel demand from zone i to j at starting at time t
-        travel_time     : dict[tuple[int, int, int], int]   = processed_data["travel_time"]     # travel time from i to j at starting at time t
-        travel_energy   : dict[tuple[int, int], int]        = processed_data["travel_energy"]   # energy consumed for trip from zone i to j
-        order_revenue   : dict[tuple[int, int, int], float] = processed_data["order_revenue"]   # order revenue for each trip served from i to j at time t
-        penalty         : dict[tuple[int, int, int], float] = processed_data["penalty"]         # penalty cost for each unserved trip from i to j at time t
-        L_min           : int                               = processed_data["L_min"]           # min SoC level all EV must end with at the end of the daily operations
-        num_EVs         : int                               = processed_data["num_EVs"]         # total number of EVs in the fleet
-        
-        num_ports           : dict[int, int]                = processed_data["num_ports"]               # number of charging ports in each zone
-        elec_supplied       : dict[tuple[int, int], int]    = processed_data["elec_supplied"]           # electricity supplied (in SoC levels) at zone i at time t
-        max_charge_speed    : int                           = processed_data["max_charge_speed"]        # max charging speed (in SoC levels) of one EV in one time step
-        wholesale_elec_price: dict[int, float]              = processed_data["wholesale_elec_price"]    # wholesale electricity price at time t
-        
-        charge_cost_low : dict[int, float]                  = processed_data["charge_cost_low"]         # charge cost per unit of SoC at zone i at time t when usage is below threshold
-        charge_cost_high: dict[int, float]                  = processed_data["charge_cost_high"]        # charge cost per unit of SOC at zone i at time t when usage is above threshold
-        elec_threshold  : dict[int, int]                    = processed_data["elec_threshold"]          # electricity threshold at zone i at time t
+        # Leader model parameters
+        wholesale_elec_price: dict[int, float]                  = processed_data["wholesale_elec_price"]    # wholesale electricity price at time t
+
+        # DE parameters
+        pop_size            : int                               = processed_data.get("popsize", 12)         # population size for DE (roughly equal to number of dimensions)
+        max_iter            : int                               = processed_data.get("maxiter", 60)         # maximum iterations for DE
+        f                   : float                             = processed_data.get("F", 0.9)              # Differential Weight / Mutation: Controls jump size
+                                                                                                            #   Higher = bigger jumps (exploration); Lower = fine-tuning (exploitation)
+                                                                                                            #   Since population size is small, need to aggresively explore to avoid getting stuck.
+        cr                  : float                             = processed_data.get("CR", 0.9)                 # Crossover Probability: How much DNA comes from the mutant vs. the parent
+                                                                                                            #   0.9 means 90% of the genes change every step.
+                                                                                                            #   We want to mix good genes quickly, so set it high.
+        var_threshold       : float                             = processed_data.get("var_threshold", 0.001)# variance threshold for DE
+        penalty_weight      : float                             = processed_data.get("penalty_weight", 0.5) # penalty weight for DE
+        num_anchors         : int                               = processed_data.get("num_anchors", 4)      # number of anchors for DE
+        dims_per_step       : int                               = 3                                         # number of dimensions (variables) per time step (i.e. a_t, b_t, r_t)
 
     except KeyError as e:
         logger.error(f"Missing required parameter in input data: {e}")
@@ -105,6 +117,58 @@ if __name__ == "__main__":
         logger.error(f"An unexpected error occurred while extracting parameters: {e}")
         exit(1)
     
+
+    # -----------------------------------------------------------
+    # Stage 1: Run the bilevel optimization on relaxed model
+    # -----------------------------------------------------------
+    logger.info("Stage 1: Starting bilevel optimization using Differential Evolution...")
+    
+    best_solution = run_parallel_de(
+        # Follower model parameters
+        N                       = N                     ,
+        T                       = T                     ,
+        L                       = L                     ,
+        W                       = W                     ,
+        travel_demand           = travel_demand         ,
+        travel_time             = travel_time           ,
+        travel_energy           = travel_energy         ,
+        order_revenue           = order_revenue         ,
+        penalty                 = penalty               ,
+        L_min                   = L_min                 ,
+        num_EVs                 = num_EVs               ,
+        num_ports               = num_ports             ,
+        elec_supplied           = elec_supplied         ,
+        max_charge_speed        = max_charge_speed      ,
+
+        # Leader model parameters
+        wholesale_elec_price    = wholesale_elec_price  ,
+
+        # DE parameters
+        pop_size                = pop_size              ,
+        max_iter                = max_iter              ,
+        f                       = f                     ,
+        cr                      = cr                    ,
+        var_threshold           = var_threshold         ,
+        penalty_weight          = penalty_weight        ,
+        num_anchors             = num_anchors           ,
+        dims_per_step           = dims_per_step         ,
+
+        # Metadata
+        timestamp               = timestamp             ,
+        file_name               = file_name             ,
+        folder_name             = folder_name           ,
+    )
+    logger.info("Bilevel optimization completed.")
+
+    charge_cost_low     : dict[int, float]                  = best_solution["charge_cost_low"]       # a_t
+    charge_cost_high    : dict[int, float]                  = best_solution["charge_cost_high"]      # b_t
+    elec_threshold      : dict[int, int]                    = best_solution["elec_threshold"]        # r_t
+
+    # ----------------------------------------------------------------------------------
+    # Stage 2: Run the original follower model with the obtained pricing and threshold
+    # ----------------------------------------------------------------------------------
+    logger.info("Stage 2: Running follower model with obtained pricing and threshold...")
+
     output = follower_model(
         N                       = N                     ,
         T                       = T                     ,
@@ -128,7 +192,7 @@ if __name__ == "__main__":
         charge_cost_high        = charge_cost_high      ,
         elec_threshold          = elec_threshold        ,
 
-        relaxed                 = True                  ,
+        relaxed                 = False                 ,
 
         # Metadata
         timestamp               = timestamp             ,
