@@ -90,7 +90,7 @@ def leader_model(
     # ----------------------------
 
     # Calculate electricity consumption at each time step using vectorized operations
-    electricity_usage: npt.NDArray[np.float_] = np.zeros(T + 1)
+    electricity_usage: npt.NDArray[np.float64] = np.zeros(T + 1)
 
     for t in range(1, T):  # Exclude time 0 and T
         # Calculate total electricity used at time t
@@ -102,7 +102,7 @@ def leader_model(
             electricity_usage[t] += x[e_id] * charge_amount
 
     # Calculate variance of electricity consumption using numpy
-    usage_vector        : npt.NDArray[np.float_] = electricity_usage[1:T]  # exclude time 0 and T
+    usage_vector        : npt.NDArray[np.float64] = electricity_usage[1:T]  # exclude time 0 and T
     variance            : float                  = np.var(usage_vector, ddof=0) if len(usage_vector) > 1 else 0.0   # ddof=0 for population variance, =1 for sample variance
     variance_ratio      : float                  = variance / reference_variance if reference_variance > 0 else 0.0
 
@@ -115,25 +115,25 @@ def leader_model(
     timesteps_range             : npt.NDArray[np.int_]   = np.arange(1, T)  # exclude time 0 and T
     
     # Pre-compute electricity supplied at each time step
-    electricity_supplied_arr    : npt.NDArray[np.float_] = np.array([
+    electricity_supplied_arr    : npt.NDArray[np.float64] = np.array([
         sum(elec_supplied.get((i, t), 0) for i in ZONES) for t in timesteps_range
     ])
     
     # Convert pricing arrays
-    charge_cost_low_arr         : npt.NDArray[np.float_] = np.array([charge_cost_low[t] for t in timesteps_range])
-    charge_cost_high_arr        : npt.NDArray[np.float_] = np.array([charge_cost_high[t] for t in timesteps_range])
-    elec_threshold_arr          : npt.NDArray[np.float_] = np.array([elec_threshold[t] for t in timesteps_range])
-    wholesale_elec_price_arr    : npt.NDArray[np.float_] = np.array([wholesale_elec_price[t] for t in timesteps_range])
+    charge_cost_low_arr         : npt.NDArray[np.float64] = np.array([charge_cost_low[t] for t in timesteps_range])
+    charge_cost_high_arr        : npt.NDArray[np.float64] = np.array([charge_cost_high[t] for t in timesteps_range])
+    elec_threshold_arr          : npt.NDArray[np.float64] = np.array([elec_threshold[t] for t in timesteps_range])
+    wholesale_elec_price_arr    : npt.NDArray[np.float64] = np.array([wholesale_elec_price[t] for t in timesteps_range])
     
     # Calculate K values vectorized (avoid division by zero)
-    K_values                    : npt.NDArray[np.float_] = np.where(
+    K_values                    : npt.NDArray[np.float64] = np.where(
         electricity_supplied_arr > 0,
         1 - elec_threshold_arr / electricity_supplied_arr,
         0.0
     )
     
     # Calculate price increases vectorized
-    price_increases             : npt.NDArray[np.float_] = (
+    price_increases             : npt.NDArray[np.float64] = (
         (charge_cost_low_arr + charge_cost_high_arr * K_values) - wholesale_elec_price_arr
     ) / wholesale_elec_price_arr
     

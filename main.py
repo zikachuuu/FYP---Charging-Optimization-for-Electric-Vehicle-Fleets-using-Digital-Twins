@@ -11,34 +11,55 @@ from utility import convert_key_types
 from postprocessing import postprocessing
 from bilevel_DE import run_parallel_de
 
-timestamp = datetime.now().strftime("%Y%m%d_%H%M")
+POP_SIZE        : int   = 16        # population size for DE (should be in multiples of <number of CPU cores> - 1)
+MAX_ITER        : int   = 10        # maximum iterations for DE
+F               : float = 0.9       # Differential Weight / Mutation: Controls jump size
+                                    #   Higher = bigger jumps (exploration); Lower = fine-tuning (exploitation)
+                                    #   Since population size is small, need to aggresively explore to avoid getting stuck.
+CR              : float = 0.9       # Crossover Probability: How much DNA comes from the mutant vs. the parent
+                                    #   0.9 means 90% of the genes change every step.
+                                    #   We want to mix good genes quickly, so set it high.
+VAR_THRESHOLD   : float = 0.001     # variance threshold for early stopping of DE
+PENALTY_WEIGHT  : float = 0.5       # penalty weight for high price settings in leader fitness function
+NUM_ANCHORS     : int   = 4         # number of anchors for DE
+DIMS_PER_STEP   : int   = 3         # number of dimensions (variables) per time step (i.e. a_t, b_t, r_t)
 
-logger = Logger("main", level="DEBUG", to_console=False, timestamp=timestamp)
+"""
+Notes for setting POP_SIZE and MAX_ITER:
+    - POP_SIZE should be a multiple of number of CPU cores - 1 (1 core is used for main process)
+    - number of CPU cores - 1 candidates are evaluated in parallel in each iteration
+    - Time to iterate the entire population once = time to evaluate one candidate * ceil (POP_SIZE / (num_cores - 1))
+    - MAX_ITER = (desired max runtime) / (time to iterate entire population once)
+    - Check time to evaluate one candidate by running only the follower model (Stage 2) by choosing model_choice = '1' in the main.py
+"""
+
 
 if __name__ == "__main__":
-    print ("---------------------------------------------------")
-    print ("Welcome to the EV Fleet Charging Optimization Model")
-    print ("---------------------------------------------------")    
+    print ("-------------------------------------------------------")
+    print ("| Welcome to the EV Fleet Charging Optimization Model |")
+    print ("-------------------------------------------------------")    
     print ()
-    print ("Find input test case files in the Testcases folder.")
-    print ("Output results will be saved in the Results folder.")
-    print ("Log files for debugging will be saved in the Logs folder.")
+    print ("    - Find input test case files in the Testcases folder.")
+    print ("    - Output results will be saved in the Results folder.")
+    print ("    - Log files for debugging will be saved in the Logs folder.")
     print ()
-    directory = input ("Enter the specific folder in the Testcases folder (or press Enter if the file is directly in the Testcases folder): ").strip()
+    print ("You can choose to run only the follower model (Stage 2), or run the full bilevel optimization model (Stage 1 + Stage 2).")
+    print ("If you choose to run only the follower model, you need to provide the pricing and threshold values in the input JSON file.")
+    print ("Specfically, provide 'charge_cost_low', 'charge_cost_high', and 'elec_threshold' values for each time step (0 to T inclusive).")
     print ()
-    file_name = input ("Enter the JSON test case file name, without the .json extension. It should be located in the specified folder: ").strip()
+    print ("------------------------------------------------------------------------------------------------------------------------------")
+    print ()
+    model_choice = input ("Enter '1' to run only the follower model, or press '2' to run the bilevel optimization model (default is '2'): \n").strip()
+    print ()
+    directory = input ("Enter the specific folder in the Testcases folder (or press Enter if the file is directly in the Testcases folder): \n").strip()
+    print ()
+    file_name = input ("Enter the JSON test case file name, without the .json extension. It should be located in the specified folder: \n").strip()
     print ()
     print ("Give a unique name for this run, to be used as folder name for the log files and results.")
-    folder_name = input ("If empty, default name of <testcase file name>_<timestamp> will be used: ").strip()
+    folder_name = input ("If empty, default name of <testcase file name>_<timestamp> will be used: \n").strip()
     print ()
 
-    # TODO
-    # ask pop_size (~ multiple of num of cores, 1 core -> 1 candidate)
-    # ask max runtime for stage 1
-    # check time taken for one candidate (see ref candidate should be enough)
-    # calculate ~ max_iter based on max runtime
-    # time per iteration = time per candidate * ceil (pop_size / num_cores)
-    # max_iter = max_runtime / time per iteration
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M")
 
     if folder_name == "":
         folder_name = f"{file_name}_{timestamp}"
@@ -55,6 +76,7 @@ if __name__ == "__main__":
     if not os.path.exists(os.path.join("Results", folder_name)):
         os.makedirs(os.path.join("Results", folder_name))
 
+    logger = Logger("main", level="DEBUG", to_console=False, timestamp=timestamp)
     logger.save(os.path.join(folder_name, f"main_{file_name}"))  # Save log file in the specific folder for this run
 
     results_name = os.path.join("Results", folder_name, f"results_{file_name}_{timestamp}.xlsx")
@@ -62,10 +84,10 @@ if __name__ == "__main__":
     # Load data from the specified JSON file
     processed_data: dict = None
     try:
-        with open(os.path.join ("Testcases", directory, file_name + ".json"), "r") as f:
+        with open(os.path.join ("Testcases", directory, file_name + ".json"), "r") as F:
             logger.info(f"Loading data from {file_name}.json")
 
-            data = json.load(f)
+            data = json.load(F)
             # logger.debug(f"Raw data loaded: {data}")
             logger.info ("Converting keys in data to appropriate types...")
 
@@ -106,18 +128,6 @@ if __name__ == "__main__":
         wholesale_elec_price: dict[int, float]                  = processed_data["wholesale_elec_price"]    # wholesale electricity price at time t
 
         # DE parameters
-        pop_size            : int                               = processed_data.get("popsize", 16)         # population size for DE (roughly equal to number of dimensions)
-        max_iter            : int                               = processed_data.get("maxiter", 10)         # maximum iterations for DE
-        f                   : float                             = processed_data.get("F", 0.9)              # Differential Weight / Mutation: Controls jump size
-                                                                                                            #   Higher = bigger jumps (exploration); Lower = fine-tuning (exploitation)
-                                                                                                            #   Since population size is small, need to aggresively explore to avoid getting stuck.
-        cr                  : float                             = processed_data.get("CR", 0.9)                 # Crossover Probability: How much DNA comes from the mutant vs. the parent
-                                                                                                            #   0.9 means 90% of the genes change every step.
-                                                                                                            #   We want to mix good genes quickly, so set it high.
-        var_threshold       : float                             = processed_data.get("var_threshold", 0.001)# variance threshold for DE
-        penalty_weight      : float                             = processed_data.get("penalty_weight", 0.5) # penalty weight for DE
-        num_anchors         : int                               = processed_data.get("num_anchors", 4)      # number of anchors for DE
-        dims_per_step       : int                               = 3                                         # number of dimensions (variables) per time step (i.e. a_t, b_t, r_t)
 
     except KeyError as e:
         logger.error(f"Missing required parameter in input data: {e}")
@@ -130,52 +140,63 @@ if __name__ == "__main__":
     # -----------------------------------------------------------
     # Stage 1: Run the bilevel optimization on relaxed model
     # -----------------------------------------------------------
-    logger.info("Stage 1: Starting bilevel optimization using Differential Evolution...")
-    try:
-        best_solution = run_parallel_de(
-            # Follower model parameters
-            N                       = N                     ,
-            T                       = T                     ,
-            L                       = L                     ,
-            W                       = W                     ,
-            travel_demand           = travel_demand         ,
-            travel_time             = travel_time           ,
-            travel_energy           = travel_energy         ,
-            order_revenue           = order_revenue         ,
-            penalty                 = penalty               ,
-            L_min                   = L_min                 ,
-            num_EVs                 = num_EVs               ,
-            num_ports               = num_ports             ,
-            elec_supplied           = elec_supplied         ,
-            max_charge_speed        = max_charge_speed      ,
+    if model_choice == "1":
+        logger.info("Stage 1 skipped as per user choice. Running only the follower model (Stage 2).")
+        try:
+            charge_cost_low     : dict[int, float]                  = processed_data["charge_cost_low"]       # a_t
+            charge_cost_high    : dict[int, float]                  = processed_data["charge_cost_high"]      # b_t
+            elec_threshold      : dict[int, int]                    = processed_data["elec_threshold"]        # r_t
+        except KeyError as e:
+            logger.error(f"Missing required pricing/threshold parameter in input data for follower model: {e}")
+            exit(1)
 
-            # Leader model parameters
-            wholesale_elec_price    = wholesale_elec_price  ,
+    else:
+        logger.info("Stage 1: Starting bilevel optimization using Differential Evolution...")
+        try:
+            best_solution = run_parallel_de(
+                # Follower model parameters
+                N                       = N                     ,
+                T                       = T                     ,
+                L                       = L                     ,
+                W                       = W                     ,
+                travel_demand           = travel_demand         ,
+                travel_time             = travel_time           ,
+                travel_energy           = travel_energy         ,
+                order_revenue           = order_revenue         ,
+                penalty                 = penalty               ,
+                L_min                   = L_min                 ,
+                num_EVs                 = num_EVs               ,
+                num_ports               = num_ports             ,
+                elec_supplied           = elec_supplied         ,
+                max_charge_speed        = max_charge_speed      ,
 
-            # DE parameters
-            pop_size                = pop_size              ,
-            max_iter                = max_iter              ,
-            f                       = f                     ,
-            cr                      = cr                    ,
-            var_threshold           = var_threshold         ,
-            penalty_weight          = penalty_weight        ,
-            num_anchors             = num_anchors           ,
-            dims_per_step           = dims_per_step         ,
+                # Leader model parameters
+                wholesale_elec_price    = wholesale_elec_price  ,
 
-            # Metadata
-            timestamp               = timestamp             ,
-            file_name               = file_name             ,
-            folder_name             = folder_name           ,
-        )
-    except Exception as e:
-        logger.error(f"Bilevel optimization failed in Stage 1: {e}")
-        exit(1)
-    
-    logger.info("Bilevel optimization completed.")
+                # DE parameters
+                pop_size                = POP_SIZE              ,
+                max_iter                = MAX_ITER              ,
+                f                       = F                     ,
+                cr                      = CR                    ,
+                var_threshold           = VAR_THRESHOLD         ,
+                penalty_weight          = PENALTY_WEIGHT        ,
+                num_anchors             = NUM_ANCHORS           ,
+                dims_per_step           = DIMS_PER_STEP         ,
 
-    charge_cost_low     : dict[int, float]                  = best_solution["charge_cost_low"]       # a_t
-    charge_cost_high    : dict[int, float]                  = best_solution["charge_cost_high"]      # b_t
-    elec_threshold      : dict[int, int]                    = best_solution["elec_threshold"]        # r_t
+                # Metadata
+                timestamp               = timestamp             ,
+                file_name               = file_name             ,
+                folder_name             = folder_name           ,
+            )
+        except Exception as e:
+            logger.error(f"Bilevel optimization failed in Stage 1: {e}")
+            exit(1)
+        
+        logger.info("Bilevel optimization completed.")
+
+        charge_cost_low     : dict[int, float]                  = best_solution["charge_cost_low"]       # a_t
+        charge_cost_high    : dict[int, float]                  = best_solution["charge_cost_high"]      # b_t
+        elec_threshold      : dict[int, int]                    = best_solution["elec_threshold"]        # r_t
 
     # ----------------------------------------------------------------------------------
     # Stage 2: Run the original follower model with the obtained pricing and threshold
@@ -252,10 +273,36 @@ if __name__ == "__main__":
     # ----------------------------
     # Arcs Information
     # ----------------------------    
-    logger.debug("Arcs information:")
+    logger_arcs = Logger("arcs", level="DEBUG", to_console=False, timestamp=timestamp)
+    logger_arcs.save (os.path.join (folder_name, f"arcs_{file_name}"), mode="w")      # Will overwrite the previous arcs log by model_follower.py
+
+    logger_arcs.debug("Arcs information:")
     for id, arc in all_arcs.items():
-        logger.debug (f"  Arc {id}: type {arc.type} from node ({arc.o.i}, {arc.o.t}, {arc.o.l}) to ({arc.d.i}, {arc.d.t}, {arc.d.l}); flow: {x[id]}")
+        logger_arcs.debug (f"  Arc {id}: type {arc.type} from node ({arc.o.i}, {arc.o.t}, {arc.o.l}) to ({arc.d.i}, {arc.d.t}, {arc.d.l}); flow: {x[id]}")
     
+    # ----------------------------
+    # EV flow in each arcs
+    # ----------------------------
+    logger_arcs.info("EV flow in arcs:")
+    curr_time = -1
+    for arc_id, arc in sorted(
+        all_arcs.items(),
+        key = lambda item: (item[1].o.t, item[1].o.i, item[1].d.i)
+    ):
+        if x.get(arc_id, 0) <= 0:
+            # we skip this arc if the arc has no flow and no unserved demand
+            continue
+
+        if curr_time != arc.o.t:
+            curr_time = arc.o.t
+            logger_arcs.info (f"  Time {curr_time}:")
+
+        logger_arcs.info(f"    Arc {arc_id} ({arc.type.name}): ")
+        logger_arcs.info(f"      From (start zone {arc.o.i}, start time {arc.o.t}, start charge {arc.o.l}) to (end zone {arc.d.i}, end time {arc.d.t}, end charge {arc.d.l})")
+        logger_arcs.info(f"      Flow: {x.get(arc_id, 0)}")
+        if arc.type == ArcType.SERVICE:
+            logger_arcs.info(f"      Unserved Demand: {s.get((arc.o.i, arc.d.i, arc.o.t), 0)}")
+
     
     # ----------------------------
     # Summarised Information
@@ -270,33 +317,10 @@ if __name__ == "__main__":
     logger.info(f"  Total penalty cost: {total_penalty_cost:.2f}")
     logger.info(f"  Total charge cost: {total_charge_cost:.2f}")    
     
-    # ----------------------------
-    # EV flow in each arcs
-    # ----------------------------
-    logger.info("EV flow in arcs:")
-    curr_time = -1
-    for arc_id, arc in sorted(
-        all_arcs.items(),
-        key = lambda item: (item[1].o.t, item[1].o.i, item[1].d.i)
-    ):
-        if x.get(arc_id, 0) <= 0:
-            # we skip this arc if the arc has no flow and no unserved demand
-            continue
-
-        if curr_time != arc.o.t:
-            curr_time = arc.o.t
-            logger.info (f"  Time {curr_time}:")
-
-        logger.info(f"    Arc {arc_id} ({arc.type.name}): ")
-        logger.info(f"      From ({arc.o.i}, {arc.o.t}, {arc.o.l}) to ({arc.d.i}, {arc.d.t}, {arc.d.l})")
-        logger.info(f"      Flow: {x.get(arc_id, 0)}")
-        if arc.type == ArcType.SERVICE:
-            logger.info(f"      Unserved Demand: {s.get((arc.o.i, arc.d.i, arc.o.t), 0)}")
-
+    
     # ----------------------------
     # Calculated information
     # ----------------------------
-
     # total number of valid trips
     total_trips: int = sum (
         valid_travel_demand.values()

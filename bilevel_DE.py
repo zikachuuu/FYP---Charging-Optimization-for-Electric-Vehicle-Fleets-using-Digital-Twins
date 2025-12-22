@@ -17,12 +17,11 @@ def _precompute_interpolation_matrix(
         T               : int                   , 
         num_anchors     : int                   , 
         anchor_indices  : npt.NDArray[np.int_]  ,
-    ) -> npt.NDArray[np.float_]:
+    ) -> npt.NDArray[np.float64]:
     """
     PRE-COMPUTE THIS ONCE OUTSIDE THE LOOP
     Creates a (T+1, num_anchors) matrix M such that: Full_Trajectory = M @ Anchors
     """
-
     # Create interpolation matrix
     # The rows correspond to time steps (0 to T)
     # The columns correspond to anchor points
@@ -34,7 +33,7 @@ def _precompute_interpolation_matrix(
     #       | 0.0  0.6667 0.3333 |  # t=3
     #       | 0.0  0.3333 0.6667 |  # t=4
     #       | 0.0   0.0     1.0  |  # t=5
-    M: npt.NDArray[np.float_] = np.zeros((T+1, num_anchors))
+    M: npt.NDArray[np.float64] = np.zeros((T+1, num_anchors))
     
     for i in range(num_anchors - 1):
 
@@ -62,14 +61,14 @@ def _precompute_interpolation_matrix(
 
 
 def _expand_trajectory (
-        candidate_flat  : npt.NDArray[np.float_], 
-        M               : npt.NDArray[np.float_], 
+        candidate_flat  : npt.NDArray[np.float64], 
+        M               : npt.NDArray[np.float64], 
         vars_per_step   : int,
         T               : int,  
-        lower_bounds_a  : npt.NDArray[np.float_],
-        lower_bounds_b  : npt.NDArray[np.float_],
-        lower_bounds_r  : npt.NDArray[np.float_],
-        upper_bounds_r  : npt.NDArray[np.float_],
+        lower_bounds_a  : npt.NDArray[np.float64],
+        lower_bounds_b  : npt.NDArray[np.float64],
+        lower_bounds_r  : npt.NDArray[np.float64],
+        upper_bounds_r  : npt.NDArray[np.float64],
     ) -> dict[str, dict[int, float]]:
     # compressed shape: (num_anchors * vars_per_step, )
     # reshape to (num_anchors, vars_per_step)
@@ -127,23 +126,23 @@ def _reference_candidate(
     charge_cost_high    : dict[int, float]                  = kwargs.get("charge_cost_high")        # b_t
     elec_threshold      : dict[int, int]                    = kwargs.get("elec_threshold")          # r_t
 
-    lower_bounds_a      : npt.NDArray[np.float_]            = kwargs.get("lower_bounds_a")          # lower bounds for a_t
-    lower_bounds_b      : npt.NDArray[np.float_]            = kwargs.get("lower_bounds_b")          # lower bounds for b_t
-    lower_bounds_r      : npt.NDArray[np.float_]            = kwargs.get("lower_bounds_r")          # lower bounds for r_t
-    upper_bounds_r      : npt.NDArray[np.float_]            = kwargs.get("upper_bounds_r")          # upper bounds for r_t
+    lower_bounds_a      : npt.NDArray[np.float64]           = kwargs.get("lower_bounds_a")          # lower bounds for a_t
+    lower_bounds_b      : npt.NDArray[np.float64]           = kwargs.get("lower_bounds_b")          # lower bounds for b_t
+    lower_bounds_r      : npt.NDArray[np.float64]           = kwargs.get("lower_bounds_r")          # lower bounds for r_t
+    upper_bounds_r      : npt.NDArray[np.float64]           = kwargs.get("upper_bounds_r")          # upper bounds for r_t
 
     # DE parameters
     vars_per_step       : int                               = kwargs.get("vars_per_step")           # number of variables per time step (3: a_t, b_t, r_t)
-    M                   : npt.NDArray[np.float_]            = kwargs.get("M")                       # interpolation matrix
+    M                   : npt.NDArray[np.float64]           = kwargs.get("M")                       # interpolation matrix
 
     # ----------------------------
     # Solve Follower Problem
     # ----------------------------
     solutions = _expand_trajectory(
         candidate_flat  = candidate_flat     ,
-        M                 = M                 ,
-        vars_per_step     = vars_per_step     ,
-        T                 = T                 ,
+        M               = M                 ,
+        vars_per_step   = vars_per_step     ,
+        T               = T                 ,
         lower_bounds_a  = lower_bounds_a      ,
         lower_bounds_b  = lower_bounds_b      ,
         lower_bounds_r  = lower_bounds_r      ,
@@ -181,7 +180,6 @@ def _reference_candidate(
         )
     except OptimizationError as e:
         raise OptimizationError("Failed to solve follower problem for reference candidate.", details=e) from e
-    
     except Exception as e:
         raise Exception("Unexpected error when solving follower problem for reference candidate.") from e
 
@@ -191,7 +189,7 @@ def _reference_candidate(
     charge_arcs_t   : dict[int, set[int]]   = follower_outputs.get("arcs", {}).get("charge_arcs_t", {})
 
     # Calculate electricity consumption at each time step using vectorized operations
-    electricity_usage: npt.NDArray[np.float_] = np.zeros(T + 1)
+    electricity_usage: npt.NDArray[np.float64] = np.zeros(T + 1)
 
     for t in range(1, T):  # Exclude time 0 and T
         # Calculate total electricity used at time t
@@ -203,8 +201,8 @@ def _reference_candidate(
             electricity_usage[t] += x[e_id] * charge_amount
 
     # Calculate variance of electricity consumption using numpy
-    usage_vector    : npt.NDArray[np.float_] = electricity_usage[1:T]  # exclude time 0 and T
-    variance        : float                  = np.var(usage_vector, ddof=1) if len(usage_vector) > 1 else 0.0
+    usage_vector    : npt.NDArray[np.float64] = electricity_usage[1:T]  # exclude time 0 and T
+    variance        : float                  = np.var(usage_vector, ddof=0) if len(usage_vector) > 1 else 0.0
 
     return variance
 
@@ -235,10 +233,10 @@ def _evaluate_single_candidate(
     elec_supplied       : dict[tuple[int, int], int]        = kwargs.get("elec_supplied")           # electricity supplied (in SoC levels) at zone i at time t
     max_charge_speed    : int                               = kwargs.get("max_charge_speed")        # max charging speed (in SoC levels) of one EV in one time step
     
-    lower_bounds_a      : npt.NDArray[np.float_]            = kwargs.get("lower_bounds_a")          # lower bounds for a_t
-    lower_bounds_b      : npt.NDArray[np.float_]            = kwargs.get("lower_bounds_b")          # lower bounds for b_t
-    lower_bounds_r      : npt.NDArray[np.float_]            = kwargs.get("lower_bounds_r")          # lower bounds for r_t
-    upper_bounds_r      : npt.NDArray[np.float_]            = kwargs.get("upper_bounds_r")          # upper bounds for r_t
+    lower_bounds_a      : npt.NDArray[np.float64]           = kwargs.get("lower_bounds_a")          # lower bounds for a_t
+    lower_bounds_b      : npt.NDArray[np.float64]           = kwargs.get("lower_bounds_b")          # lower bounds for b_t
+    lower_bounds_r      : npt.NDArray[np.float64]           = kwargs.get("lower_bounds_r")          # lower bounds for r_t
+    upper_bounds_r      : npt.NDArray[np.float64]           = kwargs.get("upper_bounds_r")          # upper bounds for r_t
 
     # Leader model parameters
     penalty_weight      : float                             = kwargs.get("penalty_weight")          # penalty weight for high a_t and b_t
@@ -246,10 +244,8 @@ def _evaluate_single_candidate(
     reference_variance  : float                             = kwargs.get("reference_variance")      # reference variance for normalization
     
     # DE parameters
-    num_anchors         : int                               = kwargs.get("num_anchors")             # number of anchors for DE
     vars_per_step       : int                               = kwargs.get("vars_per_step")           # number of variables per time step (3: a_t, b_t, r_t)
-    anchor_indices      : npt.NDArray[np.int_]              = kwargs.get("anchor_indices")          # indices of the anchors in the full T time steps
-    M                   : npt.NDArray[np.float_]            = kwargs.get("M")                       # interpolation matrix
+    M                   : npt.NDArray[np.float64]           = kwargs.get("M")                       # interpolation matrix
 
     solutions = _expand_trajectory(
         candidate_flat  = candidate_flat     ,
@@ -268,32 +264,37 @@ def _evaluate_single_candidate(
     # ----------------------------
     # Solve Follower Problem
     # ----------------------------
-    follower_outputs = follower_model(
-        N                       = N                     ,
-        T                       = T                     ,
-        L                       = L                     ,
-        W                       = W                     ,
-        travel_demand           = travel_demand         ,
-        travel_time             = travel_time           ,
-        travel_energy           = travel_energy         ,
-        order_revenue           = order_revenue         ,
-        penalty                 = penalty               ,
-        L_min                   = L_min                 ,
-        num_EVs                 = num_EVs               ,
-        num_ports               = num_ports             ,
-        elec_supplied           = elec_supplied         ,
-        max_charge_speed        = max_charge_speed      ,
+    try:
+        follower_outputs = follower_model(
+            N                       = N                     ,
+            T                       = T                     ,
+            L                       = L                     ,
+            W                       = W                     ,
+            travel_demand           = travel_demand         ,
+            travel_time             = travel_time           ,
+            travel_energy           = travel_energy         ,
+            order_revenue           = order_revenue         ,
+            penalty                 = penalty               ,
+            L_min                   = L_min                 ,
+            num_EVs                 = num_EVs               ,
+            num_ports               = num_ports             ,
+            elec_supplied           = elec_supplied         ,
+            max_charge_speed        = max_charge_speed      ,
 
-        charge_cost_low         = charge_cost_low       ,
-        charge_cost_high        = charge_cost_high      ,
-        elec_threshold          = elec_threshold        ,
+            charge_cost_low         = charge_cost_low       ,
+            charge_cost_high        = charge_cost_high      ,
+            elec_threshold          = elec_threshold        ,
 
-        relaxed                 = True                  ,
+            relaxed                 = True                  ,
 
-        to_console              = False                 ,
-        to_file                 = False                 ,
-    )
-
+            to_console              = False                 ,
+            to_file                 = False                 ,
+        )
+    except OptimizationError as e:
+        raise OptimizationError("Failed to solve follower problem for candidate.", details=e) from e
+    except Exception as e:
+        raise Exception("Unexpected error when solving follower problem for candidate.") from e
+    
     # Extract variables and sets from the follower_outputs    
     x               : dict[int, float]      = follower_outputs.get("sol", {}).get("x", {})
 
@@ -393,39 +394,39 @@ def run_parallel_de(
     # ----------------------------
 
     # Using numpy array is much faster for numerical operations
-    wholesale_elec_price_arr: npt.NDArray[np.float_] = np.array([wholesale_elec_price[t] for t in range(T + 1)])
+    wholesale_elec_price_arr: npt.NDArray[np.float64] = np.array([wholesale_elec_price[t] for t in range(T + 1)])
 
     # Lower bounds
-    lower_bounds_a          : npt.NDArray[np.float_] = wholesale_elec_price_arr.copy()          # a_t >= wholesale price
-    lower_bounds_b          : npt.NDArray[np.float_] = np.zeros(T + 1)                          # b_t >= 0
-    lower_bounds_r          : npt.NDArray[np.float_] = np.zeros(T + 1)                          # r_t >= 0
+    lower_bounds_a          : npt.NDArray[np.float64] = wholesale_elec_price_arr.copy()          # a_t >= wholesale price
+    lower_bounds_b          : npt.NDArray[np.float64] = np.zeros(T + 1)                          # b_t >= 0
+    lower_bounds_r          : npt.NDArray[np.float64] = np.zeros(T + 1)                          # r_t >= 0
 
     # Upper bounds
-    upper_bounds_a_init     : npt.NDArray[np.float_] = wholesale_elec_price_arr * 2.0                                                       # a_t <= 2 * wholesale price (initial, can be exceeded during evolution)
-    upper_bounds_b_init     : npt.NDArray[np.float_] = wholesale_elec_price_arr * 1.0                                                       # b_t <= wholesale price (initial, can be exceeded during evolution)
-    upper_bounds_r          : npt.NDArray[np.float_] = np.array([sum(elec_supplied.get((i,t),0) for i in range(N)) for t in range(T + 1)])  # r_t <= total electricity supplied at time t (hard limit)
+    upper_bounds_a_init     : npt.NDArray[np.float64] = wholesale_elec_price_arr * 2.0                                                       # a_t <= 2 * wholesale price (initial, can be exceeded during evolution)
+    upper_bounds_b_init     : npt.NDArray[np.float64] = wholesale_elec_price_arr * 1.0                                                       # b_t <= wholesale price (initial, can be exceeded during evolution)
+    upper_bounds_r          : npt.NDArray[np.float64] = np.array([sum(elec_supplied.get((i,t),0) for i in range(N)) for t in range(T + 1)])  # r_t <= total electricity supplied at time t (hard limit)
 
     # a_t and b_t can be unbounded in theory, but we set a very high upper bound for numerical stability
-    upper_bounds_a_final    : npt.NDArray[np.float_] = wholesale_elec_price_arr * 10.0
-    upper_bounds_b_final    : npt.NDArray[np.float_] = wholesale_elec_price_arr * 10.0
+    upper_bounds_a_final    : npt.NDArray[np.float64] = wholesale_elec_price_arr * 10.0
+    upper_bounds_b_final    : npt.NDArray[np.float64] = wholesale_elec_price_arr * 10.0
 
     # anchor indices (dimensionality reduction)
     # instead of optimizing for all T time steps, we pick num_anchors key points and interpolate the rest
     anchor_indices          : npt.NDArray[np.int_]   = np.linspace(0, T + 1, num_anchors, dtype=int)
     optimization_dims       : int                    = num_anchors * vars_per_step
-    M                       : npt.NDArray[np.float_] = _precompute_interpolation_matrix(T, num_anchors, anchor_indices)
+    M                       : npt.NDArray[np.float64]= _precompute_interpolation_matrix(T, num_anchors, anchor_indices)
 
     # array of bounds for anchored variables only
     # Flattened in the order of [a_0, b_0, r_0, a_1, b_1, r_1, ..., a_T, b_T, r_T]
-    lower_bounds            : npt.NDArray[np.float_] = np.column_stack(
+    lower_bounds            : npt.NDArray[np.float64] = np.column_stack(
         (lower_bounds_a, lower_bounds_b, lower_bounds_r)
     )[anchor_indices].flatten()
 
-    upper_bounds_init       : npt.NDArray[np.float_] = np.column_stack(
+    upper_bounds_init       : npt.NDArray[np.float64] = np.column_stack(
         (upper_bounds_a_init, upper_bounds_b_init, upper_bounds_r)
     )[anchor_indices].flatten()
 
-    upper_bounds_final      : npt.NDArray[np.float_] = np.column_stack(
+    upper_bounds_final      : npt.NDArray[np.float64] = np.column_stack(
         (upper_bounds_a_final, upper_bounds_b_final, upper_bounds_r)
     )[anchor_indices].flatten()
 
@@ -433,7 +434,7 @@ def run_parallel_de(
     # each row is a candidate represented as a 1D array of length optimization_dims
     # e.g. [a_0, b_0, r_0, a_1, b_1, r_1, ..., a_T, b_T, r_T]
     # number of rows = pop_size
-    population              : npt.NDArray[np.float_] = np.random.uniform (
+    population              : npt.NDArray[np.float64] = np.random.uniform (
         low     = lower_bounds, 
         high    = upper_bounds_init, 
         size    = (pop_size, optimization_dims)
@@ -532,9 +533,7 @@ def run_parallel_de(
         reference_variance      = reference_variance    ,
 
         # DE parameters
-        num_anchors             = num_anchors           ,
         vars_per_step           = vars_per_step         ,
-        anchor_indices          = anchor_indices        ,
         M                       = M                     ,
     )
 
@@ -551,13 +550,17 @@ def run_parallel_de(
 
         # Calculate initial fitness (Parallel)
         # Runs the evaluate_single_candidate function on each candidate in the population in parallel
-        results     : npt.NDArray[np.float_]    = np.array(pool.map(evaluate_single_candidate_worker, population))
+        try:
+            results     : npt.NDArray[np.float64]    = np.array(pool.map(evaluate_single_candidate_worker, population))
+        except Exception as e:
+            logger.error("An error occurred during the initial evaluation of candidates.")
+            raise e
 
         # Extract fitness and variance (first and second columns of each row)
-        fitnesses                   : npt.NDArray[np.float_]    = results[:,0]
-        variances                   : npt.NDArray[np.float_]    = results[:,1]
-        variance_ratios             : npt.NDArray[np.float_]    = results[:,2]
-        percentage_price_increases  : npt.NDArray[np.float_]    = results[:,3]
+        fitnesses                   : npt.NDArray[np.float64]    = results[:,0]
+        variances                   : npt.NDArray[np.float64]    = results[:,1]
+        variance_ratios             : npt.NDArray[np.float64]    = results[:,2]
+        percentage_price_increases  : npt.NDArray[np.float64]    = results[:,3]
 
         init_end_time       : float = time.time()
 
@@ -567,9 +570,9 @@ def run_parallel_de(
 
         if np.any(meet_threshold):
             qualified_indices           : npt.NDArray[np.int_]      = np.where(meet_threshold)[0]
-            qualified_fitnesses         : npt.NDArray[np.float_]    = fitnesses[qualified_indices]
+            qualified_fitnesses         : npt.NDArray[np.float64]   = fitnesses[qualified_indices]
             best_idx_within_qualified   : int                       = qualified_indices[np.argmin(qualified_fitnesses)]
-            best_vector                 : npt.NDArray[np.float_]    = population[best_idx_within_qualified].copy()
+            best_vector                 : npt.NDArray[np.float64]   = population[best_idx_within_qualified].copy()
 
             logger.info(f"Early stopping at initialization with Var = {variances[best_idx_within_qualified]:.5f}, \
                                                                 Fitness = {fitnesses[best_idx_within_qualified]:.5f}, \
@@ -623,26 +626,26 @@ def run_parallel_de(
             # F       : scales the distance vector (differential weight)
             # A + ... : shifts the scaled vector to start from A (the base vector)
             # mutant has shape (pop_size, optimization_dims)
-            mutant: npt.NDArray[np.float_]  = population[idxs_a] + f * (population[idxs_b] - population[idxs_c])
+            mutant: npt.NDArray[np.float64]  = population[idxs_a] + f * (population[idxs_b] - population[idxs_c])
 
             # enforce bounds
-            mutant: npt.NDArray[np.float_]  = np.maximum(mutant, lower_bounds)
-            mutant: npt.NDArray[np.float_]  = np.minimum(mutant, upper_bounds_final)
+            mutant: npt.NDArray[np.float64]  = np.maximum(mutant, lower_bounds)
+            mutant: npt.NDArray[np.float64]  = np.minimum(mutant, upper_bounds_final)
 
             # Crossover
             # for each variable, randomly decide whether to take from mutant or parent
             # if rand < cr, take from mutant; else take from parent; setting higher cr is more exploratory
-            rand_mask       : npt.NDArray[np.float_] = np.random.rand(pop_size, optimization_dims)
-            trial_population: npt.NDArray[np.float_] = np.where(rand_mask < cr, mutant, population)
+            rand_mask       : npt.NDArray[np.float64] = np.random.rand(pop_size, optimization_dims)
+            trial_population: npt.NDArray[np.float64] = np.where(rand_mask < cr, mutant, population)
             
 
             # --- 2. EVALUATE TRIALS (PARALLEL BOTTLENECK) ---
-            trial_results   : npt.NDArray[np.float_] = np.array(pool.map(evaluate_single_candidate_worker, trial_population))
+            trial_results   : npt.NDArray[np.float64] = np.array(pool.map(evaluate_single_candidate_worker, trial_population))
 
-            trial_fitnesses                 : npt.NDArray[np.float_] = trial_results[:,0]
-            trial_variances                 : npt.NDArray[np.float_] = trial_results[:,1]
-            trial_variance_ratios           : npt.NDArray[np.float_] = trial_results[:,2]
-            trial_percentage_price_increases: npt.NDArray[np.float_] = trial_results[:,3]
+            trial_fitnesses                 : npt.NDArray[np.float64] = trial_results[:,0]
+            trial_variances                 : npt.NDArray[np.float64] = trial_results[:,1]
+            trial_variance_ratios           : npt.NDArray[np.float64] = trial_results[:,2]
+            trial_percentage_price_increases: npt.NDArray[np.float64] = trial_results[:,3]
 
 
             # --- 3. SELECTION ---
@@ -662,9 +665,9 @@ def run_parallel_de(
             meet_threshold: npt.NDArray[np.bool_] = variances <= var_threshold
             if np.any(meet_threshold):
                 qualified_indices           : npt.NDArray[np.int_]      = np.where(meet_threshold)[0]
-                qualified_fitnesses         : npt.NDArray[np.float_]    = fitnesses[qualified_indices]
+                qualified_fitnesses         : npt.NDArray[np.float64]    = fitnesses[qualified_indices]
                 best_idx_within_qualified   : int                       = qualified_indices[np.argmin(qualified_fitnesses)]
-                best_vector                 : npt.NDArray[np.float_]    = population[best_idx_within_qualified].copy()
+                best_vector                 : npt.NDArray[np.float64]    = population[best_idx_within_qualified].copy()
 
                 logger.info(f"Early stopping at generation {gen+1} with Var = {variances[best_idx_within_qualified]:.5f}, \
                                                                         Fitness = {fitnesses[best_idx_within_qualified]:.5f}, \
@@ -710,7 +713,7 @@ def run_parallel_de(
     logger.info(f"DE completed in {end_time - start_time:.1f}s.")
     logger.info(f"Picking candidate with best fitness...")
 
-    best_vector : npt.NDArray[np.float_] = population[best_fitness_idx].copy()
+    best_vector : npt.NDArray[np.float64] = population[best_fitness_idx].copy()
 
     return _expand_trajectory(
         candidate_flat  = best_vector   ,

@@ -387,10 +387,14 @@ def follower_model(
     # Log the number of arcs by type
     for arc_type, arcs in type_arcs.items() :
         logger.info(f"  {arc_type.name} arcs: {len(arcs)}")
-     
-    logger.debug("Arcs information:")
+
+    # Log arcs information to a separate file
+    logger_arcs = Logger("arcs", level="DEBUG", to_console=False, timestamp=timestamp)
+    logger_arcs.save (os.path.join (folder_name, f"arcs_{file_name}"))  # Will be overritten by main.py (if model was successful)
+    logger_arcs.debug("Arcs information:")
+
     for id, arc in all_arcs.items():
-        logger.debug (f"  Arc {id}: type {arc.type} from node ({arc.o.i}, {arc.o.t}, {arc.o.l}) to ({arc.d.i}, {arc.d.t}, {arc.d.l})")
+        logger_arcs.debug (f"  Arc {id}: type {arc.type} from node ({arc.o.i}, {arc.o.t}, {arc.o.l}) to ({arc.d.i}, {arc.d.t}, {arc.d.l})")
 
 
     # ----------------------------
@@ -610,10 +614,10 @@ def follower_model(
         logger.info("All constraints added")
         model.update()  # Apply all changes to the model
 
+
         # ----------------------------
         # Objective
         # ----------------------------
-
         service_revenues: gp.tupledict[int, gp.Var] = model.addVars (
             TIMESTEPS                   ,
             name = "service_revenues"  ,
@@ -677,7 +681,7 @@ def follower_model(
 
         model.Params.DualReductions = 0 # debug infeasible or unbounded
 
-        model.setParam('Crossover', 0)  # skip crossover, no dual solution, sensitivity analysis, warm start
+        model.setParam('Crossover', 0)  # skip crossover; no dual solution, sensitivity analysis, warm start
 
         model.optimize()
 
