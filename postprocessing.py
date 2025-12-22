@@ -533,6 +533,10 @@ def postprocessing(**kwargs):
                 max_supply[t] += elec_supplied.get((i, t), 0)
             threshold[t] = elec_threshold.get(t, 0)
         
+        usage_mean = sum(electricity_usage) / (T - 1)
+        usage_var = sum((u - usage_mean) ** 2 for u in electricity_usage) / (T - 1)
+        logger.info(f"Electricity Usage - Mean: {usage_mean:.2f}, Variance: {usage_var:.2f}")
+        
         # Create DataFrame
         df_electricity = pd.DataFrame({
             "Electricity Usage (SoC)"   : electricity_usage                                 ,
