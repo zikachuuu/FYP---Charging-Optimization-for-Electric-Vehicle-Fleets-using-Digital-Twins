@@ -25,11 +25,20 @@ if __name__ == "__main__":
     print ("Log files for debugging will be saved in the Logs folder.")
     print ()
     directory = input ("Enter the specific folder in the Testcases folder (or press Enter if the file is directly in the Testcases folder): ").strip()
+    print ()
     file_name = input ("Enter the JSON test case file name, without the .json extension. It should be located in the specified folder: ").strip()
     print ()
     print ("Give a unique name for this run, to be used as folder name for the log files and results.")
     folder_name = input ("If empty, default name of <testcase file name>_<timestamp> will be used: ").strip()
-    print()
+    print ()
+
+    # TODO
+    # ask pop_size (~ multiple of num of cores, 1 core -> 1 candidate)
+    # ask max runtime for stage 1
+    # check time taken for one candidate (see ref candidate should be enough)
+    # calculate ~ max_iter based on max runtime
+    # time per iteration = time per candidate * ceil (pop_size / num_cores)
+    # max_iter = max_runtime / time per iteration
 
     if folder_name == "":
         folder_name = f"{file_name}_{timestamp}"
@@ -97,8 +106,8 @@ if __name__ == "__main__":
         wholesale_elec_price: dict[int, float]                  = processed_data["wholesale_elec_price"]    # wholesale electricity price at time t
 
         # DE parameters
-        pop_size            : int                               = processed_data.get("popsize", 12)         # population size for DE (roughly equal to number of dimensions)
-        max_iter            : int                               = processed_data.get("maxiter", 60)         # maximum iterations for DE
+        pop_size            : int                               = processed_data.get("popsize", 16)         # population size for DE (roughly equal to number of dimensions)
+        max_iter            : int                               = processed_data.get("maxiter", 10)         # maximum iterations for DE
         f                   : float                             = processed_data.get("F", 0.9)              # Differential Weight / Mutation: Controls jump size
                                                                                                             #   Higher = bigger jumps (exploration); Lower = fine-tuning (exploitation)
                                                                                                             #   Since population size is small, need to aggresively explore to avoid getting stuck.
@@ -122,42 +131,46 @@ if __name__ == "__main__":
     # Stage 1: Run the bilevel optimization on relaxed model
     # -----------------------------------------------------------
     logger.info("Stage 1: Starting bilevel optimization using Differential Evolution...")
+    try:
+        best_solution = run_parallel_de(
+            # Follower model parameters
+            N                       = N                     ,
+            T                       = T                     ,
+            L                       = L                     ,
+            W                       = W                     ,
+            travel_demand           = travel_demand         ,
+            travel_time             = travel_time           ,
+            travel_energy           = travel_energy         ,
+            order_revenue           = order_revenue         ,
+            penalty                 = penalty               ,
+            L_min                   = L_min                 ,
+            num_EVs                 = num_EVs               ,
+            num_ports               = num_ports             ,
+            elec_supplied           = elec_supplied         ,
+            max_charge_speed        = max_charge_speed      ,
+
+            # Leader model parameters
+            wholesale_elec_price    = wholesale_elec_price  ,
+
+            # DE parameters
+            pop_size                = pop_size              ,
+            max_iter                = max_iter              ,
+            f                       = f                     ,
+            cr                      = cr                    ,
+            var_threshold           = var_threshold         ,
+            penalty_weight          = penalty_weight        ,
+            num_anchors             = num_anchors           ,
+            dims_per_step           = dims_per_step         ,
+
+            # Metadata
+            timestamp               = timestamp             ,
+            file_name               = file_name             ,
+            folder_name             = folder_name           ,
+        )
+    except Exception as e:
+        logger.error(f"Bilevel optimization failed in Stage 1: {e}")
+        exit(1)
     
-    best_solution = run_parallel_de(
-        # Follower model parameters
-        N                       = N                     ,
-        T                       = T                     ,
-        L                       = L                     ,
-        W                       = W                     ,
-        travel_demand           = travel_demand         ,
-        travel_time             = travel_time           ,
-        travel_energy           = travel_energy         ,
-        order_revenue           = order_revenue         ,
-        penalty                 = penalty               ,
-        L_min                   = L_min                 ,
-        num_EVs                 = num_EVs               ,
-        num_ports               = num_ports             ,
-        elec_supplied           = elec_supplied         ,
-        max_charge_speed        = max_charge_speed      ,
-
-        # Leader model parameters
-        wholesale_elec_price    = wholesale_elec_price  ,
-
-        # DE parameters
-        pop_size                = pop_size              ,
-        max_iter                = max_iter              ,
-        f                       = f                     ,
-        cr                      = cr                    ,
-        var_threshold           = var_threshold         ,
-        penalty_weight          = penalty_weight        ,
-        num_anchors             = num_anchors           ,
-        dims_per_step           = dims_per_step         ,
-
-        # Metadata
-        timestamp               = timestamp             ,
-        file_name               = file_name             ,
-        folder_name             = folder_name           ,
-    )
     logger.info("Bilevel optimization completed.")
 
     charge_cost_low     : dict[int, float]                  = best_solution["charge_cost_low"]       # a_t
@@ -169,41 +182,42 @@ if __name__ == "__main__":
     # ----------------------------------------------------------------------------------
     logger.info("Stage 2: Running follower model with obtained pricing and threshold...")
 
-    output = follower_model(
-        N                       = N                     ,
-        T                       = T                     ,
-        L                       = L                     ,
-        W                       = W                     ,
+    try:
+        output = follower_model(
+            N                       = N                     ,
+            T                       = T                     ,
+            L                       = L                     ,
+            W                       = W                     ,
 
-        travel_demand           = travel_demand         ,
-        travel_time             = travel_time           ,
-        travel_energy           = travel_energy         ,
-        order_revenue           = order_revenue         ,
-        penalty                 = penalty               ,
-        L_min                   = L_min                 ,
-        num_EVs                 = num_EVs               ,
+            travel_demand           = travel_demand         ,
+            travel_time             = travel_time           ,
+            travel_energy           = travel_energy         ,
+            order_revenue           = order_revenue         ,
+            penalty                 = penalty               ,
+            L_min                   = L_min                 ,
+            num_EVs                 = num_EVs               ,
 
-        num_ports               = num_ports             ,
-        elec_supplied           = elec_supplied         ,
-        max_charge_speed        = max_charge_speed      ,
-        wholesale_elec_price    = wholesale_elec_price  ,
+            num_ports               = num_ports             ,
+            elec_supplied           = elec_supplied         ,
+            max_charge_speed        = max_charge_speed      ,
+            wholesale_elec_price    = wholesale_elec_price  ,
 
-        charge_cost_low         = charge_cost_low       ,
-        charge_cost_high        = charge_cost_high      ,
-        elec_threshold          = elec_threshold        ,
+            charge_cost_low         = charge_cost_low       ,
+            charge_cost_high        = charge_cost_high      ,
+            elec_threshold          = elec_threshold        ,
 
-        relaxed                 = False                 ,
+            relaxed                 = False                 ,
 
-        # Metadata
-        timestamp               = timestamp             ,
-        file_name               = file_name             ,
-        folder_name             = folder_name           ,
-    )
+            # Metadata
+            timestamp               = timestamp             ,
+            file_name               = file_name             ,
+            folder_name             = folder_name           ,
+        )
+    except Exception as e:
+        logger.error(f"Follower model failed in Stage 2: {e}")
+        exit(1)
+    
     logger.info("Solution retreived from model.")
-
-    if output == None:
-        logger.error ("Optimization failed...")
-        exit (1)
 
     # Extract variables and sets from the output
     obj                     : float                                     = output.get("obj", 0.0)

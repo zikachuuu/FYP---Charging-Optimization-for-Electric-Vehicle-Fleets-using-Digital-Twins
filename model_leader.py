@@ -103,8 +103,7 @@ def leader_model(
 
     # Calculate variance of electricity consumption using numpy
     usage_vector        : npt.NDArray[np.float_] = electricity_usage[1:T]  # exclude time 0 and T
-    mean_usage          : float                  = np.mean(usage_vector)
-    variance            : float                  = np.var(usage_vector, ddof=1) if len(usage_vector) > 1 else 0.0
+    variance            : float                  = np.var(usage_vector, ddof=0) if len(usage_vector) > 1 else 0.0   # ddof=0 for population variance, =1 for sample variance
     variance_ratio      : float                  = variance / reference_variance if reference_variance > 0 else 0.0
 
 

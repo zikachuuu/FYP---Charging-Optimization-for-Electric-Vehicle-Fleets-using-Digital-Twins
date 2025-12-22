@@ -1,13 +1,14 @@
 from __future__ import annotations
 import gurobipy as gp
 from gurobipy import GRB
-from networkClass import Node, Arc, ArcType, ServiceArc, ChargingArc, RelocationArc, IdleArc, WraparoundArc
 from dotenv import load_dotenv
 import os
 
 load_dotenv()
 
 from logger import Logger
+from networkClass import Node, Arc, ArcType, ServiceArc, ChargingArc, RelocationArc, IdleArc, WraparoundArc
+from exceptions import OptimizationError
 
 # ----------------------------
 # Model builder
@@ -690,7 +691,7 @@ def follower_model(
                 model.write (os.path.join ("Logs", folder_name, f"gurobi_model_infeasible_{file_name}_{timestamp}.ilp"))
                 logger.error("Model is infeasible. IIS written to file.")
 
-            return None
+            raise OptimizationError ("Optimization was not successful.", status=model.Status)
         
         logger.info("Optimization successful.")
         logger.info(f"  Runtime: {model.Runtime:.4f} seconds")
