@@ -4,3 +4,11 @@
     - charge_cost_low: 0.1 -> 2
     - charge_cost_high: 0.2 -> 4
     - elec_threshold: 30 -> 200
+
+2_increase_penalty
+    - penalty: 1 -> 10
+
+3_increase_price_more
+    - charge_cost_low: 2 -> 20
+    - charge_cost_high: 4 -> 40
+    - elec_threshold: 200 -> 240
