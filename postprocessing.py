@@ -511,7 +511,7 @@ def postprocessing(**kwargs):
         """
         Create a plot comparing electricity usage with pricing.
         Left y-axis: SoC levels (usage, max supply, threshold)
-        Right y-axis: electricity price (high and low)
+        Right y-axis: electricity price (high, low, wholesale)
         
         Returns:
             pd.DataFrame: Electricity usage and pricing data
@@ -539,12 +539,16 @@ def postprocessing(**kwargs):
         logger.info(f"Electricity Usage - Mean: {usage_mean:.2f}, Variance: {usage_var:.2f}")
         
         # Create DataFrame
+        # Build wholesale price vector
+        wholesale_price = [wholesale_elec_price[t] if t in wholesale_elec_price else 0.0 for t in TIMESTEPS]
+
         df_electricity = pd.DataFrame({
             "Electricity Usage (SoC)"   : electricity_usage                                 ,
             "Max Supply (SoC)"          : max_supply                                        ,
             "Threshold (SoC)"           : threshold                                         ,
             "Price High ($/SoC)"        : [charge_cost_high.get(t, 0.0) for t in TIMESTEPS] ,
             "Price Low ($/SoC)"         : [charge_cost_low.get(t, 0.0) for t in TIMESTEPS]  ,
+            "Wholesale Price ($/SoC)"   : wholesale_price                                   ,
         }, index=TIMESTEPS)
         df_electricity.index.name = "Time Interval"
         
@@ -604,10 +608,19 @@ def postprocessing(**kwargs):
             label       = 'Price Low'           , 
             linestyle   = ':'                   ,
         )
+        line6 = ax2.plot(
+            df_electricity.index                    , 
+            df_electricity["Wholesale Price ($/SoC)"] , 
+            color       = 'tab:gray'                 , 
+            linewidth   = 2                          , 
+            marker      = markers[5]                 ,
+            label       = 'Wholesale Price'          , 
+            linestyle   = '-'                        ,
+        )
         ax2.tick_params(axis='y', labelcolor='tab:red')
         
         # Combined legend
-        lines = line1 + line2 + line3 + line4 + line5
+        lines = line1 + line2 + line3 + line4 + line5 + line6
         labels = [l.get_label() for l in lines]
         ax1.legend(lines, labels, loc='best', frameon=False)
         
