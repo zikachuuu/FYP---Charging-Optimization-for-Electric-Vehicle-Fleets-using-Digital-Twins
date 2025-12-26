@@ -60,9 +60,7 @@ class ChargingArc(Arc):
     """
     Represents an arc used for charging vehicles.
     """
-    charge_speed        :   int     # speed of charging in SoC levels per time step
-    charging_cost_low   :  float    # cost incurred for charging in this arc when usage is below threshold
-    charging_cost_high  : float     # cost incurred for charging in this arc when usage is above threshold
+    charge_speed:   int     # speed of charging in SoC levels per time step
 
     def __post_init__(self):
         if self.type != ArcType.CHARGE:

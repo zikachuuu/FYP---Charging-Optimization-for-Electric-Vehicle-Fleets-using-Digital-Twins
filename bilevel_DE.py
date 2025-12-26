@@ -5,7 +5,6 @@ from scipy.interpolate import interp1d
 import multiprocessing
 import os
 from functools import partial
-from math import isclose
 
 from model_leader import leader_model
 from model_follower import follower_model
@@ -15,7 +14,7 @@ from exceptions import OptimizationError
 
 def _precompute_interpolation_matrix(
         T               : int                   , 
-        num_anchors     : int                   , 
+        NUM_ANCHORS     : int                   , 
         anchor_indices  : npt.NDArray[np.int_]  ,
     ) -> npt.NDArray[np.float64]:
     """
@@ -33,9 +32,9 @@ def _precompute_interpolation_matrix(
     #       | 0.0  0.6667 0.3333 |  # t=3
     #       | 0.0  0.3333 0.6667 |  # t=4
     #       | 0.0   0.0     1.0  |  # t=5
-    M: npt.NDArray[np.float64] = np.zeros((T+1, num_anchors))
+    M: npt.NDArray[np.float64] = np.zeros((T+1, NUM_ANCHORS))
     
-    for i in range(num_anchors - 1):
+    for i in range(NUM_ANCHORS - 1):
 
         anchor_start    = anchor_indices[i]         # eg 0
         anchor_end      = anchor_indices[i+1]       # eg 2
@@ -61,18 +60,18 @@ def _precompute_interpolation_matrix(
 
 
 def _expand_trajectory (
-        candidate_flat  : npt.NDArray[np.float64], 
-        M               : npt.NDArray[np.float64], 
-        vars_per_step   : int,
-        T               : int,  
-        lower_bounds_a  : npt.NDArray[np.float64],
-        lower_bounds_b  : npt.NDArray[np.float64],
-        lower_bounds_r  : npt.NDArray[np.float64],
-        upper_bounds_r  : npt.NDArray[np.float64],
+        candidate_flat  : npt.NDArray[np.float64]   , 
+        M               : npt.NDArray[np.float64]   , 
+        VARS_PER_STEP   : int                       ,
+        lower_bounds_a  : npt.NDArray[np.float64]   ,
+        lower_bounds_b  : npt.NDArray[np.float64]   ,
+        lower_bounds_r  : npt.NDArray[np.float64]   ,
+        upper_bounds_r  : npt.NDArray[np.float64]   ,
+        TIMESTEPS       : list[int]                 ,
     ) -> dict[str, dict[int, float]]:
     # compressed shape: (num_anchors * vars_per_step, )
     # reshape to (num_anchors, vars_per_step)
-    anchors = candidate_flat.reshape(-1, vars_per_step)
+    anchors = candidate_flat.reshape(-1, VARS_PER_STEP)
     
     # (T+1, num_anchors) @ (num_anchors, 3) -> (T+1, 3)
     full_trajectory = M @ anchors
@@ -85,9 +84,9 @@ def _expand_trajectory (
     # charge_cost_low (a_t): first column
     # charge_cost_high (b_t): second column
     # elec_threshold (r_t): third column
-    charge_cost_low     : dict[int, float]  = {t: full_trajectory[t, 0]         for t in range(T + 1)}  # a_t
-    charge_cost_high    : dict[int, float]  = {t: full_trajectory[t, 1]         for t in range(T + 1)}  # b_t
-    elec_threshold      : dict[int, int]    = {t: round(full_trajectory[t, 2])  for t in range(T + 1)}  # r_t, ensure integer
+    charge_cost_low     : dict[int, float]  = {t: full_trajectory[t, 0]         for t in TIMESTEPS}  # a_t
+    charge_cost_high    : dict[int, float]  = {t: full_trajectory[t, 1]         for t in TIMESTEPS}  # b_t
+    elec_threshold      : dict[int, int]    = {t: round(full_trajectory[t, 2])  for t in TIMESTEPS}  # r_t, ensure integer
 
     return {
         "charge_cost_low"    : charge_cost_low        ,
@@ -107,53 +106,48 @@ def _reference_candidate(
     # Parameters
     # ----------------------------
     # Follower model parameters
-    N                   : int                               = kwargs.get("N")                       # number of operation zones (1, ..., N)
-    T                   : int                               = kwargs.get("T")                       # termination time of daily operations (0, ..., T)
-    L                   : int                               = kwargs.get("L")                       # max SoC level (all EVs start at this level) (0, ..., L)
-    W                   : int                               = kwargs.get("W")                       # maximum time intervals a passenger will wait for a ride (0, ..., W-1; demand expires at W)
-    travel_demand       : dict[tuple[int, int, int], int]   = kwargs.get("travel_demand")           # travel demand from zone i to j at starting at time t
-    travel_time         : dict[tuple[int, int, int], int]   = kwargs.get("travel_time")             # travel time from i to j at starting at time t
-    travel_energy       : dict[tuple[int, int], int]        = kwargs.get("travel_energy")           # energy consumed for trip from zone i to j
-    order_revenue       : dict[tuple[int, int, int], float] = kwargs.get("order_revenue")           # order revenue for each trip served from i to j at time t
-    penalty             : dict[tuple[int, int, int], float] = kwargs.get("penalty")                 # penalty cost for each unserved trip from i to j at time t 
-    L_min               : int                               = kwargs.get("L_min")                   # min SoC level all EV must end with at the end of the daily operations
-    num_EVs             : int                               = kwargs.get("num_EVs")                 # total number of EVs in the fleet
-    num_ports           : dict[int, int]                    = kwargs.get("num_ports")               # number of chargers in each zone
-    elec_supplied       : dict[tuple[int, int], int]        = kwargs.get("elec_supplied")           # electricity supplied (in SoC levels) at zone i at time t
-    max_charge_speed    : int                               = kwargs.get("max_charge_speed")        # max charging speed (in SoC levels) of one EV in one time step
+    N                       : int                                   = kwargs["N"]                       # number of operation zones (1, ..., N)
+    T                       : int                                   = kwargs["T"]                       # termination time of daily operations (0, ..., T)
+    L                       : int                                   = kwargs["L"]                       # max SoC level (all EVs start at this level) (0, ..., L)
+    W                       : int                                   = kwargs["W"]                       # maximum time intervals a passenger will wait for a ride (0, ..., W-1; demand expires at W)
+    travel_demand           : dict[tuple[int, int, int] , int]      = kwargs["travel_demand"]           # travel demand from zone i to j at starting at time t
+    travel_time             : dict[tuple[int, int, int] , int]      = kwargs["travel_time"]             # travel time from i to j at starting at time t
+    travel_energy           : dict[tuple[int, int]      , int]      = kwargs["travel_energy"]           # energy consumed for trip from zone i to j
+    order_revenue           : dict[tuple[int, int, int] , float]    = kwargs["order_revenue"]           # order revenue for each trip served from i to j at time t
+    penalty                 : dict[tuple[int, int, int] , float]    = kwargs["penalty"]                 # penalty cost for each unserved trip from i to j at time t
+    L_min                   : int                                   = kwargs["L_min"]                   # min SoC level all EV must end with at the end of the daily operations
+    num_EVs                 : int                                   = kwargs["num_EVs"]                 # total number of EVs in the fleet 
+    num_ports               : dict[int                  , int]      = kwargs["num_ports"]               # number of charging ports in each zone
+    elec_supplied           : dict[tuple[int, int]      , int]      = kwargs["elec_supplied"]           # electricity supplied (in SoC levels) at zone i at time t
+    max_charge_speed        : int                                   = kwargs["max_charge_speed"]        # max charging speed (in SoC levels) of one EV in one time step
 
-    charge_cost_low     : dict[int, float]                  = kwargs.get("charge_cost_low")         # a_t
-    charge_cost_high    : dict[int, float]                  = kwargs.get("charge_cost_high")        # b_t
-    elec_threshold      : dict[int, int]                    = kwargs.get("elec_threshold")          # r_t
+    # Network components
+    V_set                   : set[Node]                             = kwargs["V_set"]
+    all_arcs                : dict[int                  , Arc]      = kwargs["all_arcs"]
+    type_arcs               : dict[ArcType              , set[int]] = kwargs["type_arcs"]
+    in_arcs                 : dict[Node                 , set[int]] = kwargs["in_arcs"]
+    out_arcs                : dict[Node                 , set[int]] = kwargs["out_arcs"]
+    service_arcs_ijt        : dict[tuple[int, int, int] , set[int]] = kwargs["service_arcs_ijt"]
+    charge_arcs_it          : dict[tuple[int, int]      , set[int]] = kwargs["charge_arcs_it"]
+    charge_arcs_t           : dict[int                  , set[int]] = kwargs["charge_arcs_t"]
+    valid_travel_demand     : dict[tuple[int, int, int] , int]      = kwargs["valid_travel_demand"]
+    invalid_travel_demand   : set[tuple[int, int, int]]             = kwargs["invalid_travel_demand"]
+    ZONES                   : list[int]                             = kwargs["ZONES"]
+    TIMESTEPS               : list[int]                             = kwargs["TIMESTEPS"]
+    LEVELS                  : list[int]                             = kwargs["LEVELS"]
+    AGES                    : list[int]                             = kwargs["AGES"]
 
-    lower_bounds_a      : npt.NDArray[np.float64]           = kwargs.get("lower_bounds_a")          # lower bounds for a_t
-    lower_bounds_b      : npt.NDArray[np.float64]           = kwargs.get("lower_bounds_b")          # lower bounds for b_t
-    lower_bounds_r      : npt.NDArray[np.float64]           = kwargs.get("lower_bounds_r")          # lower bounds for r_t
-    upper_bounds_r      : npt.NDArray[np.float64]           = kwargs.get("upper_bounds_r")          # upper bounds for r_t
-
-    # DE parameters
-    vars_per_step       : int                               = kwargs.get("vars_per_step")           # number of variables per time step (3: a_t, b_t, r_t)
-    M                   : npt.NDArray[np.float64]           = kwargs.get("M")                       # interpolation matrix
+    # Pricing Variables
+    charge_cost_low         : dict[int                  , float]    = kwargs["charge_cost_low"]         # a_t
+    charge_cost_high        : dict[int                  , float]    = kwargs["charge_cost_high"]        # b_t
+    elec_threshold          : dict[int                  , int]      = kwargs["elec_threshold"]          # r_t
 
     # ----------------------------
     # Solve Follower Problem
     # ----------------------------
-    solutions = _expand_trajectory(
-        candidate_flat  = candidate_flat     ,
-        M               = M                 ,
-        vars_per_step   = vars_per_step     ,
-        T               = T                 ,
-        lower_bounds_a  = lower_bounds_a      ,
-        lower_bounds_b  = lower_bounds_b      ,
-        lower_bounds_r  = lower_bounds_r      ,
-        upper_bounds_r  = upper_bounds_r      ,
-    )
-    charge_cost_low     = solutions["charge_cost_low"]
-    charge_cost_high    = solutions["charge_cost_high"]
-    elec_threshold      = solutions["elec_threshold"]
-
     try:
         follower_outputs = follower_model(
+            # Follower model parameters
             N                       = N                     ,
             T                       = T                     ,
             L                       = L                     ,
@@ -169,12 +163,29 @@ def _reference_candidate(
             elec_supplied           = elec_supplied         ,
             max_charge_speed        = max_charge_speed      ,
 
+            # Network components
+            V_set                   = V_set                 ,
+            all_arcs                = all_arcs              ,
+            type_arcs               = type_arcs             ,
+            in_arcs                 = in_arcs               ,
+            out_arcs                = out_arcs              ,
+            service_arcs_ijt        = service_arcs_ijt      ,
+            charge_arcs_it          = charge_arcs_it        ,
+            charge_arcs_t           = charge_arcs_t         ,
+            valid_travel_demand     = valid_travel_demand   ,
+            invalid_travel_demand   = invalid_travel_demand ,
+            ZONES                   = ZONES                 ,
+            TIMESTEPS               = TIMESTEPS             ,
+            LEVELS                  = LEVELS                ,
+            AGES                    = AGES                  ,
+
+            # Pricing Variables
             charge_cost_low         = charge_cost_low       ,
             charge_cost_high        = charge_cost_high      ,
-            elec_threshold          = elec_threshold        ,
+            elec_threshold          = elec_threshold        ,  
 
+            # Metadata
             relaxed                 = True                  ,
-
             to_console              = False                 ,
             to_file                 = False                 ,
         )
@@ -184,14 +195,20 @@ def _reference_candidate(
         raise Exception("Unexpected error when solving follower problem for reference candidate.") from e
 
     # Extract variables and sets from the follower_outputs    
-    x               : dict[int, float]      = follower_outputs.get("sol", {}).get("x", {})
-    all_arcs        : dict[int, Arc]        = follower_outputs.get("arcs", {}).get("all_arcs", {})
-    charge_arcs_t   : dict[int, set[int]]   = follower_outputs.get("arcs", {}).get("charge_arcs_t", {})
+    obj             : float                                     = follower_outputs["obj"]
+    x               : dict[int, float]                          = follower_outputs["x"]
+    s               : dict[tuple[int, int, int]     , float]    = follower_outputs["s"]
+    u               : dict[tuple[int, int, int, int], float]    = follower_outputs["u"]
+    e               : dict[tuple[int, int, int]     , float]    = follower_outputs["e"]
+    q               : dict[int                      , float]    = follower_outputs["q"]
+    service_revenues: dict[int                      , float]    = follower_outputs["service_revenues"]
+    penalty_costs   : dict[int                      , float]    = follower_outputs["penalty_costs"]
+    charge_costs    : dict[int                      , float]    = follower_outputs["charge_costs"]
 
     # Calculate electricity consumption at each time step using vectorized operations
     electricity_usage: npt.NDArray[np.float64] = np.zeros(T + 1)
 
-    for t in range(1, T):  # Exclude time 0 and T
+    for t in TIMESTEPS:
         # Calculate total electricity used at time t
         for e_id in charge_arcs_t.get(t, set()):
             arc = all_arcs[e_id]
@@ -201,8 +218,8 @@ def _reference_candidate(
             electricity_usage[t] += x[e_id] * charge_amount
 
     # Calculate variance of electricity consumption using numpy
-    usage_vector    : npt.NDArray[np.float64] = electricity_usage[1:T]  # exclude time 0 and T
-    variance        : float                  = np.var(usage_vector, ddof=0) if len(usage_vector) > 1 else 0.0
+    usage_vector    : npt.NDArray[np.float64]   = electricity_usage[1:T]  # exclude time 0 and T
+    variance        : float                     = np.var(usage_vector, ddof=0) if len(usage_vector) > 1 else 0.0
 
     return variance
 
@@ -218,54 +235,78 @@ def _evaluate_single_candidate(
     # Parameters
     # ----------------------------
     # Follower model parameters
-    N                   : int                               = kwargs.get("N")                       # number of operation zones (1, ..., N)
-    T                   : int                               = kwargs.get("T")                       # termination time of daily operations (0, ..., T)
-    L                   : int                               = kwargs.get("L")                       # max SoC level (all EVs start at this level) (0, ..., L)
-    W                   : int                               = kwargs.get("W")                       # maximum time intervals a passenger will wait for a ride (0, ..., W-1; demand expires at W)
-    travel_demand       : dict[tuple[int, int, int], int]   = kwargs.get("travel_demand")           # travel demand from zone i to j at starting at time t
-    travel_time         : dict[tuple[int, int, int], int]   = kwargs.get("travel_time")             # travel time from i to j at starting at time t
-    travel_energy       : dict[tuple[int, int], int]        = kwargs.get("travel_energy")           # energy consumed for trip from zone i to j
-    order_revenue       : dict[tuple[int, int, int], float] = kwargs.get("order_revenue")           # order revenue for each trip served from i to j at time t
-    penalty             : dict[tuple[int, int, int], float] = kwargs.get("penalty")                 # penalty cost for each unserved trip from i to j at time t 
-    L_min               : int                               = kwargs.get("L_min")                   # min SoC level all EV must end with at the end of the daily operations
-    num_EVs             : int                               = kwargs.get("num_EVs")                 # total number of EVs in the fleet
-    num_ports           : dict[int, int]                    = kwargs.get("num_ports")               # number of chargers in each zone
-    elec_supplied       : dict[tuple[int, int], int]        = kwargs.get("elec_supplied")           # electricity supplied (in SoC levels) at zone i at time t
-    max_charge_speed    : int                               = kwargs.get("max_charge_speed")        # max charging speed (in SoC levels) of one EV in one time step
-    
-    lower_bounds_a      : npt.NDArray[np.float64]           = kwargs.get("lower_bounds_a")          # lower bounds for a_t
-    lower_bounds_b      : npt.NDArray[np.float64]           = kwargs.get("lower_bounds_b")          # lower bounds for b_t
-    lower_bounds_r      : npt.NDArray[np.float64]           = kwargs.get("lower_bounds_r")          # lower bounds for r_t
-    upper_bounds_r      : npt.NDArray[np.float64]           = kwargs.get("upper_bounds_r")          # upper bounds for r_t
+    N                       : int                                   = kwargs["N"]                       # number of operation zones (1, ..., N)
+    T                       : int                                   = kwargs["T"]                       # termination time of daily operations (0, ..., T)
+    L                       : int                                   = kwargs["L"]                       # max SoC level (all EVs start at this level) (0, ..., L)
+    W                       : int                                   = kwargs["W"]                       # maximum time intervals a passenger will wait for a ride (0, ..., W-1; demand expires at W)
+    travel_demand           : dict[tuple[int, int, int] , int]      = kwargs["travel_demand"]           # travel demand from zone i to j at starting at time t
+    travel_time             : dict[tuple[int, int, int] , int]      = kwargs["travel_time"]             # travel time from i to j at starting at time t
+    travel_energy           : dict[tuple[int, int]      , int]      = kwargs["travel_energy"]           # energy consumed for trip from zone i to j
+    order_revenue           : dict[tuple[int, int, int] , float]    = kwargs["order_revenue"]           # order revenue for each trip served from i to j at time t
+    penalty                 : dict[tuple[int, int, int] , float]    = kwargs["penalty"]                 # penalty cost for each unserved trip from i to j at time t
+    L_min                   : int                                   = kwargs["L_min"]                   # min SoC level all EV must end with at the end of the daily operations
+    num_EVs                 : int                                   = kwargs["num_EVs"]                 # total number of EVs in the fleet 
+    num_ports               : dict[int                  , int]      = kwargs["num_ports"]               # number of charging ports in each zone
+    elec_supplied           : dict[tuple[int, int]      , int]      = kwargs["elec_supplied"]           # electricity supplied (in SoC levels) at zone i at time t
+    max_charge_speed        : int                                   = kwargs["max_charge_speed"]        # max charging speed (in SoC levels) of one EV in one time step
+
+    # Network components
+    V_set                   : set[Node]                             = kwargs["V_set"]
+    all_arcs                : dict[int                  , Arc]      = kwargs["all_arcs"]
+    type_arcs               : dict[ArcType              , set[int]] = kwargs["type_arcs"]
+    in_arcs                 : dict[Node                 , set[int]] = kwargs["in_arcs"]
+    out_arcs                : dict[Node                 , set[int]] = kwargs["out_arcs"]
+    service_arcs_ijt        : dict[tuple[int, int, int] , set[int]] = kwargs["service_arcs_ijt"]
+    charge_arcs_it          : dict[tuple[int, int]      , set[int]] = kwargs["charge_arcs_it"]
+    charge_arcs_t           : dict[int                  , set[int]] = kwargs["charge_arcs_t"]
+    valid_travel_demand     : dict[tuple[int, int, int] , int]      = kwargs["valid_travel_demand"]
+    invalid_travel_demand   : set[tuple[int, int, int]]             = kwargs["invalid_travel_demand"]
+    ZONES                   : list[int]                             = kwargs["ZONES"]
+    TIMESTEPS               : list[int]                             = kwargs["TIMESTEPS"]
+    LEVELS                  : list[int]                             = kwargs["LEVELS"]
+    AGES                    : list[int]                             = kwargs["AGES"]
 
     # Leader model parameters
-    penalty_weight      : float                             = kwargs.get("penalty_weight")          # penalty weight for high a_t and b_t
-    wholesale_elec_price: dict[int, float]                  = kwargs.get("wholesale_elec_price")    # wholesale electricity price at time t
-    reference_variance  : float                             = kwargs.get("reference_variance")      # reference variance for normalization
+    wholesale_elec_price    : dict[int                  , float]    = kwargs["wholesale_elec_price"]    # wholesale electricity price at time t
+    PENALTY_WEIGHT          : float                                 = kwargs["PENALTY_WEIGHT"]          # penalty weight for high a_t and b_t
+    reference_variance      : float                                 = kwargs["reference_variance"]      # reference variance for normalization
+
+    # Pricing Variable bounds
+    lower_bounds_a          : npt.NDArray[np.float64]               = kwargs["lower_bounds_a"]          # lower bounds for a_t
+    lower_bounds_b          : npt.NDArray[np.float64]               = kwargs["lower_bounds_b"]          # lower bounds for b_t
+    lower_bounds_r          : npt.NDArray[np.float64]               = kwargs["lower_bounds_r"]          # lower bounds for r_t
+    upper_bounds_r          : npt.NDArray[np.float64]               = kwargs["upper_bounds_r"]          # upper bounds for r_t
     
     # DE parameters
-    vars_per_step       : int                               = kwargs.get("vars_per_step")           # number of variables per time step (3: a_t, b_t, r_t)
-    M                   : npt.NDArray[np.float64]           = kwargs.get("M")                       # interpolation matrix
+    VARS_PER_STEP           : int                                   = kwargs["VARS_PER_STEP"]           # number of variables per time step (3: a_t, b_t, r_t)
+    M                       : npt.NDArray[np.float64]               = kwargs["M"]                       # interpolation matrix
+
+    # Metadata
+    timestamp               : str                                   = kwargs.get("timestamp"    , "")   # timestamp for logging
+    file_name               : str                                   = kwargs.get("file_name"    , "")   # filename for logging
+    folder_name             : str                                   = kwargs.get("folder_name"  , "")   # folder name for logging
 
     solutions = _expand_trajectory(
-        candidate_flat  = candidate_flat     ,
+        candidate_flat  = candidate_flat    ,
         M               = M                 ,
-        vars_per_step   = vars_per_step     ,
-        T               = T                 ,
-        lower_bounds_a  = lower_bounds_a      ,
-        lower_bounds_b  = lower_bounds_b      ,
-        lower_bounds_r  = lower_bounds_r      ,
-        upper_bounds_r  = upper_bounds_r      ,   
+        VARS_PER_STEP   = VARS_PER_STEP     ,
+        lower_bounds_a  = lower_bounds_a    ,
+        lower_bounds_b  = lower_bounds_b    ,
+        lower_bounds_r  = lower_bounds_r    ,
+        upper_bounds_r  = upper_bounds_r    ,   
+        TIMESTEPS       = TIMESTEPS         ,
     )
     charge_cost_low     = solutions["charge_cost_low"]
     charge_cost_high    = solutions["charge_cost_high"]
     elec_threshold      = solutions["elec_threshold"]
+
 
     # ----------------------------
     # Solve Follower Problem
     # ----------------------------
     try:
         follower_outputs = follower_model(
+            # Follower model parameters
             N                       = N                     ,
             T                       = T                     ,
             L                       = L                     ,
@@ -281,12 +322,29 @@ def _evaluate_single_candidate(
             elec_supplied           = elec_supplied         ,
             max_charge_speed        = max_charge_speed      ,
 
+            # Network components
+            V_set                   = V_set                 ,
+            all_arcs                = all_arcs              ,
+            type_arcs               = type_arcs             ,
+            in_arcs                 = in_arcs               ,
+            out_arcs                = out_arcs              ,
+            service_arcs_ijt        = service_arcs_ijt      ,
+            charge_arcs_it          = charge_arcs_it        ,
+            charge_arcs_t           = charge_arcs_t         ,
+            valid_travel_demand     = valid_travel_demand   ,
+            invalid_travel_demand   = invalid_travel_demand ,
+            ZONES                   = ZONES                 ,
+            TIMESTEPS               = TIMESTEPS             ,
+            LEVELS                  = LEVELS                ,
+            AGES                    = AGES                  ,
+
+            # Pricing Variables
             charge_cost_low         = charge_cost_low       ,
             charge_cost_high        = charge_cost_high      ,
-            elec_threshold          = elec_threshold        ,
+            elec_threshold          = elec_threshold        ,  
 
+            # Metadata
             relaxed                 = True                  ,
-
             to_console              = False                 ,
             to_file                 = False                 ,
         )
@@ -296,47 +354,88 @@ def _evaluate_single_candidate(
         raise Exception("Unexpected error when solving follower problem for candidate.") from e
     
     # Extract variables and sets from the follower_outputs    
-    x               : dict[int, float]      = follower_outputs.get("sol", {}).get("x", {})
-
-    all_arcs        : dict[int, Arc]        = follower_outputs.get("arcs", {}).get("all_arcs", {})
-    charge_arcs_t   : dict[int, set[int]]   = follower_outputs.get("arcs", {}).get("charge_arcs_t", {})
-
-    ZONES           : list[int]             = follower_outputs.get("sets", {}).get("ZONES", [])
+    obj             : float                                     = follower_outputs["obj"]
+    x               : dict[int, float]                          = follower_outputs["x"]
+    s               : dict[tuple[int, int, int]     , float]    = follower_outputs["s"]
+    u               : dict[tuple[int, int, int, int], float]    = follower_outputs["u"]
+    e               : dict[tuple[int, int, int]     , float]    = follower_outputs["e"]
+    q               : dict[int                      , float]    = follower_outputs["q"]
+    service_revenues: dict[int                      , float]    = follower_outputs["service_revenues"]
+    penalty_costs   : dict[int                      , float]    = follower_outputs["penalty_costs"]
+    charge_costs    : dict[int                      , float]    = follower_outputs["charge_costs"]
 
 
     # ----------------------------
     # Solve Leader Problem
     # ----------------------------
-    fitness, variance, variance_ratio, percentage_price_increase = leader_model(
+    leader_outputs = leader_model(
         # Follower model parameters
+        N                       = N                     ,
         T                       = T                     ,
+        L                       = L                     ,
+        W                       = W                     ,
+        travel_demand           = travel_demand         ,
+        travel_time             = travel_time           ,
+        travel_energy           = travel_energy         ,
+        order_revenue           = order_revenue         ,
+        penalty                 = penalty               ,
+        L_min                   = L_min                 ,
+        num_EVs                 = num_EVs               ,
+        num_ports               = num_ports             ,
         elec_supplied           = elec_supplied         ,
+        max_charge_speed        = max_charge_speed      ,
 
-        charge_cost_low         = charge_cost_low       ,
-        charge_cost_high        = charge_cost_high      ,
-        elec_threshold          = elec_threshold        ,
+        # Network components
+        V_set                   = V_set                 ,
+        all_arcs                = all_arcs              ,
+        type_arcs               = type_arcs             ,
+        in_arcs                 = in_arcs               ,
+        out_arcs                = out_arcs              ,
+        service_arcs_ijt        = service_arcs_ijt      ,
+        charge_arcs_it          = charge_arcs_it        ,
+        charge_arcs_t           = charge_arcs_t         ,
+        valid_travel_demand     = valid_travel_demand   ,
+        invalid_travel_demand   = invalid_travel_demand ,
+        ZONES                   = ZONES                 ,
+        TIMESTEPS               = TIMESTEPS             ,
+        LEVELS                  = LEVELS                ,
+        AGES                    = AGES                  ,
 
         # Leader model parameters
-        penalty_weight          = penalty_weight        ,
         wholesale_elec_price    = wholesale_elec_price  ,
-        reference_variance      = reference_variance    ,    
+        PENALTY_WEIGHT          = PENALTY_WEIGHT        ,
+        reference_variance      = reference_variance    ,
 
-        # Follower solution variables
+        # Pricing Variables
+        charge_cost_low         = charge_cost_low       ,
+        charge_cost_high        = charge_cost_high      ,
+        elec_threshold          = elec_threshold        ,  
+
+        # Solutions
+        obj                     = obj                   ,
         x                       = x                     ,
-        
-        # Arcs
-        all_arcs                = all_arcs              ,
-        charge_arcs_t           = charge_arcs_t         ,
-
-        # Sets
-        ZONES                   = ZONES                 ,
+        s                       = s                     ,
+        u                       = u                     ,
+        e                       = e                     ,
+        q                       = q                     ,
+        service_revenues        = service_revenues      ,
+        penalty_costs           = penalty_costs         ,
+        charge_costs            = charge_costs          ,
 
         # Metadata
         to_console              = False                 ,
         to_file                 = False                 ,
+        timestamp               = timestamp             ,
+        file_name               = file_name             ,
+        folder_name             = folder_name           ,
     )
 
-    return fitness, variance, variance_ratio, percentage_price_increase
+    return (
+        leader_outputs["fitness"],
+        leader_outputs["variance"],
+        leader_outputs["variance_ratio"],
+        leader_outputs["percentage_price_increase"]
+    )
 
 
 def run_parallel_de(
@@ -348,40 +447,55 @@ def run_parallel_de(
     # ----------------------------
     # Parameters
     # ----------------------------
-
     # Follower model parameters
-    N                   : int                               = kwargs.get("N")                       # number of operation zones (1, ..., N)
-    T                   : int                               = kwargs.get("T")                       # termination time of daily operations (0, ..., T)
-    L                   : int                               = kwargs.get("L")                       # max SoC level (all EVs start at this level) (0, ..., L)
-    W                   : int                               = kwargs.get("W")                       # maximum time intervals a passenger will wait for a ride (0, ..., W-1; demand expires at W)
-    travel_demand       : dict[tuple[int, int, int], int]   = kwargs.get("travel_demand")           # travel demand from zone i to j at starting at time t
-    travel_time         : dict[tuple[int, int, int], int]   = kwargs.get("travel_time")             # travel time from i to j at starting at time t
-    travel_energy       : dict[tuple[int, int], int]        = kwargs.get("travel_energy")           # energy consumed for trip from zone i to j
-    order_revenue       : dict[tuple[int, int, int], float] = kwargs.get("order_revenue")           # order revenue for each trip served from i to j at time t
-    penalty             : dict[tuple[int, int, int], float] = kwargs.get("penalty")                 # penalty cost for each unserved trip from i to j at time t 
-    L_min               : int                               = kwargs.get("L_min")                   # min SoC level all EV must end with at the end of the daily operations
-    num_EVs             : int                               = kwargs.get("num_EVs")                 # total number of EVs in the fleet  
-    num_ports           : dict[int, int]                    = kwargs.get("num_ports")               # number of chargers in each zone
-    elec_supplied       : dict[tuple[int, int], int]        = kwargs.get("elec_supplied")           # electricity supplied (in SoC levels) at zone i at time t
-    max_charge_speed    : int                               = kwargs.get("max_charge_speed")        # max charging speed (in SoC levels) of one EV in one time step
+    N                       : int                                   = kwargs["N"]                       # number of operation zones (1, ..., N)
+    T                       : int                                   = kwargs["T"]                       # termination time of daily operations (0, ..., T)
+    L                       : int                                   = kwargs["L"]                       # max SoC level (all EVs start at this level) (0, ..., L)
+    W                       : int                                   = kwargs["W"]                       # maximum time intervals a passenger will wait for a ride (0, ..., W-1; demand expires at W)
+    travel_demand           : dict[tuple[int, int, int] , int]      = kwargs["travel_demand"]           # travel demand from zone i to j at starting at time t
+    travel_time             : dict[tuple[int, int, int] , int]      = kwargs["travel_time"]             # travel time from i to j at starting at time t
+    travel_energy           : dict[tuple[int, int]      , int]      = kwargs["travel_energy"]           # energy consumed for trip from zone i to j
+    order_revenue           : dict[tuple[int, int, int] , float]    = kwargs["order_revenue"]           # order revenue for each trip served from i to j at time t
+    penalty                 : dict[tuple[int, int, int] , float]    = kwargs["penalty"]                 # penalty cost for each unserved trip from i to j at time t
+    L_min                   : int                                   = kwargs["L_min"]                   # min SoC level all EV must end with at the end of the daily operations
+    num_EVs                 : int                                   = kwargs["num_EVs"]                 # total number of EVs in the fleet 
+    num_ports               : dict[int                  , int]      = kwargs["num_ports"]               # number of charging ports in each zone
+    elec_supplied           : dict[tuple[int, int]      , int]      = kwargs["elec_supplied"]           # electricity supplied (in SoC levels) at zone i at time t
+    max_charge_speed        : int                                   = kwargs["max_charge_speed"]        # max charging speed (in SoC levels) of one EV in one time step
     
+    # Network components
+    V_set                   : set[Node]                             = kwargs["V_set"]
+    all_arcs                : dict[int                  , Arc]      = kwargs["all_arcs"]
+    type_arcs               : dict[ArcType              , set[int]] = kwargs["type_arcs"]
+    in_arcs                 : dict[Node                 , set[int]] = kwargs["in_arcs"]
+    out_arcs                : dict[Node                 , set[int]] = kwargs["out_arcs"]
+    service_arcs_ijt        : dict[tuple[int, int, int] , set[int]] = kwargs["service_arcs_ijt"]
+    charge_arcs_it          : dict[tuple[int, int]      , set[int]] = kwargs["charge_arcs_it"]
+    charge_arcs_t           : dict[int                  , set[int]] = kwargs["charge_arcs_t"]
+    valid_travel_demand     : dict[tuple[int, int, int] , int]      = kwargs["valid_travel_demand"]
+    invalid_travel_demand   : set[tuple[int, int, int]]             = kwargs["invalid_travel_demand"]
+    ZONES                   : list[int]                             = kwargs["ZONES"]
+    TIMESTEPS               : list[int]                             = kwargs["TIMESTEPS"]
+    LEVELS                  : list[int]                             = kwargs["LEVELS"]
+    AGES                    : list[int]                             = kwargs["AGES"]
+
     # Leader model parameters
-    wholesale_elec_price: dict[int, float]                  = kwargs.get("wholesale_elec_price")    # wholesale electricity price at time t
-    penalty_weight      : float                             = kwargs.get("penalty_weight")          # penalty weight for high a_t and b_t
+    wholesale_elec_price    : dict[int                  , float]    = kwargs["wholesale_elec_price"]    # wholesale electricity price at time t
+    PENALTY_WEIGHT          : float                                 = kwargs["PENALTY_WEIGHT"]          # penalty weight for high a_t and b_t
     
     # DE parameters
-    pop_size            : int                               = kwargs.get("pop_size")                # population size for DE
-    max_iter            : int                               = kwargs.get("max_iter")                # max iterations for DE
-    f                   : float                             = kwargs.get("f")                       # differential weight
-    cr                  : float                             = kwargs.get("cr")                      # crossover probability
-    var_threshold       : float                             = kwargs.get("var_threshold")           # variance threshold for stopping criteria
-    num_anchors         : int                               = kwargs.get("num_anchors")             # number of anchors for DE
-    vars_per_step       : int                               = kwargs.get("dims_per_step")           # number of variables per time step (3: a_t, b_t, r_t)
+    POP_SIZE                : int                                   = kwargs["POP_SIZE"]                # population size for DE
+    MAX_ITER                : int                                   = kwargs["MAX_ITER"]                # max iterations for DE
+    F                       : float                                 = kwargs["F"]                       # differential weight
+    CR                      : float                                 = kwargs["CR"]                      # crossover probability
+    VAR_THRESHOLD           : float                                 = kwargs["VAR_THRESHOLD"]           # variance threshold for stopping criteria
+    NUM_ANCHORS             : int                                   = kwargs["NUM_ANCHORS"]             # number of anchors for DE
+    VARS_PER_STEP           : int                                   = kwargs["VARS_PER_STEP"]           # number of variables per time step (3: a_t, b_t, r_t)
 
     # Metadata
-    timestamp           : str                               = kwargs.get("timestamp", "")           # timestamp for logging
-    file_name           : str                               = kwargs.get("file_name", "")           # filename for logging
-    folder_name         : str                               = kwargs.get("folder_name", "")         # folder name for logging
+    timestamp               : str                                   = kwargs.get("timestamp", "")       # timestamp for logging
+    file_name               : str                                   = kwargs.get("file_name", "")       # filename for logging
+    folder_name             : str                                   = kwargs.get("folder_name", "")     # folder name for logging
 
 
     logger = Logger("bilevel_DE", level="DEBUG", to_console=False, timestamp=timestamp)
@@ -390,11 +504,10 @@ def run_parallel_de(
 
 
     # ----------------------------
-    # DE Setup
+    # Population Initialization
     # ----------------------------
-
     # Using numpy array is much faster for numerical operations
-    wholesale_elec_price_arr: npt.NDArray[np.float64] = np.array([wholesale_elec_price[t] for t in range(T + 1)])
+    wholesale_elec_price_arr: npt.NDArray[np.float64] = np.array([wholesale_elec_price.get(t, 0) for t in TIMESTEPS])
 
     # Lower bounds
     lower_bounds_a          : npt.NDArray[np.float64] = wholesale_elec_price_arr.copy()          # a_t >= wholesale price
@@ -402,19 +515,23 @@ def run_parallel_de(
     lower_bounds_r          : npt.NDArray[np.float64] = np.zeros(T + 1)                          # r_t >= 0
 
     # Upper bounds
-    upper_bounds_a_init     : npt.NDArray[np.float64] = wholesale_elec_price_arr * 2.0                                                       # a_t <= 2 * wholesale price (initial, can be exceeded during evolution)
-    upper_bounds_b_init     : npt.NDArray[np.float64] = wholesale_elec_price_arr * 1.0                                                       # b_t <= wholesale price (initial, can be exceeded during evolution)
-    upper_bounds_r          : npt.NDArray[np.float64] = np.array([sum(elec_supplied.get((i,t),0) for i in range(N)) for t in range(T + 1)])  # r_t <= total electricity supplied at time t (hard limit)
+    upper_bounds_a_init     : npt.NDArray[np.float64] = wholesale_elec_price_arr * 2.0                                                  # a_t <= 2 * wholesale price (initial, can be exceeded during evolution)
+    upper_bounds_b_init     : npt.NDArray[np.float64] = wholesale_elec_price_arr * 1.0                                                  # b_t <= wholesale price (initial, can be exceeded during evolution)
+    upper_bounds_r          : npt.NDArray[np.float64] = np.array([sum(elec_supplied.get((i,t), 0) for i in ZONES) for t in TIMESTEPS])  # r_t <= total electricity supplied at time t (hard limit)
 
     # a_t and b_t can be unbounded in theory, but we set a very high upper bound for numerical stability
     upper_bounds_a_final    : npt.NDArray[np.float64] = wholesale_elec_price_arr * 10.0
     upper_bounds_b_final    : npt.NDArray[np.float64] = wholesale_elec_price_arr * 10.0
 
+    logger.info("Bounds for decision variables set successfully")
+
     # anchor indices (dimensionality reduction)
     # instead of optimizing for all T time steps, we pick num_anchors key points and interpolate the rest
-    anchor_indices          : npt.NDArray[np.int_]   = np.linspace(0, T + 1, num_anchors, dtype=int)
-    optimization_dims       : int                    = num_anchors * vars_per_step
-    M                       : npt.NDArray[np.float64]= _precompute_interpolation_matrix(T, num_anchors, anchor_indices)
+    anchor_indices          : npt.NDArray[np.int_]   = np.linspace(0, T, NUM_ANCHORS, dtype=int)
+    optimization_dims       : int                    = NUM_ANCHORS * VARS_PER_STEP
+    M                       : npt.NDArray[np.float64]= _precompute_interpolation_matrix(T, NUM_ANCHORS, anchor_indices)
+
+    logger.info(f"Interpolation matrix precomputed with shape {M.shape}")
 
     # array of bounds for anchored variables only
     # Flattened in the order of [a_0, b_0, r_0, a_1, b_1, r_1, ..., a_T, b_T, r_T]
@@ -437,7 +554,7 @@ def run_parallel_de(
     population              : npt.NDArray[np.float64] = np.random.uniform (
         low     = lower_bounds, 
         high    = upper_bounds_init, 
-        size    = (pop_size, optimization_dims)
+        size    = (POP_SIZE, optimization_dims)
     )
     logger.info(f"DE population initialized with size {population.shape}")
 
@@ -447,14 +564,17 @@ def run_parallel_de(
 
 
     # ----------------------------
-    # DE Optimization
+    # DE Setup
     # ----------------------------
-    
-    # Get reference variance using the candidate with minimum prices
-    reference_candidate = lower_bounds.copy()
+    # Obtain reference variance from the candidate with lowest possible charge costs
+    # We do not use lower_bounds.copy() as our candidate here as it contain only the anchor points
+    # after linear interpolation, some time steps may end up above the wholesale price
+    lowest_charge_cost_low  = wholesale_elec_price.copy()  # shallow copy is ok as the values are floats
+    lowest_charge_cost_high = {t: 0.0 for t in TIMESTEPS}
+    lowest_elec_threshold   = {t: 0 for t in TIMESTEPS}
+
     try:
         reference_variance = _reference_candidate(
-            reference_candidate,
             # Follower model parameters
             N                       = N                     ,
             T                       = T                     ,
@@ -471,14 +591,26 @@ def run_parallel_de(
             elec_supplied           = elec_supplied         ,
             max_charge_speed        = max_charge_speed      ,
 
-            lower_bounds_a          = lower_bounds_a        ,
-            lower_bounds_b          = lower_bounds_b        ,
-            lower_bounds_r          = lower_bounds_r        ,
-            upper_bounds_r          = upper_bounds_r        ,
+            # Network components
+            V_set                   = V_set                 ,
+            all_arcs                = all_arcs              ,
+            type_arcs               = type_arcs             ,
+            in_arcs                 = in_arcs               ,
+            out_arcs                = out_arcs              ,
+            service_arcs_ijt        = service_arcs_ijt      ,
+            charge_arcs_it          = charge_arcs_it        ,
+            charge_arcs_t           = charge_arcs_t         ,
+            valid_travel_demand     = valid_travel_demand   ,
+            invalid_travel_demand   = invalid_travel_demand ,
+            ZONES                   = ZONES                 ,
+            TIMESTEPS               = TIMESTEPS             ,
+            LEVELS                  = LEVELS                ,
+            AGES                    = AGES                  ,
 
-            # DE parameters
-            vars_per_step           = vars_per_step         ,
-            M                       = M                     ,
+            # Pricing Variables
+            charge_cost_low         = lowest_charge_cost_low ,
+            charge_cost_high        = lowest_charge_cost_high,
+            elec_threshold          = lowest_elec_threshold  ,
         )
     except OptimizationError as e:
         logger.error("Failed to obtain reference variance from reference candidate.")
@@ -489,23 +621,19 @@ def run_parallel_de(
 
     logger.info(f"Reference variance obtained: {reference_variance:.5f}")
 
-    if isclose(reference_variance, 0.0):
-        logger.info ("Reference variance = 0.0, terminating optimization as no variance reduction is possible.")
-        return _expand_trajectory(
-            reference_candidate,
-            M               = M                 ,
-            vars_per_step   = vars_per_step     ,
-            T               = T                 ,
-            lower_bounds_a  = lower_bounds_a    ,
-            lower_bounds_b  = lower_bounds_b    ,
-            lower_bounds_r  = lower_bounds_r    ,
-            upper_bounds_r  = upper_bounds_r    ,
-        )
+    if reference_variance < VAR_THRESHOLD:
+        logger.info("Reference variance is already below the variance threshold. No optimization needed.")
+        return {
+            "charge_cost_low"    : lowest_charge_cost_low ,
+            "charge_cost_high"   : lowest_charge_cost_high,
+            "elec_threshold"     : lowest_elec_threshold  ,
+        }
 
     # Create a partial function with fixed parameters for the worker function
     # Now the worker function only needs the candidate vector as input
     evaluate_single_candidate_worker = partial(
         _evaluate_single_candidate,
+
         # Follower model parameters
         N                       = N                     ,
         T                       = T                     ,
@@ -522,21 +650,47 @@ def run_parallel_de(
         elec_supplied           = elec_supplied         ,
         max_charge_speed        = max_charge_speed      ,
 
+        # Network components
+        V_set                   = V_set                 ,
+        all_arcs                = all_arcs              ,
+        type_arcs               = type_arcs             ,
+        in_arcs                 = in_arcs               ,
+        out_arcs                = out_arcs              ,
+        service_arcs_ijt        = service_arcs_ijt      ,
+        charge_arcs_it          = charge_arcs_it        ,
+        charge_arcs_t           = charge_arcs_t         ,
+        valid_travel_demand     = valid_travel_demand   ,
+        invalid_travel_demand   = invalid_travel_demand ,
+        ZONES                   = ZONES                 ,
+        TIMESTEPS               = TIMESTEPS             ,
+        LEVELS                  = LEVELS                ,
+        AGES                    = AGES                  ,
+
+        # Leader model parameters
+        wholesale_elec_price    = wholesale_elec_price  ,
+        PENALTY_WEIGHT          = PENALTY_WEIGHT        ,
+        reference_variance      = reference_variance    ,
+        
+        # Pricing Variable bounds
         lower_bounds_a          = lower_bounds_a        ,
         lower_bounds_b          = lower_bounds_b        ,
         lower_bounds_r          = lower_bounds_r        ,
         upper_bounds_r          = upper_bounds_r        ,
 
-        # Leader model parameters
-        penalty_weight          = penalty_weight        ,
-        wholesale_elec_price    = wholesale_elec_price  ,    
-        reference_variance      = reference_variance    ,
-
         # DE parameters
-        vars_per_step           = vars_per_step         ,
+        VARS_PER_STEP           = VARS_PER_STEP         ,
         M                       = M                     ,
+
+        # Metadata
+        timestamp               = timestamp             ,
+        file_name               = file_name             ,
+        folder_name             = folder_name           ,
     )
 
+
+    # ----------------------------
+    # DE Main Loop
+    # ----------------------------
     start_time = time.time()
 
     # Initial Evaluation
@@ -566,7 +720,7 @@ def run_parallel_de(
 
         # Check if any candidate meets variance threshold
         # if so, early stop by taking the candidate with the lowest fitness among them
-        meet_threshold: npt.NDArray[np.bool_] = variances <= var_threshold
+        meet_threshold: npt.NDArray[np.bool_] = variances <= VAR_THRESHOLD
 
         if np.any(meet_threshold):
             qualified_indices           : npt.NDArray[np.int_]      = np.where(meet_threshold)[0]
@@ -584,18 +738,17 @@ def run_parallel_de(
             return _expand_trajectory(
                 best_vector,
                 M               = M                   ,
-                vars_per_step   = vars_per_step       ,
-                T               = T                   ,
+                VARS_PER_STEP   = VARS_PER_STEP       ,
                 lower_bounds_a  = lower_bounds_a      ,
                 lower_bounds_b  = lower_bounds_b      ,
                 lower_bounds_r  = lower_bounds_r      ,
                 upper_bounds_r  = upper_bounds_r      ,
+                TIMESTEPS       = TIMESTEPS           ,
             )
 
         # Track both the candidate with best variance (and its fitness), and the candidate with best fitness (and its variance)
         best_var_idx        : int   = np.argmin(variances)
         best_fitness_idx    : int   = np.argmin(fitnesses)
-
 
         logger.info(f"Initial candidate with best variance: Var = {variances[best_var_idx]:.5f}, \
                                                             Fitness = {fitnesses[best_var_idx]:.5f}, \
@@ -610,23 +763,23 @@ def run_parallel_de(
         logger.info(f"  Time taken: {init_end_time - start_time:.1f}s")
 
         # Main DE Loop
-        for gen in range(max_iter):
+        for gen in range(MAX_ITER):
             gen_start_time = time.time()
             
             # --- 1. CREATE TRIALS (Vectorized Math) ---
             # randomly select 3 candidates A, B, C ("children") for each candidate ("parent")
             # although technically A, B, C should be distinct and not equal to the parent, enforcing this is costly, so we skip this step
             # the children of all pop_size candidates are selected together in a vectorized manner, so each idxs_* has shape (pop_size,)
-            idxs_a: npt.NDArray[np.int_]    = np.random.randint(low = 0, high = pop_size, size = pop_size)
-            idxs_b: npt.NDArray[np.int_]    = np.random.randint(low = 0, high = pop_size, size = pop_size)
-            idxs_c: npt.NDArray[np.int_]    = np.random.randint(low = 0, high = pop_size, size = pop_size)            
+            idxs_a: npt.NDArray[np.int_]    = np.random.randint(low = 0, high = POP_SIZE, size = POP_SIZE)
+            idxs_b: npt.NDArray[np.int_]    = np.random.randint(low = 0, high = POP_SIZE, size = POP_SIZE)
+            idxs_c: npt.NDArray[np.int_]    = np.random.randint(low = 0, high = POP_SIZE, size = POP_SIZE)            
 
             # V = A + F * (B - C)
             # (B - C) : calculates the distance vector between B and C
             # F       : scales the distance vector (differential weight)
             # A + ... : shifts the scaled vector to start from A (the base vector)
             # mutant has shape (pop_size, optimization_dims)
-            mutant: npt.NDArray[np.float64]  = population[idxs_a] + f * (population[idxs_b] - population[idxs_c])
+            mutant: npt.NDArray[np.float64]  = population[idxs_a] + F * (population[idxs_b] - population[idxs_c])
 
             # enforce bounds
             mutant: npt.NDArray[np.float64]  = np.maximum(mutant, lower_bounds)
@@ -635,8 +788,8 @@ def run_parallel_de(
             # Crossover
             # for each variable, randomly decide whether to take from mutant or parent
             # if rand < cr, take from mutant; else take from parent; setting higher cr is more exploratory
-            rand_mask       : npt.NDArray[np.float64] = np.random.rand(pop_size, optimization_dims)
-            trial_population: npt.NDArray[np.float64] = np.where(rand_mask < cr, mutant, population)
+            rand_mask       : npt.NDArray[np.float64] = np.random.rand(POP_SIZE, optimization_dims)
+            trial_population: npt.NDArray[np.float64] = np.where(rand_mask < CR, mutant, population)
             
 
             # --- 2. EVALUATE TRIALS (PARALLEL BOTTLENECK) ---
@@ -662,7 +815,7 @@ def run_parallel_de(
             # --- 4. Early Stopping ---
             # Check if any candidate meets variance threshold
             # if so, early stop by taking the candidate with the lowest fitness among them
-            meet_threshold: npt.NDArray[np.bool_] = variances <= var_threshold
+            meet_threshold: npt.NDArray[np.bool_] = variances <= VAR_THRESHOLD
             if np.any(meet_threshold):
                 qualified_indices           : npt.NDArray[np.int_]      = np.where(meet_threshold)[0]
                 qualified_fitnesses         : npt.NDArray[np.float64]    = fitnesses[qualified_indices]
@@ -677,15 +830,15 @@ def run_parallel_de(
                 logger.info(f"  Time taken: {time.time() - start_time:.1f}s")
 
                 return _expand_trajectory(
-                    candidate_flat   = best_vector   ,
-                    M                   = M             ,
-                    vars_per_step       = vars_per_step ,
-                    T                   = T             ,
-                    lower_bounds_a= lower_bounds_a    ,
-                    lower_bounds_b= lower_bounds_b    ,
-                    lower_bounds_r= lower_bounds_r    ,
-                    upper_bounds_r= upper_bounds_r    ,
-                )
+                    candidate_flat  = best_vector       ,
+                    M               = M                 ,
+                    VARS_PER_STEP   = VARS_PER_STEP     ,
+                    lower_bounds_a  = lower_bounds_a    ,
+                    lower_bounds_b  = lower_bounds_b    ,
+                    lower_bounds_r  = lower_bounds_r    ,
+                    upper_bounds_r  = upper_bounds_r    ,
+                    TIMESTEPS       = TIMESTEPS       ,
+                )   
             
             # --- 5. Update Best Trackers ---
             best_var_idx        = np.argmin(variances)
@@ -693,9 +846,9 @@ def run_parallel_de(
 
             # Estimate remaining time
             gen_duration = time.time() - gen_start_time
-            est_remaining_time = gen_duration * (max_iter - gen - 1)
+            est_remaining_time = gen_duration * (MAX_ITER - gen - 1)
 
-            logger.info(f"Gen {gen+1}/{max_iter}")
+            logger.info(f"Gen {gen+1}/{MAX_ITER}")
             logger.info(f"  Current candidate with best variance: Var = {variances[best_var_idx]:.5f}, \
                                                                   Fitness = {fitnesses[best_var_idx]:.5f}, \
                                                                   Var Ratio = {variance_ratios[best_var_idx]:.5f}, \
@@ -716,12 +869,12 @@ def run_parallel_de(
     best_vector : npt.NDArray[np.float64] = population[best_fitness_idx].copy()
 
     return _expand_trajectory(
-        candidate_flat  = best_vector   ,
-        M               = M             ,
-        vars_per_step   = vars_per_step ,
-        T               = T             ,
-        lower_bounds_a  = lower_bounds_a,
-        lower_bounds_b  = lower_bounds_b      ,
-        lower_bounds_r  = lower_bounds_r      ,
-        upper_bounds_r  = upper_bounds_r      ,
+        candidate_flat  = best_vector       ,
+        M               = M                 ,
+        VARS_PER_STEP   = VARS_PER_STEP     ,
+        lower_bounds_a  = lower_bounds_a    ,
+        lower_bounds_b  = lower_bounds_b    ,
+        lower_bounds_r  = lower_bounds_r    ,
+        upper_bounds_r  = upper_bounds_r    ,
+        TIMESTEPS       = TIMESTEPS         ,
     )

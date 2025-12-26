@@ -14,56 +14,49 @@ from exceptions import OptimizationError
 # Model builder
 # ----------------------------
 
-def follower_model(
+def follower_model_builder(
         **kwargs
-    ) -> dict:
+    ):
     """
-    Follower: EV Operator
+    Build the network graph for the follower model.
+    Should be only called once throughout the entire program.
 
-    Given electrity prices and usage threshold (a_t, b_t, r_t), use them as parameters
-    to optimize the EV fleet operations to maximize profit.
-
-    Returns EV charging schedule to the leader, as well as other relevant information.
-    """    
+    Returns the set of nodes (vertices) and arcs (edges) in the network.
+    """
     # ----------------------------
     # Parameters
     # ----------------------------
-    N                   : int                               = kwargs.get("N")                       # number of operation zones (1, ..., N)
-    T                   : int                               = kwargs.get("T")                       # termination time of daily operations (0, ..., T)
-    L                   : int                               = kwargs.get("L")                       # max SoC level (all EVs start at this level) (0, ..., L)
-    W                   : int                               = kwargs.get("W")                       # maximum time intervals a passenger will wait for a ride (0, ..., W-1; demand expires at W)
-    travel_demand       : dict[tuple[int, int, int], int]   = kwargs.get("travel_demand")           # travel demand from zone i to j at starting at time t
-    travel_time         : dict[tuple[int, int, int], int]   = kwargs.get("travel_time")             # travel time from i to j at starting at time t
-    travel_energy       : dict[tuple[int, int], int]        = kwargs.get("travel_energy")           # energy consumed for trip from zone i to j
-    order_revenue       : dict[tuple[int, int, int], float] = kwargs.get("order_revenue")           # order revenue for each trip served from i to j at time t
-    penalty             : dict[tuple[int, int, int], float] = kwargs.get("penalty")                 # penalty cost for each unserved trip from i to j at time t 
-    L_min               : int                               = kwargs.get("L_min")                   # min SoC level all EV must end with at the end of the daily operations
-    num_EVs             : int                               = kwargs.get("num_EVs")                 # total number of EVs in the fleet
-    num_ports           : dict[int, int]                    = kwargs.get("num_ports")               # number of chargers in each zone
-    elec_supplied       : dict[tuple[int, int], int]        = kwargs.get("elec_supplied")           # electricity supplied (in SoC levels) at zone i at time t
-    max_charge_speed    : int                               = kwargs.get("max_charge_speed")        # max charging speed (in SoC levels) of one EV in one time step
+    # Follower model parameters
+    N                       : int                                   = kwargs["N"]                           # number of operation zones (1, ..., N)
+    T                       : int                                   = kwargs["T"]                           # termination time of daily operations (0, ..., T)
+    L                       : int                                   = kwargs["L"]                           # max SoC level (all EVs start at this level) (0, ..., L)
+    W                       : int                                   = kwargs["W"]                           # maximum time intervals a passenger will wait for a ride (0, ..., W-1; demand expires at W)
+    travel_demand           : dict[tuple[int, int, int] , int]      = kwargs["travel_demand"]               # travel demand from zone i to j at starting at time t
+    travel_time             : dict[tuple[int, int, int] , int]      = kwargs["travel_time"]                 # travel time from i to j at starting at time t
+    travel_energy           : dict[tuple[int, int]      , int]      = kwargs["travel_energy"]               # energy consumed for trip from zone i to j
+    order_revenue           : dict[tuple[int, int, int] , float]    = kwargs["order_revenue"]               # order revenue for each trip served from i to j at time t
+    penalty                 : dict[tuple[int, int, int] , float]    = kwargs["penalty"]                     # penalty cost for each unserved trip from i to j at time t 
+    L_min                   : int                                   = kwargs["L_min"]                       # min SoC level all EV must end with at the end of the daily operations
+    num_EVs                 : int                                   = kwargs["num_EVs"]                     # total number of EVs in the fleet
+    num_ports               : dict[int                  , int]      = kwargs["num_ports"]                   # number of chargers in each zone
+    elec_supplied           : dict[tuple[int, int]      , int]      = kwargs["elec_supplied"]               # electricity supplied (in SoC levels) at zone i at time t
+    max_charge_speed        : int                                   = kwargs["max_charge_speed"]            # max charging speed (in SoC levels) of one EV in one time step
         
-    charge_cost_low     : dict[int, float]                  = kwargs.get("charge_cost_low")         # charge cost per unit of SoC at zone i at time t when usage is below threshold
-    charge_cost_high    : dict[int, float]                  = kwargs.get("charge_cost_high")        # charge cost per unit of SOC at zone i at time t when usage is above threshold
-    elec_threshold      : dict[int, int]                    = kwargs.get("elec_threshold")          # electricity threshold at zone i at time t
-
-    relaxed             : bool                              = kwargs.get("relaxed"      , True)     # whether to relax integrality constraints
-
     # Metadata
-    to_console          : bool                              = kwargs.get("to_console"   , False)    # whether to print logs to console
-    to_file             : bool                              = kwargs.get("to_file"      , True)     # whether to save logs to file
-    timestamp           : str                               = kwargs.get("timestamp"    , "")       # timestamp for logging
-    file_name           : str                               = kwargs.get("file_name"    , "")       # filename for logging
-    folder_name         : str                               = kwargs.get("folder_name"  , "")       # folder name for logging
+    to_console              : bool                                  = kwargs.get("to_console"   , False)    # whether to print logs to console
+    to_file                 : bool                                  = kwargs.get("to_file"      , False)    # whether to save logs to file
+    timestamp               : str                                   = kwargs.get("timestamp"    , "")       # timestamp for logging
+    file_name               : str                                   = kwargs.get("file_name"    , "")       # filename for logging
+    folder_name             : str                                   = kwargs.get("folder_name"  , "")       # folder name for logging
     
     
-    logger = Logger("model_follower", level="DEBUG", to_console=to_console, timestamp=timestamp)
+    logger = Logger("model_follower_builder", level="DEBUG", to_console=to_console, timestamp=timestamp)
     if to_file:
-        logger.save (os.path.join (folder_name, f"model_follower_{file_name}"))
+        logger.save (os.path.join (folder_name, f"model_follower_builder_{file_name}"))
 
     logger.info("Parameters loaded successfully")
 
-
+    
     # --------------------------
     # Sets
     # --------------------------
@@ -309,17 +302,11 @@ def follower_model(
                 o = Node(i, t, l)
                 d = Node(i, t + 1, l + charge_speed)  
 
-                # charging cost per EV in one time step = charging cost per level * charge speed (levels charged in one time step)
-                cost_low    = charge_cost_low.get(t) * charge_speed
-                cost_high   = charge_cost_high.get(t) * charge_speed
-
                 _add_arc(
                     ArcType.CHARGE                      , 
                     o                                   , 
                     d                                   , 
                     charge_speed        = charge_speed  , 
-                    charging_cost_low   = cost_low      ,
-                    charging_cost_high  = cost_high     ,
                 )
 
     def _add_idle_arc (i, j, t):
@@ -389,13 +376,97 @@ def follower_model(
         logger.info(f"  {arc_type.name} arcs: {len(arcs)}")
 
     # Log arcs information to a separate file
-    logger_arcs = Logger("arcs", level="DEBUG", to_console=False, timestamp=timestamp)
-    logger_arcs.save (os.path.join (folder_name, f"arcs_{file_name}"))  # Will be overritten by main.py (if model was successful)
-    logger_arcs.debug("Arcs information:")
+    logger.debug("Arcs information:")
 
     for id, arc in all_arcs.items():
-        logger_arcs.debug (f"  Arc {id}: type {arc.type} from node ({arc.o.i}, {arc.o.t}, {arc.o.l}) to ({arc.d.i}, {arc.d.t}, {arc.d.l})")
+        logger.debug (f"  Arc {id}: type {arc.type} from node ({arc.o.i}, {arc.o.t}, {arc.o.l}) to ({arc.d.i}, {arc.d.t}, {arc.d.l})")
 
+    return {
+        "V_set"                 : V_set                ,
+
+        "all_arcs"              : all_arcs              ,
+        "type_arcs"             : type_arcs             ,
+        "in_arcs"               : in_arcs               ,
+        "out_arcs"              : out_arcs              ,
+        "service_arcs_ijt"      : service_arcs_ijt      ,
+        "charge_arcs_it"        : charge_arcs_it        ,
+        "charge_arcs_t"         : charge_arcs_t         ,
+        "valid_travel_demand"   : valid_travel_demand   ,
+        "invalid_travel_demand" : invalid_travel_demand ,
+
+        "ZONES"                 : ZONES                 ,
+        "TIMESTEPS"             : TIMESTEPS             ,
+        "LEVELS"                : LEVELS                ,
+        "AGES"                  : AGES                  ,
+    }
+
+
+
+def follower_model(
+        **kwargs
+    ) -> dict:
+    """
+    Follower: EV Operator
+
+    Given electrity prices and usage threshold (a_t, b_t, r_t), use them as parameters
+    to optimize the EV fleet operations to maximize profit.
+
+    Returns EV charging schedule to the leader, as well as other relevant information.
+    """    
+    # ----------------------------
+    # Parameters
+    # ----------------------------
+    # Follower model parameters
+    N                       : int                                   = kwargs["N"]                       # number of operation zones (1, ..., N)
+    T                       : int                                   = kwargs["T"]                       # termination time of daily operations (0, ..., T)
+    L                       : int                                   = kwargs["L"]                       # max SoC level (all EVs start at this level) (0, ..., L)
+    W                       : int                                   = kwargs["W"]                       # maximum time intervals a passenger will wait for a ride (0, ..., W-1; demand expires at W)
+    travel_demand           : dict[tuple[int, int, int] , int]      = kwargs["travel_demand"]           # travel demand from zone i to j at starting at time t
+    travel_time             : dict[tuple[int, int, int] , int]      = kwargs["travel_time"]             # travel time from i to j at starting at time t
+    travel_energy           : dict[tuple[int, int]      , int]      = kwargs["travel_energy"]           # energy consumed for trip from zone i to j
+    order_revenue           : dict[tuple[int, int, int] , float]    = kwargs["order_revenue"]           # order revenue for each trip served from i to j at time t
+    penalty                 : dict[tuple[int, int, int] , float]    = kwargs["penalty"]                 # penalty cost for each unserved trip from i to j at time t
+    L_min                   : int                                   = kwargs["L_min"]                   # min SoC level all EV must end with at the end of the daily operations
+    num_EVs                 : int                                   = kwargs["num_EVs"]                 # total number of EVs in the fleet 
+    num_ports               : dict[int                  , int]      = kwargs["num_ports"]               # number of charging ports in each zone
+    elec_supplied           : dict[tuple[int, int]      , int]      = kwargs["elec_supplied"]           # electricity supplied (in SoC levels) at zone i at time t
+    max_charge_speed        : int                                   = kwargs["max_charge_speed"]        # max charging speed (in SoC levels) of one EV in one time step
+    
+    # Network components
+    V_set                   : set[Node]                             = kwargs["V_set"]
+    all_arcs                : dict[int                  , Arc]      = kwargs["all_arcs"]
+    type_arcs               : dict[ArcType              , set[int]] = kwargs["type_arcs"]
+    in_arcs                 : dict[Node                 , set[int]] = kwargs["in_arcs"]
+    out_arcs                : dict[Node                 , set[int]] = kwargs["out_arcs"]
+    service_arcs_ijt        : dict[tuple[int, int, int] , set[int]] = kwargs["service_arcs_ijt"]
+    charge_arcs_it          : dict[tuple[int, int]      , set[int]] = kwargs["charge_arcs_it"]
+    charge_arcs_t           : dict[int                  , set[int]] = kwargs["charge_arcs_t"]
+    valid_travel_demand     : dict[tuple[int, int, int] , int]      = kwargs["valid_travel_demand"]
+    invalid_travel_demand   : set[tuple[int, int, int]]             = kwargs["invalid_travel_demand"]
+    ZONES                   : list[int]                             = kwargs["ZONES"]
+    TIMESTEPS               : list[int]                             = kwargs["TIMESTEPS"]
+    LEVELS                  : list[int]                             = kwargs["LEVELS"]
+    AGES                    : list[int]                             = kwargs["AGES"]
+
+    # Pricing Variables
+    charge_cost_low         : dict[int                  , float]    = kwargs["charge_cost_low"]         # a_t
+    charge_cost_high        : dict[int                  , float]    = kwargs["charge_cost_high"]        # b_t
+    elec_threshold          : dict[int                  , int]      = kwargs["elec_threshold"]          # r_t
+
+    # Metadata
+    relaxed                 : bool                                  = kwargs.get("relaxed"      , True)     # whether to relax integrality constraints
+    to_console              : bool                                  = kwargs.get("to_console"   , False)    # whether to print logs to console
+    to_file                 : bool                                  = kwargs.get("to_file"      , False)    # whether to save logs to file
+    timestamp               : str                                   = kwargs.get("timestamp"    , "")       # timestamp for logging
+    file_name               : str                                   = kwargs.get("file_name"    , "")       # filename for logging
+    folder_name             : str                                   = kwargs.get("folder_name"  , "")       # folder name for logging
+
+    
+    logger = Logger("model_follower", level="DEBUG", to_console=to_console, timestamp=timestamp)
+    if to_file:
+        logger.save (os.path.join (folder_name, f"model_follower_{file_name}"))
+
+    logger.info("Parameters loaded successfully")
 
     # ----------------------------
     # Model
@@ -713,34 +784,15 @@ def follower_model(
         charge_costs_sol    : dict[int, float] = {t: v.X for t, v in charge_costs.items()}
 
         return {
-            "obj"                       : model.ObjVal,
-            "sol": {
-                "x"                     : x_sol,
-                "s"                     : s_sol,
-                "u"                     : u_sol,
-                "e"                     : e_sol,
-                "q"                     : q_sol,
-                "service_revenues"      : service_revenues_sol,
-                "penalty_costs"         : penalty_costs_sol,
-                "charge_costs"          : charge_costs_sol,          
-            },
-            "arcs": {
-                "all_arcs"              : all_arcs,
-                "type_arcs"             : type_arcs,
-                "in_arcs"               : in_arcs,
-                "out_arcs"              : out_arcs,
-                "service_arcs_ijt"      : service_arcs_ijt,
-                "charge_arcs_it"        : charge_arcs_it,
-                "charge_arcs_t"         : charge_arcs_t,
-            },
-            "sets": {
-                "valid_travel_demand"   : valid_travel_demand,
-                "invalid_travel_demand" : invalid_travel_demand,
-                "ZONES"                 : ZONES,
-                "TIMESTEPS"             : TIMESTEPS,
-                "LEVELS"                : LEVELS,
-                "AGES"                  : AGES,
-            },
+            "obj"               : model.ObjVal          ,
+            "x"                 : x_sol                 ,
+            "s"                 : s_sol                 ,
+            "u"                 : u_sol                 ,
+            "e"                 : e_sol                 ,
+            "q"                 : q_sol                 ,
+            "service_revenues"  : service_revenues_sol  ,
+            "penalty_costs"     : penalty_costs_sol     ,
+            "charge_costs"      : charge_costs_sol      ,          
         }
     
         
