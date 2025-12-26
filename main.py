@@ -1,8 +1,8 @@
-import gurobipy as gp
 from datetime import datetime
 import json
 import os
 import traceback
+import math
 
 from logger import Logger
 from model_follower import follower_model, follower_model_builder
@@ -77,7 +77,7 @@ if __name__ == "__main__":
     if not os.path.exists(os.path.join("Results", folder_name)):
         os.makedirs(os.path.join("Results", folder_name))
 
-    logger = Logger("main", level="DEBUG", to_console=False, timestamp=timestamp)
+    logger = Logger("main", level="DEBUG", to_console=True, timestamp=timestamp)
     logger.save(os.path.join(folder_name, f"main_{file_name}"))  # Save log file in the specific folder for this run
 
     results_name = os.path.join("Results", folder_name, f"results_{file_name}_{timestamp}.xlsx")
@@ -423,10 +423,10 @@ if __name__ == "__main__":
         for e in type_arcs[ArcType.IDLE]    
     )
 
-    if total_trips != total_trips_served + total_trips_unserved:
+    if not math.isclose(total_trips, total_trips_served + total_trips_unserved):
         logger.warning (f"  Total trips requested ({total_trips}) does not match total trips served ({total_trips_served}) + unserved ({total_trips_unserved}).")
 
-    if total_service_time + total_charge_time + total_relocation_time + total_idle_time != T * num_EVs:
+    if not math.isclose(total_service_time + total_charge_time + total_relocation_time + total_idle_time, T * num_EVs):
         logger.warning (f"  Total time does not sum up! Total time: {T * num_EVs}, Service time: {total_service_time}, Charge time: {total_charge_time}, Relocation time: {total_relocation_time}, Idle time: {total_idle_time}")
 
     postprocessing(

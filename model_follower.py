@@ -137,8 +137,6 @@ def follower_model_builder(
                 o                   = o                             , 
                 d                   = d                             , 
                 charge_speed        = kwargs["charge_speed"]        ,
-                charging_cost_low   = kwargs["charging_cost_low"]   ,
-                charging_cost_high  = kwargs["charging_cost_high"]  ,
             )
             charge_arcs_it.setdefault((o.i, o.t), set()).add(e.id)
             charge_arcs_t.setdefault(o.t, set()).add(e.id)
@@ -343,26 +341,31 @@ def follower_model_builder(
                     _add_service_arc    (i, j, t)
                 except Exception as e:
                     logger.critical (f"Error adding service arc ({i}, {j}, {t}): {e}")
+                    raise e
                 
                 try:
                     _add_relocation_arc (i, j, t)
                 except Exception as e:
                     logger.critical (f"Error adding relocation arc ({i}, {j}, {t}): {e}")
+                    raise e
                 
                 try:
                     _add_charging_arc   (i, j, t)
                 except Exception as e:
                     logger.critical (f"Error adding charging arc ({i}, {j}, {t}): {e}")
+                    raise e
 
                 try:
                     _add_idle_arc       (i, j, t)
                 except Exception as e:
                     logger.critical (f"Error adding idle arc ({i}, {j}, {t}): {e}")
+                    raise e
                 
                 try:
                     _add_wraparound_arc (i, j, t)
                 except Exception as e:
                     logger.critical (f"Error adding wraparound arc ({i}, {j}, {t}): {e}")
+                    raise e
 
     # Log any invalid demand that was skipped
     if invalid_travel_demand:
@@ -472,7 +475,9 @@ def follower_model(
     # Model
     # ----------------------------
     with gp.Env() as env, gp.Model(env=env) as model:  
-        model.Params.LogFile    = os.path.join ("Logs", folder_name, f"gurobi_logs_{file_name}_{timestamp}.log")      
+        if to_file:
+            model.Params.LogFile    = os.path.join ("Logs", folder_name, f"gurobi_logs_{file_name}_{timestamp}.log")      
+            
         model.Params.Seed       = 67 # for reproducibility
 
         # ----------------------------

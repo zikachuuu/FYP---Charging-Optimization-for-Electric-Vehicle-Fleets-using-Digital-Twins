@@ -1,10 +1,10 @@
 import numpy as np
 import numpy.typing as npt
 import time
-from scipy.interpolate import interp1d
 import multiprocessing
 import os
 from functools import partial
+import traceback
 
 from model_leader import leader_model
 from model_follower import follower_model
@@ -96,7 +96,6 @@ def _expand_trajectory (
 
 
 def _reference_candidate(
-        candidate_flat,
         **kwargs
     ):
     """
@@ -498,7 +497,7 @@ def run_parallel_de(
     folder_name             : str                                   = kwargs.get("folder_name", "")     # folder name for logging
 
 
-    logger = Logger("bilevel_DE", level="DEBUG", to_console=False, timestamp=timestamp)
+    logger = Logger("bilevel_DE", level="DEBUG", to_console=True, timestamp=timestamp)
     logger.save (os.path.join (folder_name, f"bilevel_DE_{file_name}"))
     logger.info("Parameters loaded successfully")
 
