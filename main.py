@@ -13,10 +13,10 @@ from bilevel_DE import run_parallel_de
 
 POP_SIZE        : int   = 16        # population size for DE (should be in multiples of <number of CPU cores> - 1)
 MAX_ITER        : int   = 2         # maximum iterations for DE
-F               : float = 0.9       # Differential Weight / Mutation: Controls jump size
+DIFF_WEIGHT     : float = 0.9       # Differential Weight / Mutation: Controls jump size
                                     #   Higher = bigger jumps (exploration); Lower = fine-tuning (exploitation)
                                     #   Since population size is small, need to aggresively explore to avoid getting stuck.
-CR              : float = 0.9       # Crossover Probability: How much DNA comes from the mutant vs. the parent
+CROSS_PROB      : float = 0.9       # Crossover Probability: How much DNA comes from the mutant vs. the parent
                                     #   0.9 means 90% of the genes change every step.
                                     #   We want to mix good genes quickly, so set it high.
 VAR_THRESHOLD   : float = 4         # variance threshold for early stopping of DE
@@ -239,8 +239,8 @@ if __name__ == "__main__":
                 # DE parameters
                 POP_SIZE                = POP_SIZE              ,
                 MAX_ITER                = MAX_ITER              ,
-                F                       = F                     ,
-                CR                      = CR                    ,
+                DIFF_WEIGHT             = DIFF_WEIGHT           ,
+                CROSS_PROB              = CROSS_PROB            ,
                 VAR_THRESHOLD           = VAR_THRESHOLD         ,
                 NUM_ANCHORS             = NUM_ANCHORS           ,
                 VARS_PER_STEP           = VARS_PER_STEP         ,

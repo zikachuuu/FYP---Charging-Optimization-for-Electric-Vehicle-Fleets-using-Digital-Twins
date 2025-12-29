@@ -751,13 +751,16 @@ def follower_model(
         logger.info("Objective function set")
 
         model.update()  # Apply all changes to the model
+        
         logger.info("Model built successfully")
         logger.info(f"Optimizing model with {model.NumVars} variables and {model.NumConstrs} constraints")
         model.write (os.path.join ("Logs", folder_name, f"gurobi_model_{file_name}_{timestamp}.lp"))
 
-        model.Params.DualReductions = 0 # debug infeasible or unbounded
+        # model.Params.DualReductions = 0 # debug infeasible or unbounded
 
-        model.setParam('Crossover', 0)  # skip crossover; no dual solution, sensitivity analysis, warm start
+        model.setParam("Method"     , 2)    # use barrier method
+        model.setParam('Crossover'  , 0)    # skip crossover; no dual solution, sensitivity analysis, warm start
+        model.setParam("Threads"    , 1)    # use single thread per process 
 
         model.optimize()
 

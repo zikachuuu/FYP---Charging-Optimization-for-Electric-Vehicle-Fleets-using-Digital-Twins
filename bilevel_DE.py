@@ -496,8 +496,8 @@ def run_parallel_de(
     # DE parameters
     POP_SIZE                : int                                   = kwargs["POP_SIZE"]                # population size for DE
     MAX_ITER                : int                                   = kwargs["MAX_ITER"]                # max iterations for DE
-    F                       : float                                 = kwargs["F"]                       # differential weight
-    CR                      : float                                 = kwargs["CR"]                      # crossover probability
+    DIFF_WEIGHT             : float                                 = kwargs["DIFF_WEIGHT"]             # differential weight
+    CROSS_PROB              : float                                 = kwargs["CROSS_PROB"]              # crossover probability
     VAR_THRESHOLD           : float                                 = kwargs["VAR_THRESHOLD"]           # variance threshold for stopping criteria
     NUM_ANCHORS             : int                                   = kwargs["NUM_ANCHORS"]             # number of anchors for DE
     VARS_PER_STEP           : int                                   = kwargs["VARS_PER_STEP"]           # number of variables per time step (3: a_t, b_t, r_t)
@@ -794,7 +794,7 @@ def run_parallel_de(
             # F       : scales the distance vector (differential weight)
             # A + ... : shifts the scaled vector to start from A (the base vector)
             # mutant has shape (pop_size, optimization_dims)
-            mutant: npt.NDArray[np.float64]  = population[idxs_a] + F * (population[idxs_b] - population[idxs_c])
+            mutant: npt.NDArray[np.float64]  = population[idxs_a] + DIFF_WEIGHT * (population[idxs_b] - population[idxs_c])
 
             # enforce bounds
             mutant: npt.NDArray[np.float64]  = np.maximum(mutant, lower_bounds)
@@ -804,7 +804,7 @@ def run_parallel_de(
             # for each variable, randomly decide whether to take from mutant or parent
             # if rand < cr, take from mutant; else take from parent; setting higher cr is more exploratory
             rand_mask       : npt.NDArray[np.float64] = np.random.rand(POP_SIZE, optimization_dims)
-            trial_population: npt.NDArray[np.float64] = np.where(rand_mask < CR, mutant, population)
+            trial_population: npt.NDArray[np.float64] = np.where(rand_mask < CROSS_PROB, mutant, population)
             
 
             # --- 2. EVALUATE TRIALS (PARALLEL BOTTLENECK) ---
@@ -833,9 +833,9 @@ def run_parallel_de(
             meet_threshold: npt.NDArray[np.bool_] = variances <= VAR_THRESHOLD
             if np.any(meet_threshold):
                 qualified_indices           : npt.NDArray[np.int_]      = np.where(meet_threshold)[0]
-                qualified_fitnesses         : npt.NDArray[np.float64]    = fitnesses[qualified_indices]
+                qualified_fitnesses         : npt.NDArray[np.float64]   = fitnesses[qualified_indices]
                 best_idx_within_qualified   : int                       = qualified_indices[np.argmin(qualified_fitnesses)]
-                best_vector                 : npt.NDArray[np.float64]    = population[best_idx_within_qualified].copy()
+                best_vector                 : npt.NDArray[np.float64]   = population[best_idx_within_qualified].copy()
 
                 logger.info(f"Early stopping at generation {gen+1} with Var = {variances[best_idx_within_qualified]:.5f}, \
                                                                         Fitness = {fitnesses[best_idx_within_qualified]:.5f}, \
