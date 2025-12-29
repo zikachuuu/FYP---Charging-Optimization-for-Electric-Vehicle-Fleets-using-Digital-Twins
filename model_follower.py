@@ -460,9 +460,9 @@ def follower_model(
     relaxed                 : bool                                  = kwargs.get("relaxed"      , True)     # whether to relax integrality constraints
     to_console              : bool                                  = kwargs.get("to_console"   , False)    # whether to print logs to console
     to_file                 : bool                                  = kwargs.get("to_file"      , False)    # whether to save logs to file
-    timestamp               : str                                   = kwargs.get("timestamp"    , "")       # timestamp for logging
-    file_name               : str                                   = kwargs.get("file_name"    , "")       # filename for logging
-    folder_name             : str                                   = kwargs.get("folder_name"  , "")       # folder name for logging
+    timestamp               : str                                   = kwargs["timestamp"]                   # timestamp for logging
+    file_name               : str                                   = kwargs["file_name"]                   # filename for logging
+    folder_name             : str                                   = kwargs["folder_name"]                 # folder name for logging
 
     
     logger = Logger("model_follower", level="DEBUG", to_console=to_console, timestamp=timestamp)

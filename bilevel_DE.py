@@ -141,6 +141,11 @@ def _reference_candidate(
     charge_cost_high        : dict[int                  , float]    = kwargs["charge_cost_high"]        # b_t
     elec_threshold          : dict[int                  , int]      = kwargs["elec_threshold"]          # r_t
 
+    # Metadata
+    timestamp               : str                                   = kwargs["timestamp"]               # timestamp for logging
+    file_name               : str                                   = kwargs["file_name"]               # filename for logging
+    folder_name             : str                                   = kwargs["folder_name"]             # folder name for logging
+
     # ----------------------------
     # Solve Follower Problem
     # ----------------------------
@@ -187,6 +192,9 @@ def _reference_candidate(
             relaxed                 = True                  ,
             to_console              = False                 ,
             to_file                 = False                 ,
+            timestamp               = timestamp             ,
+            file_name               = file_name             ,
+            folder_name             = folder_name           ,
         )
     except OptimizationError as e:
         raise OptimizationError("Failed to solve follower problem for reference candidate.", details=e) from e
@@ -281,9 +289,9 @@ def _evaluate_single_candidate(
     M                       : npt.NDArray[np.float64]               = kwargs["M"]                       # interpolation matrix
 
     # Metadata
-    timestamp               : str                                   = kwargs.get("timestamp"    , "")   # timestamp for logging
-    file_name               : str                                   = kwargs.get("file_name"    , "")   # filename for logging
-    folder_name             : str                                   = kwargs.get("folder_name"  , "")   # folder name for logging
+    timestamp               : str                                   = kwargs["timestamp"]               # timestamp for logging
+    file_name               : str                                   = kwargs["file_name"]               # filename for logging
+    folder_name             : str                                   = kwargs["folder_name"]             # folder name for logging
 
     solutions = _expand_trajectory(
         candidate_flat  = candidate_flat    ,
@@ -346,6 +354,9 @@ def _evaluate_single_candidate(
             relaxed                 = True                  ,
             to_console              = False                 ,
             to_file                 = False                 ,
+            timestamp               = timestamp             ,
+            file_name               = file_name             ,
+            folder_name             = folder_name           ,
         )
     except OptimizationError as e:
         raise OptimizationError("Failed to solve follower problem for candidate.", details=e) from e
@@ -492,9 +503,9 @@ def run_parallel_de(
     VARS_PER_STEP           : int                                   = kwargs["VARS_PER_STEP"]           # number of variables per time step (3: a_t, b_t, r_t)
 
     # Metadata
-    timestamp               : str                                   = kwargs.get("timestamp", "")       # timestamp for logging
-    file_name               : str                                   = kwargs.get("file_name", "")       # filename for logging
-    folder_name             : str                                   = kwargs.get("folder_name", "")     # folder name for logging
+    timestamp               : str                                   = kwargs["timestamp"]               # timestamp for logging
+    file_name               : str                                   = kwargs["file_name"]               # filename for logging
+    folder_name             : str                                   = kwargs["folder_name"]             # folder name for logging
 
 
     logger = Logger("bilevel_DE", level="DEBUG", to_console=True, timestamp=timestamp)
@@ -610,6 +621,11 @@ def run_parallel_de(
             charge_cost_low         = lowest_charge_cost_low ,
             charge_cost_high        = lowest_charge_cost_high,
             elec_threshold          = lowest_elec_threshold  ,
+
+            # Metadata
+            timestamp               = timestamp             ,
+            file_name               = file_name             ,
+            folder_name             = folder_name           ,
         )
     except OptimizationError as e:
         logger.error("Failed to obtain reference variance from reference candidate.")

@@ -100,11 +100,11 @@ def leader_model(
     charge_costs            : dict[int                      , float]    = kwargs["charge_costs"]
 
     # Metadata
-    to_console              : bool                                      = kwargs.get("to_console", False)       # whether to log to console
-    to_file                 : bool                                      = kwargs.get("to_file", True)           # whether to log to file
-    timestamp               : str                                       = kwargs.get("timestamp", "")           # timestamp for logging
-    file_name               : str                                       = kwargs.get("file_name", "")           # filename for logging
-    folder_name             : str                                       = kwargs.get("folder_name", "")         # folder name for logs and results
+    to_console              : bool                                      = kwargs.get("to_console"   , False)    # whether to log to console
+    to_file                 : bool                                      = kwargs.get("to_file"      , True)     # whether to log to file
+    timestamp               : str                                       = kwargs["timestamp"]                   # timestamp for logging
+    file_name               : str                                       = kwargs["file_name"]                   # filename for logging
+    folder_name             : str                                       = kwargs["folder_name"]                 # folder name for logs and results
     
     # Create logger
     logger = Logger("model_leader", level="DEBUG", to_console=to_console, timestamp=timestamp)
