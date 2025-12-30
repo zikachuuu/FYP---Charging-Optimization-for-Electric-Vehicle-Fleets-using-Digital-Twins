@@ -72,8 +72,14 @@ def postprocessing(**kwargs):
     # markers for plot
     markers = ["o", "v", "^", "<", ">", "1", "2", "3", "4", "8", "s", "p", "*", "h", "H", "+", "x", "D", "d", "|", "_"]
 
-    logger = Logger("postprocessing", level="DEBUG", to_console=False, timestamp=timestamp)
-    logger.save(os.path.join (folder_name, f"postprocessing_{file_name}"))
+    logger = Logger(
+        "postprocessing"            ,
+        level       = "DEBUG"       ,
+        to_console  = True          ,
+        folder_name = folder_name   ,
+        file_name   = file_name     ,
+        timestamp   = timestamp     ,
+    )
     logger.info("Parameters loaded successfully")
     
     

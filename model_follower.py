@@ -3,6 +3,7 @@ import gurobipy as gp
 from gurobipy import GRB
 from dotenv import load_dotenv
 import os
+import multiprocessing
 
 load_dotenv()
 
@@ -43,16 +44,19 @@ def follower_model_builder(
     max_charge_speed        : int                                   = kwargs["max_charge_speed"]            # max charging speed (in SoC levels) of one EV in one time step
         
     # Metadata
-    to_console              : bool                                  = kwargs.get("to_console"   , False)    # whether to print logs to console
-    to_file                 : bool                                  = kwargs.get("to_file"      , False)    # whether to save logs to file
     timestamp               : str                                   = kwargs.get("timestamp"    , "")       # timestamp for logging
     file_name               : str                                   = kwargs.get("file_name"    , "")       # filename for logging
     folder_name             : str                                   = kwargs.get("folder_name"  , "")       # folder name for logging
     
-    
-    logger = Logger("model_follower_builder", level="DEBUG", to_console=to_console, timestamp=timestamp)
-    if to_file:
-        logger.save (os.path.join (folder_name, f"model_follower_builder_{file_name}"))
+    logger = Logger (
+        "model_follower_builder"    ,                
+        level       = "DEBUG"       , 
+        to_console  = True          ,      
+        folder_name = folder_name   , 
+        file_name   = file_name     , 
+        timestamp   = timestamp     ,       
+    )
+    logger.save()
 
     logger.info("Parameters loaded successfully")
 
@@ -378,11 +382,24 @@ def follower_model_builder(
     for arc_type, arcs in type_arcs.items() :
         logger.info(f"  {arc_type.name} arcs: {len(arcs)}")
 
-    # Log arcs information to a separate file
-    logger.debug("Arcs information:")
 
+    # ----------------------------
+    # Arcs Information
+    # ----------------------------    
+    logger_arcs = Logger(
+        "arcs"                      , 
+        level       = "DEBUG"       , 
+        to_console  = False         , 
+        folder_name = folder_name   , 
+        file_name   = file_name     , 
+        timestamp   = timestamp     ,
+    )
+    logger_arcs.save()  # Will be overwriten by the logs by main.py (if never crash)
+
+    # Log arcs information to a separate file
+    logger_arcs.debug("Arcs information:")
     for id, arc in all_arcs.items():
-        logger.debug (f"  Arc {id}: type {arc.type} from node ({arc.o.i}, {arc.o.t}, {arc.o.l}) to ({arc.d.i}, {arc.d.t}, {arc.d.l})")
+        logger_arcs.debug (f"  Arc {id}: type {arc.type} from node ({arc.o.i}, {arc.o.t}, {arc.o.l}) to ({arc.d.i}, {arc.d.t}, {arc.d.l})")
 
     return {
         "V_set"                 : V_set                ,
@@ -458,27 +475,35 @@ def follower_model(
 
     # Metadata
     relaxed                 : bool                                  = kwargs.get("relaxed"      , True)     # whether to relax integrality constraints
-    to_console              : bool                                  = kwargs.get("to_console"   , False)    # whether to print logs to console
-    to_file                 : bool                                  = kwargs.get("to_file"      , False)    # whether to save logs to file
     timestamp               : str                                   = kwargs["timestamp"]                   # timestamp for logging
     file_name               : str                                   = kwargs["file_name"]                   # filename for logging
     folder_name             : str                                   = kwargs["folder_name"]                 # folder name for logging
+    logger                  : Logger                                = kwargs.get("logger"       , None)     # logger instance
 
-    
-    logger = Logger("model_follower", level="DEBUG", to_console=to_console, timestamp=timestamp)
-    if to_file:
-        logger.save (os.path.join (folder_name, f"model_follower_{file_name}"))
+    last = False
+    if logger is None:
+        # Logger is not provided only for stage 2 (last call)
+        last = True
+        logger = Logger (
+            "model_follower"            ,                
+            level       = "DEBUG"       , 
+            to_console  = True          ,      
+            folder_name = folder_name   , 
+            file_name   = file_name     , 
+            timestamp   = timestamp     ,       
+        )
+        logger.save()
 
-    logger.info("Parameters loaded successfully")
+    if last: logger.info("Parameters loaded successfully")
 
     # ----------------------------
     # Model
     # ----------------------------
     with gp.Env() as env, gp.Model(env=env) as model:  
-        if to_file:
-            model.Params.LogFile    = os.path.join ("Logs", folder_name, f"gurobi_logs_{file_name}_{timestamp}.log")      
-            
-        model.Params.Seed       = 67 # for reproducibility
+        model.Params.Seed = 67 # for reproducibility
+        
+        # save gurobi log file only for the last call
+        if last: model.Params.LogFile = os.path.join ("Logs", folder_name, f"gurobi_logs_{file_name}_{timestamp}.log")      
 
         # ----------------------------
         # Decision variables
@@ -530,10 +555,11 @@ def follower_model(
         )
 
         logger.info("Decision variables created")
-        logger.info(f"  x_e variables: {len(x)}")
-        logger.info(f"  s_ijt variables: {len(s)}")
-        logger.info(f"  u_ijta variables: {len(u)}")
-        logger.info(f"  e_ijt variables: {len(e)}")
+        if last:
+            logger.info(f"  x_e variables: {len(x)}")
+            logger.info(f"  s_ijt variables: {len(s)}")
+            logger.info(f"  u_ijta variables: {len(u)}")
+            logger.info(f"  e_ijt variables: {len(e)}")
 
 
         # ----------------------------
@@ -545,7 +571,7 @@ def follower_model(
             gp.quicksum(x[e_id] for e_id in out_arcs[v]) - gp.quicksum(x[e_id] for e_id in in_arcs[v]) == 0
             for v in V_set
         )
-        logger.info("Flow conservation constraints (1) added")
+        if last: logger.info("Flow conservation constraints (1) added")
 
 
         # (2) Accumulative unserved demand propagation
@@ -561,7 +587,7 @@ def follower_model(
             for j in ZONES
             for t in TIMESTEPS if t > 0
         )
-        logger.info("Accumulative unserved demand propagation constraints (2) added")
+        if last: logger.info("Accumulative unserved demand propagation constraints (2) added")
 
 
         # (3) Accumulative unserved demand at t=0
@@ -575,7 +601,7 @@ def follower_model(
             for i in ZONES
             for j in ZONES
         )
-        logger.info("Accumulative unserved demand at t=0 constraints (3) added")
+        if last: logger.info("Accumulative unserved demand at t=0 constraints (3) added")
 
 
         # (4) Accumulative unserved demand calculation
@@ -586,7 +612,7 @@ def follower_model(
             for j in ZONES
             for t in TIMESTEPS
         )
-        logger.info ("Accumulative unserved demand calculation constraints (4) added")
+        if last: logger.info ("Accumulative unserved demand calculation constraints (4) added")
 
 
         # (5) Unserved demand aging for a > 0
@@ -598,7 +624,7 @@ def follower_model(
             for t in TIMESTEPS if t > 0
             for a in AGES if a > 0
         )
-        logger.info ("Unserved demand aging for a > 0 constraints (5) added")
+        if last: logger.info ("Unserved demand aging for a > 0 constraints (5) added")
 
 
         # (6) Unserved demand aging base case
@@ -609,7 +635,7 @@ def follower_model(
             for j in ZONES
             for t in TIMESTEPS
         )
-        logger.info ("Unserved demand aging for a = 0 constraints (6) added")
+        if last: logger.info ("Unserved demand aging for a = 0 constraints (6) added")
 
 
         # (7) Unserved demand expiry for t < T
@@ -620,7 +646,7 @@ def follower_model(
             for j in ZONES
             for t in TIMESTEPS if t > 0
         )
-        logger.info ("Unserved demand expiry for t < T constraints (7) added")
+        if last: logger.info ("Unserved demand expiry for t < T constraints (7) added")
 
 
         # (8) Unserved demand base case
@@ -633,7 +659,7 @@ def follower_model(
             for a in AGES 
             if t < a
         )
-        logger.info ("Unserved demand base case constraints (8) added")
+        if last: logger.info ("Unserved demand base case constraints (8) added")
 
 
         # (9) Expired demand base case
@@ -645,7 +671,7 @@ def follower_model(
             for t in TIMESTEPS
             if t < W
         )
-        logger.info ("Expired demand base case constraints (9) added")
+        if last: logger.info ("Expired demand base case constraints (9) added")
 
 
         # (10) Number of EVs charging at each zone at each time period cannot exceed the number of ports available in that zone
@@ -654,14 +680,14 @@ def follower_model(
             for i in ZONES  
             for t in TIMESTEPS
         )
-        logger.info("Charging port constraints (10) added")
+        if last: logger.info("Charging port constraints (10) added")
 
 
         # (11) Fleet size equals sum of wrap-around flows
         model.addConstr(
             gp.quicksum(x[e] for e in type_arcs[ArcType.WRAP]) == num_EVs
         )
-        logger.info("Fleet size constraint (11) added")
+        if last: logger.info("Fleet size constraint (11) added")
 
 
         # (12) Limit the total power drawn from the grid at each zone at each time period
@@ -673,7 +699,7 @@ def follower_model(
             for i in ZONES
             for t in TIMESTEPS
         )
-        logger.info("Max power drawn from grid constraints (12) added")
+        if last: logger.info("Max power drawn from grid constraints (12) added")
 
 
         # (13) Enforce the indication of whether the total electricity usage is above threshold
@@ -685,7 +711,7 @@ def follower_model(
                 ) - elec_threshold.get(t, 0)
             for t in TIMESTEPS
         )
-        logger.info("Threshold indication constraints (13) added")
+        if last: logger.info("Threshold indication constraints (13) added")
 
         logger.info("All constraints added")
         model.update()  # Apply all changes to the model
@@ -752,9 +778,10 @@ def follower_model(
 
         model.update()  # Apply all changes to the model
         
-        logger.info("Model built successfully")
-        logger.info(f"Optimizing model with {model.NumVars} variables and {model.NumConstrs} constraints")
-        model.write (os.path.join ("Logs", folder_name, f"gurobi_model_{file_name}_{timestamp}.lp"))
+        if last:
+            logger.info("Model built successfully")
+            logger.info(f"Optimizing model with {model.NumVars} variables and {model.NumConstrs} constraints")
+            model.write (os.path.join ("Logs", folder_name, f"gurobi_model_{file_name}_{timestamp}.lp"))
 
         # model.Params.DualReductions = 0 # debug infeasible or unbounded
 
@@ -769,16 +796,17 @@ def follower_model(
         if model.Status != GRB.OPTIMAL:
             logger.error(f"Optimization was not successful. Status: {model.Status}")
 
-            if model.Status == GRB.INFEASIBLE:
+            if last and model.Status == GRB.INFEASIBLE:
                 model.computeIIS()
                 model.write (os.path.join ("Logs", folder_name, f"gurobi_model_infeasible_{file_name}_{timestamp}.ilp"))
                 logger.error("Model is infeasible. IIS written to file.")
 
             raise OptimizationError ("Optimization was not successful.", status=model.Status)
         
-        logger.info("Optimization successful.")
-        logger.info(f"  Runtime: {model.Runtime:.4f} seconds")
-        logger.info(f"  Objective value: {model.ObjVal:.4f}")
+        if last:     
+            logger.info("Optimization successful.")
+            logger.info(f"  Runtime: {model.Runtime:.4f} seconds")
+            logger.info(f"  Objective value: {model.ObjVal:.4f}")
 
         # all float to allow relaxed solutions
         x_sol: dict[int                         , float] = {e: v.X for e, v in x.items()} # Keys are arc ids

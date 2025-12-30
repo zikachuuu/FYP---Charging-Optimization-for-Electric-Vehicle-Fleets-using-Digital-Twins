@@ -100,19 +100,10 @@ def leader_model(
     charge_costs            : dict[int                      , float]    = kwargs["charge_costs"]
 
     # Metadata
-    to_console              : bool                                      = kwargs.get("to_console"   , False)    # whether to log to console
-    to_file                 : bool                                      = kwargs.get("to_file"      , True)     # whether to log to file
     timestamp               : str                                       = kwargs["timestamp"]                   # timestamp for logging
     file_name               : str                                       = kwargs["file_name"]                   # filename for logging
     folder_name             : str                                       = kwargs["folder_name"]                 # folder name for logs and results
-    
-    # Create logger
-    logger = Logger("model_leader", level="DEBUG", to_console=to_console, timestamp=timestamp)
-    if to_file:
-        logger.save (os.path.join (folder_name, f"model_leader_{file_name}"))
-
-    logger.info("Parameters loaded successfully into leader model.")
-
+    logger                  : Logger                                    = kwargs["logger"]                      # logger instance
 
     # ----------------------------
     # Variance Calculation
@@ -135,6 +126,7 @@ def leader_model(
     variance            : float                     = np.var(usage_vector, ddof=0) if len(usage_vector) > 1 else 0.0   # ddof=0 for population variance, =1 for sample variance
     variance_ratio      : float                     = variance / reference_variance if reference_variance > 0 else 0.0
 
+    logger.info(f"Leader model variance calculation: Variance = {variance:.4f}, Variance Ratio = {variance_ratio:.4f}")
 
     # ----------------------------
     # Fitness Calculation
@@ -165,7 +157,8 @@ def leader_model(
     percentage_price_increase   : float = np.mean(price_increases)
     fitness                     : float = variance_ratio + PENALTY_WEIGHT * percentage_price_increase
 
-    logger.info("Leader model computation completed.")
+    logger.info(f"Leader model completed. Fitness: {fitness:.4f}, Percentage Price Increase: {percentage_price_increase:.4f}")
+
     return {
         "fitness"                   : fitness,
         "variance"                  : variance,

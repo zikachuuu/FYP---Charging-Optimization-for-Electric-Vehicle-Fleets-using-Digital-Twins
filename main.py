@@ -68,17 +68,21 @@ if __name__ == "__main__":
         folder_name = f"{folder_name}_{file_name}_{timestamp}"
 
     # Create necessary directories if they do not exist
-    if not os.path.exists("Logs"):
-        os.makedirs("Logs")
-    if not os.path.exists(os.path.join("Logs", folder_name)):
-        os.makedirs(os.path.join("Logs", folder_name))
-    if not os.path.exists("Results"):
-        os.makedirs("Results")
-    if not os.path.exists(os.path.join("Results", folder_name)):
-        os.makedirs(os.path.join("Results", folder_name))
+    os.makedirs("Logs", exist_ok=True)
+    os.makedirs(os.path.join("Logs", folder_name), exist_ok=True)
+    os.makedirs("Results", exist_ok=True)
+    os.makedirs(os.path.join("Results", folder_name), exist_ok=True)
 
-    logger = Logger("main", level="DEBUG", to_console=True, timestamp=timestamp)
-    logger.save(os.path.join(folder_name, f"main_{file_name}"))  # Save log file in the specific folder for this run
+    # Set up logger
+    logger = Logger(
+        "main"                      , 
+        level       = "DEBUG"       , 
+        to_console  = True          , 
+        folder_name = folder_name   , 
+        file_name   = file_name     , 
+        timestamp   = timestamp     ,    
+    )
+    logger.save()
 
     results_name = os.path.join("Results", folder_name, f"results_{file_name}_{timestamp}.xlsx")
 
@@ -95,7 +99,7 @@ if __name__ == "__main__":
             processed_data = convert_key_types(data)  # Convert keys to tuples of integers
             # logger.debug(f"Processed data: {processed_data}")
 
-            logger.info("Data loaded successfully.")
+            logger.info ("Data loaded successfully.")
 
     except FileNotFoundError as e:
         logger.error(f"File {file_name}.json not found. Please ensure it exists in the Testcases folder with json extension.")
@@ -157,8 +161,6 @@ if __name__ == "__main__":
         max_charge_speed        = max_charge_speed      ,
 
         # Metadata
-        to_console              = False                 ,
-        to_file                 = True                  ,
         timestamp               = timestamp             ,
         file_name               = file_name             ,
         folder_name             = folder_name           ,
@@ -334,8 +336,15 @@ if __name__ == "__main__":
     # ----------------------------
     # Arcs Information
     # ----------------------------    
-    logger_arcs = Logger("arcs", level="DEBUG", to_console=False, timestamp=timestamp)
-    logger_arcs.save (os.path.join (folder_name, f"arcs_{file_name}"), mode="w")      # Will overwrite the previous arcs log by model_follower.py
+    logger_arcs = Logger(
+        "arcs"                      , 
+        level       = "DEBUG"       , 
+        to_console  = False         , 
+        folder_name = folder_name   , 
+        file_name   = file_name     , 
+        timestamp   = timestamp     ,
+    )
+    logger_arcs.save()  # Will overwrite the previous arcs log by model_follower.py
 
     logger_arcs.debug("Arcs information:")
     for id, arc in all_arcs.items():
