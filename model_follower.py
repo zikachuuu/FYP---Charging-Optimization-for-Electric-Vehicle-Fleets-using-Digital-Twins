@@ -51,7 +51,7 @@ def follower_model_builder(
     logger = Logger (
         "model_follower_builder"    ,                
         level       = "DEBUG"       , 
-        to_console  = True          ,      
+        to_console  = False         ,      
         folder_name = folder_name   , 
         file_name   = file_name     , 
         timestamp   = timestamp     ,       
@@ -499,7 +499,7 @@ def follower_model(
     # ----------------------------
     # Model
     # ----------------------------
-    with gp.Env() as env, gp.Model(env=env) as model:  
+    with gp.Env(empty=True) as env, gp.Model(env=env) as model:  
         model.Params.Seed = 67 # for reproducibility
         
         # save gurobi log file only for the last call
