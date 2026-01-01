@@ -145,7 +145,29 @@ def _reference_candidate(
     timestamp               : str                                   = kwargs["timestamp"]               # timestamp for logging
     file_name               : str                                   = kwargs["file_name"]               # filename for logging
     folder_name             : str                                   = kwargs["folder_name"]             # folder name for logging
-    logger                  : Logger                                = kwargs["logger"]                  # logger instance
+    log_queue               : multiprocessing.Queue                 = kwargs["log_queue"]               # multiprocessing log queue
+    log_queue_gurobi        : multiprocessing.Queue                 = kwargs["log_queue_gurobi"]        # multiprocessing log queue for gurobi
+    NUM_THREADS             : int                                   = kwargs["NUM_THREADS"]             # number of threads used per candidate evaluation
+
+    logger = Logger (
+        f"Reference"     ,    
+        level       = "DEBUG"       ,
+        to_console  = False         ,
+        folder_name = folder_name   ,
+        file_name   = file_name     ,
+        timestamp   = timestamp     ,
+        queue       = log_queue     ,
+    )
+
+    logger_gurobi = Logger (
+        f"Gurobi_Reference"                 ,
+        level       = "DEBUG"               ,
+        to_console  = False                 ,
+        folder_name = folder_name           ,
+        file_name   = file_name             ,
+        timestamp   = timestamp             ,
+        queue       = log_queue_gurobi      ,
+    )
 
     logger.info("Solving follower problem for reference candidate with minimum prices...")
 
@@ -197,6 +219,8 @@ def _reference_candidate(
             file_name               = file_name             ,
             folder_name             = folder_name           ,
             logger                  = logger                ,
+            logger_gurobi           = logger_gurobi         ,
+            NUM_THREADS             = NUM_THREADS           ,
         )
     except OptimizationError as e:
         raise OptimizationError("Failed to solve follower problem for reference candidate.", details=e) from e
@@ -235,7 +259,7 @@ def _reference_candidate(
     return variance
 
 
-def _evaluate_single_candidate(
+def _evaluate_candidate(
         candidate_flat,
         **kwargs
     ):
@@ -297,8 +321,10 @@ def _evaluate_single_candidate(
     file_name               : str                                   = kwargs["file_name"]               # filename for logging
     folder_name             : str                                   = kwargs["folder_name"]             # folder name for logging
     log_queue               : multiprocessing.Queue                 = kwargs["log_queue"]               # multiprocessing log queue
+    log_queue_gurobi        : multiprocessing.Queue                 = kwargs["log_queue_gurobi"]        # multiprocessing log queue for gurobi
+    NUM_THREADS             : int                                   = kwargs["NUM_THREADS"]             # number of threads used per candidate evaluation
 
-    logger = Logger (
+    logger_worker = Logger (
         f"Worker_{os.getpid()}"     ,    
         level       = "DEBUG"       ,
         to_console  = False         ,
@@ -306,6 +332,16 @@ def _evaluate_single_candidate(
         file_name   = file_name     ,
         timestamp   = timestamp     ,
         queue       = log_queue     ,
+    )
+
+    logger_worker_gurobi = Logger (
+        f"Gurobi_Worker_{os.getpid()}"      ,
+        level       = "DEBUG"               ,
+        to_console  = False                 ,
+        folder_name = folder_name           ,
+        file_name   = file_name             ,
+        timestamp   = timestamp             ,
+        queue       = log_queue_gurobi      ,
     )
 
     solutions = _expand_trajectory(
@@ -322,7 +358,7 @@ def _evaluate_single_candidate(
     charge_cost_high    = solutions["charge_cost_high"]
     elec_threshold      = solutions["elec_threshold"]
 
-    logger.info("Solving follower problem for candidate...")
+    logger_worker.info("1/10: Solving follower problem for candidate...")
 
     # ----------------------------
     # Solve Follower Problem
@@ -371,14 +407,16 @@ def _evaluate_single_candidate(
             timestamp               = timestamp             ,
             file_name               = file_name             ,
             folder_name             = folder_name           ,
-            logger                  = logger                ,
+            logger                  = logger_worker         ,
+            logger_gurobi           = logger_worker_gurobi  ,
+            NUM_THREADS             = NUM_THREADS           ,
         )
     except OptimizationError as e:
         raise OptimizationError("Failed to solve follower problem for candidate.", details=e) from e
     except Exception as e:
         raise Exception("Unexpected error when solving follower problem for candidate.") from e
 
-    logger.info("Follower problem for candidate solved successfully.")
+    logger_worker.info("6/10: Follower problem for candidate solved successfully.")
 
     # Extract variables and sets from the follower_outputs    
     obj             : float                                     = follower_outputs["obj"]
@@ -391,7 +429,7 @@ def _evaluate_single_candidate(
     penalty_costs   : dict[int                      , float]    = follower_outputs["penalty_costs"]
     charge_costs    : dict[int                      , float]    = follower_outputs["charge_costs"]
 
-    logger.info("Solving leader problem for candidate...")
+    logger_worker.info("7/10: Solving leader problem for candidate...")
 
     # ----------------------------
     # Solve Leader Problem
@@ -454,10 +492,10 @@ def _evaluate_single_candidate(
         timestamp               = timestamp             ,
         file_name               = file_name             ,
         folder_name             = folder_name           ,
-        logger                  = logger                ,
+        logger                  = logger_worker                ,
     )
 
-    logger.info("Leader problem for candidate solved successfully.")
+    logger_worker.info("10/10: Leader problem for candidate solved successfully.")
 
     return (
         leader_outputs["fitness"],
@@ -525,6 +563,8 @@ def run_parallel_de(
     timestamp               : str                                   = kwargs["timestamp"]               # timestamp for logging
     file_name               : str                                   = kwargs["file_name"]               # filename for logging
     folder_name             : str                                   = kwargs["folder_name"]             # folder name for logging
+    NUM_CORES               : int                                   = kwargs["NUM_CORES"]               # number of CPU cores to use
+    NUM_THREADS             : int                                   = kwargs["NUM_THREADS"]             # number of threads used per candidate evaluation
 
 
     # ----------------------------
@@ -534,9 +574,12 @@ def run_parallel_de(
     manager = multiprocessing.Manager()
     log_queue = manager.Queue()
 
+    manager_gurobi = multiprocessing.Manager()
+    log_queue_gurobi = manager_gurobi.Queue()
+
     # 2. Start the Listener Process
     listener = LogListener(
-        "stage1_MP"         ,
+        "stage1_MP_evaluate_candidate",
         folder_name         , 
         file_name           , 
         timestamp           ,
@@ -544,6 +587,16 @@ def run_parallel_de(
         to_console = True   ,
     )
     listener.start()
+
+    listener_gurobi = LogListener(
+        "stage1_MP_gurobi_logs",
+        folder_name         ,
+        file_name           ,
+        timestamp           ,
+        log_queue_gurobi    ,
+        to_console = False  ,
+    )
+    listener_gurobi.start()
 
     try:
         # Logger for this process (no need multiprocessing logger here)
@@ -672,7 +725,9 @@ def run_parallel_de(
                 timestamp               = timestamp             ,
                 file_name               = file_name             ,
                 folder_name             = folder_name           ,
-                logger                  = logger                ,
+                log_queue               = log_queue             ,
+                log_queue_gurobi        = log_queue_gurobi      ,
+                NUM_THREADS             = multiprocessing.cpu_count() - 1,
             )
         except OptimizationError as e:
             logger.error("Failed to obtain reference variance from reference candidate.")
@@ -694,7 +749,7 @@ def run_parallel_de(
         # Create a partial function with fixed parameters for the worker function
         # Now the worker function only needs the candidate vector as input
         evaluate_single_candidate_worker = partial(
-            _evaluate_single_candidate,
+            _evaluate_candidate,
 
             # Follower model parameters
             N                       = N                     ,
@@ -748,6 +803,8 @@ def run_parallel_de(
             file_name               = file_name             ,
             folder_name             = folder_name           ,
             log_queue               = log_queue             ,
+            log_queue_gurobi        = log_queue_gurobi      ,
+            NUM_THREADS             = NUM_THREADS           ,
         )
 
 
@@ -759,11 +816,10 @@ def run_parallel_de(
         # Initial Evaluation
         # We use a Pool to run all candidates in parallel
         # Use processes=cpu_count()-1 to leave one core free
-        num_cores = max(1, multiprocessing.cpu_count() - 1)
-        
-        logger.info(f"Initializing pool with {num_cores} cores...")
+        # num_cores = max(1, multiprocessing.cpu_count() - 1)        
+        logger.info(f"Initializing pool with {NUM_CORES} cores...")
 
-        with multiprocessing.Pool(processes=num_cores) as pool:
+        with multiprocessing.Pool(processes=NUM_CORES) as pool:
 
             # Calculate initial fitness (Parallel)
             # Runs the evaluate_single_candidate function on each candidate in the population in parallel
@@ -791,10 +847,10 @@ def run_parallel_de(
                 best_idx_within_qualified   : int                       = qualified_indices[np.argmin(qualified_fitnesses)]
                 best_vector                 : npt.NDArray[np.float64]   = population[best_idx_within_qualified].copy()
 
-                logger.info(f"Early stopping at initialization with Var = {variances[best_idx_within_qualified]:.5f}, \
-                                                                    Fitness = {fitnesses[best_idx_within_qualified]:.5f}, \
-                                                                    Var Ratio =  {variance_ratios[best_idx_within_qualified]:.5f}, \
-                                                                    Percentage Price Increase = {percentage_price_increases[best_idx_within_qualified]:.5f}%"
+                logger.info(f"Early stopping at initialization with Var = {variances[best_idx_within_qualified]:.5f}, " \
+                    f"Fitness = {fitnesses[best_idx_within_qualified]:.5f}, " \
+                    f"Var Ratio =  {variance_ratios[best_idx_within_qualified]:.5f}, " \
+                    f"Percentage Price Increase = {percentage_price_increases[best_idx_within_qualified]:.5f}%"
                 )
                 logger.info(f"  Time taken: {init_end_time - start_time:.1f}s")
 
@@ -813,15 +869,15 @@ def run_parallel_de(
             best_var_idx        : int   = np.argmin(variances)
             best_fitness_idx    : int   = np.argmin(fitnesses)
 
-            logger.info(f"Initial candidate with best variance: Var = {variances[best_var_idx]:.5f}, \
-                                                                Fitness = {fitnesses[best_var_idx]:.5f}, \
-                                                                Var Ratio = {variance_ratios[best_var_idx]:.5f}, \
-                                                                Percentage Price Increase = {percentage_price_increases[best_var_idx]:.5f}%"
+            logger.info(f"Initial candidate with best variance: Var = {variances[best_var_idx]:.5f}, " \
+                f"Fitness = {fitnesses[best_var_idx]:.5f}, " \
+                f"Var Ratio = {variance_ratios[best_var_idx]:.5f}, " \
+                f"Percentage Price Increase = {percentage_price_increases[best_var_idx]:.5f}%"
             )
-            logger.info(f"Initial candidate with best fitness: Var = {variances[best_fitness_idx]:.5f}, \
-                                                            Fitness = {fitnesses[best_fitness_idx]:.5f}\
-                                                            Var Ratio = {variance_ratios[best_fitness_idx]:.5f}, \
-                                                            Percentage Price Increase = {percentage_price_increases[best_fitness_idx]:.5f}%"
+            logger.info(f"Initial candidate with best fitness: Var = {variances[best_fitness_idx]:.5f}, " \
+                f"Fitness = {fitnesses[best_fitness_idx]:.5f}, " \
+                f"Var Ratio = {variance_ratios[best_fitness_idx]:.5f}, " \
+                f"Percentage Price Increase = {percentage_price_increases[best_fitness_idx]:.5f}%"
             )
             logger.info(f"  Time taken: {init_end_time - start_time:.1f}s")
 
@@ -885,10 +941,10 @@ def run_parallel_de(
                     best_idx_within_qualified   : int                       = qualified_indices[np.argmin(qualified_fitnesses)]
                     best_vector                 : npt.NDArray[np.float64]   = population[best_idx_within_qualified].copy()
 
-                    logger.info(f"Early stopping at generation {gen+1} with Var = {variances[best_idx_within_qualified]:.5f}, \
-                                                                            Fitness = {fitnesses[best_idx_within_qualified]:.5f}, \
-                                                                            Var Ratio = {variance_ratios[best_idx_within_qualified]:.5f}, \
-                                                                            Percentage Price Increase = {percentage_price_increases[best_idx_within_qualified]:.5f}%"
+                    logger.info(f"Early stopping at generation {gen+1} with Var = {variances[best_idx_within_qualified]:.5f}, " \
+                        f"Fitness = {fitnesses[best_idx_within_qualified]:.5f}, " \
+                        f"Var Ratio = {variance_ratios[best_idx_within_qualified]:.5f}, " \
+                        f"Percentage Price Increase = {percentage_price_increases[best_idx_within_qualified]:.5f}%"
                     )
                     logger.info(f"  Time taken: {time.time() - start_time:.1f}s")
 
@@ -912,15 +968,15 @@ def run_parallel_de(
                 est_remaining_time = gen_duration * (MAX_ITER - gen - 1)
 
                 logger.info(f"Gen {gen+1}/{MAX_ITER}")
-                logger.info(f"  Current candidate with best variance: Var = {variances[best_var_idx]:.5f}, \
-                                                                    Fitness = {fitnesses[best_var_idx]:.5f}, \
-                                                                    Var Ratio = {variance_ratios[best_var_idx]:.5f}, \
-                                                                    Percentage Price Increase = {percentage_price_increases[best_var_idx]:.5f}%"
+                logger.info(f"  Current candidate with best variance: Var = {variances[best_var_idx]:.5f}, " \
+                    f"Fitness = {fitnesses[best_var_idx]:.5f}, " \
+                    f"Var Ratio = {variance_ratios[best_var_idx]:.5f}, " \
+                    f"Percentage Price Increase = {percentage_price_increases[best_var_idx]:.5f}%"
                 )
-                logger.info(f"  Current candidate with best fitness: Var = {variances[best_fitness_idx]:.5f}, \
-                                                                    Fitness = {fitnesses[best_fitness_idx]:.5f}, \
-                                                                    Var Ratio = {variance_ratios[best_fitness_idx]:.5f}, \
-                                                                    Percentage Price Increase = {percentage_price_increases[best_fitness_idx]:.5f}%"
+                logger.info(f"  Current candidate with best fitness: Var = {variances[best_fitness_idx]:.5f}, " \
+                    f"Fitness = {fitnesses[best_fitness_idx]:.5f}, " \
+                    f"Var Ratio = {variance_ratios[best_fitness_idx]:.5f}, " \
+                    f"Percentage Price Increase = {percentage_price_increases[best_fitness_idx]:.5f}%"
                 )
                 logger.info(f"  Generation time: {gen_duration:.1f}s | Estimated remaining time: {est_remaining_time:.1f}s")
 
@@ -945,3 +1001,4 @@ def run_parallel_de(
         raise e
     finally:
         listener.stop()
+        listener_gurobi.stop()

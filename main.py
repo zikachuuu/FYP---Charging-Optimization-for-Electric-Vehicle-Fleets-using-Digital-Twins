@@ -3,6 +3,7 @@ import json
 import os
 import traceback
 import math
+import multiprocessing
 
 from logger import Logger
 from model_follower import follower_model, follower_model_builder
@@ -12,6 +13,9 @@ from postprocessing import postprocessing
 from bilevel_DE import run_parallel_de
 
 POP_SIZE        : int   = 16        # population size for DE (should be in multiples of <number of CPU cores> - 1)
+NUM_CORES       : int   = 4         # number of CPU cores used
+NUM_THREADS     : int   = 2         # number of threads used per candidate evaluation
+                                    #   NUM_CORES * NUM_THREADS should be <= total available CPU cores
 MAX_ITER        : int   = 2         # maximum iterations for DE
 DIFF_WEIGHT     : float = 0.9       # Differential Weight / Mutation: Controls jump size
                                     #   Higher = bigger jumps (exploration); Lower = fine-tuning (exploitation)
@@ -251,6 +255,8 @@ if __name__ == "__main__":
                 timestamp               = timestamp             ,
                 file_name               = file_name             ,
                 folder_name             = folder_name           ,
+                NUM_CORES               = NUM_CORES             ,
+                NUM_THREADS             = NUM_THREADS           ,
             )
         except Exception as e:
             logger.error(f"Bilevel optimization failed in Stage 1: {e}")
@@ -314,6 +320,7 @@ if __name__ == "__main__":
             timestamp               = timestamp             ,
             file_name               = file_name             ,
             folder_name             = folder_name           ,
+            NUM_THREADS             = multiprocessing.cpu_count() - 1,
         )
     except Exception as e:
         logger.error(f"Follower model failed in Stage 2: {e}")

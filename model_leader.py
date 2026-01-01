@@ -126,7 +126,7 @@ def leader_model(
     variance            : float                     = np.var(usage_vector, ddof=0) if len(usage_vector) > 1 else 0.0   # ddof=0 for population variance, =1 for sample variance
     variance_ratio      : float                     = variance / reference_variance if reference_variance > 0 else 0.0
 
-    logger.info(f"Leader model variance calculation: Variance = {variance:.4f}, Variance Ratio = {variance_ratio:.4f}")
+    logger.info(f"8/10: Leader model variance calculation: Variance = {variance:.4f}, Variance Ratio = {variance_ratio:.4f}")
 
     # ----------------------------
     # Fitness Calculation
@@ -157,7 +157,7 @@ def leader_model(
     percentage_price_increase   : float = np.mean(price_increases)
     fitness                     : float = variance_ratio + PENALTY_WEIGHT * percentage_price_increase
 
-    logger.info(f"Leader model completed. Fitness: {fitness:.4f}, Percentage Price Increase: {percentage_price_increase:.4f}")
+    logger.info(f"9/10: Leader model completed. Fitness: {fitness:.4f}, Percentage Price Increase: {percentage_price_increase:.4f}")
 
     return {
         "fitness"                   : fitness,

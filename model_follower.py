@@ -44,10 +44,10 @@ def follower_model_builder(
     max_charge_speed        : int                                   = kwargs["max_charge_speed"]            # max charging speed (in SoC levels) of one EV in one time step
         
     # Metadata
-    timestamp               : str                                   = kwargs.get("timestamp"    , "")       # timestamp for logging
-    file_name               : str                                   = kwargs.get("file_name"    , "")       # filename for logging
-    folder_name             : str                                   = kwargs.get("folder_name"  , "")       # folder name for logging
-    
+    timestamp               : str                                   = kwargs["timestamp"]                   # timestamp for logging
+    file_name               : str                                   = kwargs["file_name"]                   # filename for logging
+    folder_name             : str                                   = kwargs["folder_name"]                 # folder name for logging
+
     logger = Logger (
         "model_follower_builder"    ,                
         level       = "DEBUG"       , 
@@ -433,6 +433,17 @@ def follower_model(
 
     Returns EV charging schedule to the leader, as well as other relevant information.
     """    
+
+    class GurobiLogger:
+        """Redirects Gurobi output to Python Logger"""
+        def __init__(self, logger):
+            self.logger = logger
+        def write(self, message):
+            if message.strip():
+                self.logger.info(f"GRB: {message.strip()}")
+        def flush(self):
+            pass
+
     # ----------------------------
     # Parameters
     # ----------------------------
@@ -474,11 +485,13 @@ def follower_model(
     elec_threshold          : dict[int                  , int]      = kwargs["elec_threshold"]          # r_t
 
     # Metadata
-    relaxed                 : bool                                  = kwargs.get("relaxed"      , True)     # whether to relax integrality constraints
-    timestamp               : str                                   = kwargs["timestamp"]                   # timestamp for logging
-    file_name               : str                                   = kwargs["file_name"]                   # filename for logging
-    folder_name             : str                                   = kwargs["folder_name"]                 # folder name for logging
-    logger                  : Logger                                = kwargs.get("logger"       , None)     # logger instance
+    relaxed                 : bool                                  = kwargs["relaxed"]                 # whether to relax integrality constraints
+    timestamp               : str                                   = kwargs["timestamp"]               # timestamp for logging
+    file_name               : str                                   = kwargs["file_name"]               # filename for logging
+    folder_name             : str                                   = kwargs["folder_name"]             # folder name for logging
+    logger                  : Logger                                = kwargs.get("logger", None)        # logger instance
+    logger_gurobi           : Logger                                = kwargs.get("logger_gurobi", None) # gurobi logger instance
+    NUM_THREADS             : int                                   = kwargs["NUM_THREADS"]             # number of threads used per candidate evaluation
 
     last = False
     if logger is None:
@@ -494,342 +507,365 @@ def follower_model(
         )
         logger.save()
 
+    if not last and logger_gurobi is None:
+        logger.error("Gurobi logger must be provided for non-last calls")
+        raise TypeError("Gurobi logger must be provided for non-last calls")
+
     if last: logger.info("Parameters loaded successfully")
 
     # ----------------------------
     # Model
     # ----------------------------
-    with gp.Env(empty=True) as env, gp.Model(env=env) as model:  
-        model.Params.Seed = 67 # for reproducibility
-        
-        # save gurobi log file only for the last call
-        if last: model.Params.LogFile = os.path.join ("Logs", folder_name, f"gurobi_logs_{file_name}_{timestamp}.log")      
+    with gp.Env(empty=True) as env:
+        env.setParam('OutputFlag', 1 if last else 0)  # only show output for the last call
+        env.start()
 
-        # ----------------------------
-        # Decision variables
-        # ----------------------------
+        with gp.Model(env=env) as model:  
+            model.Params.Seed = 67 # for reproducibility
+            
+            # Redirect Gurobi print to our logger
+            if not last:
+                model._logger = GurobiLogger(logger_gurobi)
+                
+                # This is a Gurobi callback to capture logs
+                def log_callback(model, where):
+                    if where == GRB.Callback.MESSAGE:
+                        msg = model.cbGet(GRB.Callback.MSG_STRING)
+                        if msg.strip():
+                            logger_gurobi.info(f"GRB: {msg.strip()}")
 
-        # x_e: number of vehicles flow in arc id e
-        x: gp.tupledict[int, gp.Var] = model.addVars(
-            all_arcs.keys()                                     ,
-            vtype   = GRB.CONTINUOUS if relaxed else GRB.INTEGER,
-            lb      = 0                                         , 
-            name    = "x"                                       ,
-        )
+            # Save Gurobi log to file
+            else:
+                model.Params.LogFile = os.path.join ("Logs", folder_name, f"gurobi_logs_{file_name}_{timestamp}.log")      
 
-        # s_ijt: number of cumulative unserved demand from zone i to j, considered at time interval t 
-        #        = sum of unserved demand from t to t - W + 1
-        #        (eg if t=3, w=2, then s consideres unserved demand for t=2 and t=3, whereas demand for t=1 has expired)
-        s: gp.tupledict[tuple[int, int, int], gp.Var] = model.addVars(
-            ((i, j, t) for i in ZONES for j in ZONES for t in TIMESTEPS),
-            vtype   = GRB.CONTINUOUS if relaxed else GRB.INTEGER        ,
-            lb      = 0                                                 , 
-            name    = "s"                                               ,
-        )
+            # ----------------------------
+            # Decision variables
+            # ----------------------------
 
-        # u_ijta: number of unserved demand from zone i to j, considered at time interval t, of age a
-        # eg a = 0: unserved demand from the demand made at t
-        #    a = 1: unserved demand from the demand made at t-1
-        u: gp.tupledict[tuple[int, int, int, int], gp.Var] = model.addVars(
-            ((i, j, t, a) for i in ZONES for j in ZONES for t in TIMESTEPS for a in AGES)   ,
-            vtype   = GRB.CONTINUOUS if relaxed else GRB.INTEGER                            ,
-            lb      = 0                                                                     , 
-            name    = "u"                                                                   ,
-        )
+            # x_e: number of vehicles flow in arc id e
+            x: gp.tupledict[int, gp.Var] = model.addVars(
+                all_arcs.keys()                                     ,
+                vtype   = GRB.CONTINUOUS if relaxed else GRB.INTEGER,
+                lb      = 0                                         , 
+                name    = "x"                                       ,
+            )
 
-        # e_ijt: number of unserved demand from zone i to j, that expired at t (can no longer be served)
-        # ie if an demand expired at t, it must have been made at t - W
-        e: gp.tupledict[tuple[int, int, int], gp.Var] = model.addVars(
-            ((i, j, t) for i in ZONES for j in ZONES for t in TIMESTEPS),
-            vtype   = GRB.CONTINUOUS if relaxed else GRB.INTEGER        ,
-            lb      = 0                                                 , 
-            name    = "e"                                               ,
-        )
+            # s_ijt: number of cumulative unserved demand from zone i to j, considered at time interval t 
+            #        = sum of unserved demand from t to t - W + 1
+            #        (eg if t=3, w=2, then s consideres unserved demand for t=2 and t=3, whereas demand for t=1 has expired)
+            s: gp.tupledict[tuple[int, int, int], gp.Var] = model.addVars(
+                ((i, j, t) for i in ZONES for j in ZONES for t in TIMESTEPS),
+                vtype   = GRB.CONTINUOUS if relaxed else GRB.INTEGER        ,
+                lb      = 0                                                 , 
+                name    = "s"                                               ,
+            )
 
-        # q_t: number of SoC levels charged across all zones that is charged above threshold r_t
-        q: gp.tupledict[int, gp.Var] = model.addVars(
-            TIMESTEPS                                           ,
-            vtype   = GRB.CONTINUOUS if relaxed else GRB.INTEGER,
-            lb      = 0                                         ,
-            name    = "q"                                       ,
-        )
+            # u_ijta: number of unserved demand from zone i to j, considered at time interval t, of age a
+            # eg a = 0: unserved demand from the demand made at t
+            #    a = 1: unserved demand from the demand made at t-1
+            u: gp.tupledict[tuple[int, int, int, int], gp.Var] = model.addVars(
+                ((i, j, t, a) for i in ZONES for j in ZONES for t in TIMESTEPS for a in AGES)   ,
+                vtype   = GRB.CONTINUOUS if relaxed else GRB.INTEGER                            ,
+                lb      = 0                                                                     , 
+                name    = "u"                                                                   ,
+            )
 
-        logger.info("Decision variables created")
-        if last:
-            logger.info(f"  x_e variables: {len(x)}")
-            logger.info(f"  s_ijt variables: {len(s)}")
-            logger.info(f"  u_ijta variables: {len(u)}")
-            logger.info(f"  e_ijt variables: {len(e)}")
+            # e_ijt: number of unserved demand from zone i to j, that expired at t (can no longer be served)
+            # ie if an demand expired at t, it must have been made at t - W
+            e: gp.tupledict[tuple[int, int, int], gp.Var] = model.addVars(
+                ((i, j, t) for i in ZONES for j in ZONES for t in TIMESTEPS),
+                vtype   = GRB.CONTINUOUS if relaxed else GRB.INTEGER        ,
+                lb      = 0                                                 , 
+                name    = "e"                                               ,
+            )
 
+            # q_t: number of SoC levels charged across all zones that is charged above threshold r_t
+            q: gp.tupledict[int, gp.Var] = model.addVars(
+                TIMESTEPS                                           ,
+                vtype   = GRB.CONTINUOUS if relaxed else GRB.INTEGER,
+                lb      = 0                                         ,
+                name    = "q"                                       ,
+            )
 
-        # ----------------------------
-        # Constraints
-        # ----------------------------
-
-        # (1) Flow conservation at every node v ∈ V
-        model.addConstrs(
-            gp.quicksum(x[e_id] for e_id in out_arcs[v]) - gp.quicksum(x[e_id] for e_id in in_arcs[v]) == 0
-            for v in V_set
-        )
-        if last: logger.info("Flow conservation constraints (1) added")
-
-
-        # (2) Accumulative unserved demand propagation
-        #     unserved demand considered at t = unserved demand considered at t-1 + new demand at t - served demand at t - expired demand at t
-        model.addConstrs(
-            s[(i, j, t)] ==  s[(i, j, t-1)] + \
-                valid_travel_demand.get((i, j, t), 0) - \
-                gp.quicksum(
-                    x[e_id] for e_id in service_arcs_ijt.get((i, j, t), set())
-                ) - \
-                e[(i, j, t)]
-            for i in ZONES
-            for j in ZONES
-            for t in TIMESTEPS if t > 0
-        )
-        if last: logger.info("Accumulative unserved demand propagation constraints (2) added")
+            logger.info("2/10: Decision variables created")
+            if last:
+                logger.info(f"  x_e variables: {len(x)}")
+                logger.info(f"  s_ijt variables: {len(s)}")
+                logger.info(f"  u_ijta variables: {len(u)}")
+                logger.info(f"  e_ijt variables: {len(e)}")
 
 
-        # (3) Accumulative unserved demand at t=0
-        model.addConstrs(
-            s[(i, j, 0)] \
-                == valid_travel_demand.get((i, j, 0), 0) 
-                    - gp.quicksum(
-                        x[e] for e in service_arcs_ijt.get((i, j, 0), set())
-                    )
-                    - e[(i, j, 0)]
-            for i in ZONES
-            for j in ZONES
-        )
-        if last: logger.info("Accumulative unserved demand at t=0 constraints (3) added")
+            # ----------------------------
+            # Constraints
+            # ----------------------------
+
+            # (1) Flow conservation at every node v ∈ V
+            model.addConstrs(
+                gp.quicksum(x[e_id] for e_id in out_arcs[v]) - gp.quicksum(x[e_id] for e_id in in_arcs[v]) == 0
+                for v in V_set
+            )
+            if last: logger.info("Flow conservation constraints (1) added")
 
 
-        # (4) Accumulative unserved demand calculation
-        #     unserved demand considered at t = unserved demand of age 0 + ... + unserved demand of age W-1
-        model.addConstrs (
-            s[(i, j, t)] == gp.quicksum (u[(i, j, t, a)] for a in AGES) 
-            for i in ZONES
-            for j in ZONES
-            for t in TIMESTEPS
-        )
-        if last: logger.info ("Accumulative unserved demand calculation constraints (4) added")
+            # (2) Accumulative unserved demand propagation
+            #     unserved demand considered at t = unserved demand considered at t-1 + new demand at t - served demand at t - expired demand at t
+            model.addConstrs(
+                s[(i, j, t)] ==  s[(i, j, t-1)] + \
+                    valid_travel_demand.get((i, j, t), 0) - \
+                    gp.quicksum(
+                        x[e_id] for e_id in service_arcs_ijt.get((i, j, t), set())
+                    ) - \
+                    e[(i, j, t)]
+                for i in ZONES
+                for j in ZONES
+                for t in TIMESTEPS if t > 0
+            )
+            if last: logger.info("Accumulative unserved demand propagation constraints (2) added")
 
 
-        # (5) Unserved demand aging for a > 0
-        #     unserved demand with age a at time t propogates to unserved demand with age a+1 at time t+1
-        model.addConstrs (
-            u[(i, j, t-1, a-1)] >= u[(i, j, t, a)]
-            for i in ZONES
-            for j in ZONES
-            for t in TIMESTEPS if t > 0
-            for a in AGES if a > 0
-        )
-        if last: logger.info ("Unserved demand aging for a > 0 constraints (5) added")
+            # (3) Accumulative unserved demand at t=0
+            model.addConstrs(
+                s[(i, j, 0)] \
+                    == valid_travel_demand.get((i, j, 0), 0) 
+                        - gp.quicksum(
+                            x[e] for e in service_arcs_ijt.get((i, j, 0), set())
+                        )
+                        - e[(i, j, 0)]
+                for i in ZONES
+                for j in ZONES
+            )
+            if last: logger.info("Accumulative unserved demand at t=0 constraints (3) added")
 
 
-        # (6) Unserved demand aging base case
-        #     unserved demand with age 0 at time t <= new demand at t
-        model.addConstrs (
-            valid_travel_demand.get((i, j, t), 0) >= u[(i, j, t, 0)]
-            for i in ZONES
-            for j in ZONES
-            for t in TIMESTEPS
-        )
-        if last: logger.info ("Unserved demand aging for a = 0 constraints (6) added")
+            # (4) Accumulative unserved demand calculation
+            #     unserved demand considered at t = unserved demand of age 0 + ... + unserved demand of age W-1
+            model.addConstrs (
+                s[(i, j, t)] == gp.quicksum (u[(i, j, t, a)] for a in AGES) 
+                for i in ZONES
+                for j in ZONES
+                for t in TIMESTEPS
+            )
+            if last: logger.info ("Accumulative unserved demand calculation constraints (4) added")
 
 
-        # (7) Unserved demand expiry for t < T
-        #     unserved demand with age W-1 at time t becomes expired at t+1
-        model.addConstrs (
-            u[(i, j, t-1, W-1)] == e[(i, j, t)]
-            for i in ZONES
-            for j in ZONES
-            for t in TIMESTEPS if t > 0
-        )
-        if last: logger.info ("Unserved demand expiry for t < T constraints (7) added")
+            # (5) Unserved demand aging for a > 0
+            #     unserved demand with age a at time t propogates to unserved demand with age a+1 at time t+1
+            model.addConstrs (
+                u[(i, j, t-1, a-1)] >= u[(i, j, t, a)]
+                for i in ZONES
+                for j in ZONES
+                for t in TIMESTEPS if t > 0
+                for a in AGES if a > 0
+            )
+            if last: logger.info ("Unserved demand aging for a > 0 constraints (5) added")
 
 
-        # (8) Unserved demand base case
-        #     unserved demand with age a at time t does not exist if t < a
-        model.addConstrs (
-            u[(i, j, t, a)] == 0
-            for i in ZONES
-            for j in ZONES
-            for t in TIMESTEPS
-            for a in AGES 
-            if t < a
-        )
-        if last: logger.info ("Unserved demand base case constraints (8) added")
+            # (6) Unserved demand aging base case
+            #     unserved demand with age 0 at time t <= new demand at t
+            model.addConstrs (
+                valid_travel_demand.get((i, j, t), 0) >= u[(i, j, t, 0)]
+                for i in ZONES
+                for j in ZONES
+                for t in TIMESTEPS
+            )
+            if last: logger.info ("Unserved demand aging for a = 0 constraints (6) added")
 
 
-        # (9) Expired demand base case
-        #      expired demand does not exist for t < W
-        model.addConstrs (
-            e[(i, j, t)] == 0
-            for i in ZONES
-            for j in ZONES
-            for t in TIMESTEPS
-            if t < W
-        )
-        if last: logger.info ("Expired demand base case constraints (9) added")
+            # (7) Unserved demand expiry for t < T
+            #     unserved demand with age W-1 at time t becomes expired at t+1
+            model.addConstrs (
+                u[(i, j, t-1, W-1)] == e[(i, j, t)]
+                for i in ZONES
+                for j in ZONES
+                for t in TIMESTEPS if t > 0
+            )
+            if last: logger.info ("Unserved demand expiry for t < T constraints (7) added")
 
 
-        # (10) Number of EVs charging at each zone at each time period cannot exceed the number of ports available in that zone
-        model.addConstrs(
-            gp.quicksum(x[e] for e in charge_arcs_it.get((i, t), set())) <= num_ports.get(i, 0)
-            for i in ZONES  
-            for t in TIMESTEPS
-        )
-        if last: logger.info("Charging port constraints (10) added")
+            # (8) Unserved demand base case
+            #     unserved demand with age a at time t does not exist if t < a
+            model.addConstrs (
+                u[(i, j, t, a)] == 0
+                for i in ZONES
+                for j in ZONES
+                for t in TIMESTEPS
+                for a in AGES 
+                if t < a
+            )
+            if last: logger.info ("Unserved demand base case constraints (8) added")
 
 
-        # (11) Fleet size equals sum of wrap-around flows
-        model.addConstr(
-            gp.quicksum(x[e] for e in type_arcs[ArcType.WRAP]) == num_EVs
-        )
-        if last: logger.info("Fleet size constraint (11) added")
+            # (9) Expired demand base case
+            #      expired demand does not exist for t < W
+            model.addConstrs (
+                e[(i, j, t)] == 0
+                for i in ZONES
+                for j in ZONES
+                for t in TIMESTEPS
+                if t < W
+            )
+            if last: logger.info ("Expired demand base case constraints (9) added")
 
 
-        # (12) Limit the total power drawn from the grid at each zone at each time period
-        model.addConstrs(
-            gp.quicksum(
-                x[e] * all_arcs[e].charge_speed
-                for e in charge_arcs_it.get((i, t), set())
-            ) <= elec_supplied.get((i, t), 0)
-            for i in ZONES
-            for t in TIMESTEPS
-        )
-        if last: logger.info("Max power drawn from grid constraints (12) added")
+            # (10) Number of EVs charging at each zone at each time period cannot exceed the number of ports available in that zone
+            model.addConstrs(
+                gp.quicksum(x[e] for e in charge_arcs_it.get((i, t), set())) <= num_ports.get(i, 0)
+                for i in ZONES  
+                for t in TIMESTEPS
+            )
+            if last: logger.info("Charging port constraints (10) added")
 
 
-        # (13) Enforce the indication of whether the total electricity usage is above threshold
-        model.addConstrs (
-            q[t] >= \
+            # (11) Fleet size equals sum of wrap-around flows
+            model.addConstr(
+                gp.quicksum(x[e] for e in type_arcs[ArcType.WRAP]) == num_EVs
+            )
+            if last: logger.info("Fleet size constraint (11) added")
+
+
+            # (12) Limit the total power drawn from the grid at each zone at each time period
+            model.addConstrs(
                 gp.quicksum(
                     x[e] * all_arcs[e].charge_speed
-                    for e in charge_arcs_t.get(t, set())
-                ) - elec_threshold.get(t, 0)
-            for t in TIMESTEPS
-        )
-        if last: logger.info("Threshold indication constraints (13) added")
-
-        logger.info("All constraints added")
-        model.update()  # Apply all changes to the model
-
-
-        # ----------------------------
-        # Objective
-        # ----------------------------
-        service_revenues: gp.tupledict[int, gp.Var] = model.addVars (
-            TIMESTEPS                   ,
-            name = "service_revenues"  ,
-        )
-        penalty_costs: gp.tupledict[int, gp.Var] = model.addVars (
-            TIMESTEPS                   ,
-            name = "penalty_costs"     ,
-        )
-        charge_costs: gp.tupledict[int, gp.Var] = model.addVars (
-            TIMESTEPS                   ,
-            name = "charge_costs"      ,
-        )
-
-        model.addConstrs (
-            service_revenues[t] == gp.quicksum(
-                x[e_id] * all_arcs[e_id].revenue
+                    for e in charge_arcs_it.get((i, t), set())
+                ) <= elec_supplied.get((i, t), 0)
                 for i in ZONES
-                for j in ZONES
-                for e_id in service_arcs_ijt.get((i, j, t), set())
+                for t in TIMESTEPS
             )
-            for t in TIMESTEPS
-        )
+            if last: logger.info("Max power drawn from grid constraints (12) added")
 
-        model.addConstrs (
-            penalty_costs[t] == gp.quicksum(
-                e[(i, j, t)] * penalty.get((i, j, t), 0)
-                for i in ZONES
-                for j in ZONES
-            ) \
-            + (
-                gp.quicksum(
-                    s[(i, j, t)] * penalty.get((i, j, t), 0) # any unserved demand at the last time step T will become expired
-                    for i in ZONES 
+
+            # (13) Enforce the indication of whether the total electricity usage is above threshold
+            model.addConstrs (
+                q[t] >= \
+                    gp.quicksum(
+                        x[e] * all_arcs[e].charge_speed
+                        for e in charge_arcs_t.get(t, set())
+                    ) - elec_threshold.get(t, 0)
+                for t in TIMESTEPS
+            )
+            if last: logger.info("Threshold indication constraints (13) added")
+
+            logger.info("3/10: All constraints added")
+            model.update()  # Apply all changes to the model
+
+
+            # ----------------------------
+            # Objective
+            # ----------------------------
+            service_revenues: gp.tupledict[int, gp.Var] = model.addVars (
+                TIMESTEPS                   ,
+                name = "service_revenues"  ,
+            )
+            penalty_costs: gp.tupledict[int, gp.Var] = model.addVars (
+                TIMESTEPS                   ,
+                name = "penalty_costs"     ,
+            )
+            charge_costs: gp.tupledict[int, gp.Var] = model.addVars (
+                TIMESTEPS                   ,
+                name = "charge_costs"      ,
+            )
+
+            model.addConstrs (
+                service_revenues[t] == gp.quicksum(
+                    x[e_id] * all_arcs[e_id].revenue
+                    for i in ZONES
                     for j in ZONES
-                ) if t == T else 0
+                    for e_id in service_arcs_ijt.get((i, j, t), set())
+                )
+                for t in TIMESTEPS
             )
-            for t in TIMESTEPS
-        )
 
-        model.addConstrs (
-            charge_costs[t] == charge_cost_low.get(t, 0) * gp.quicksum(     # base cost
-                x[e] * all_arcs[e].charge_speed
-                for e in charge_arcs_t.get(t, set())
-            ) \
-            + charge_cost_high.get(t, 0) * q[t]                             # additional cost for usage above threshold
-            for t in TIMESTEPS
-        )
+            model.addConstrs (
+                penalty_costs[t] == gp.quicksum(
+                    e[(i, j, t)] * penalty.get((i, j, t), 0)
+                    for i in ZONES
+                    for j in ZONES
+                ) \
+                + (
+                    gp.quicksum(
+                        s[(i, j, t)] * penalty.get((i, j, t), 0) # any unserved demand at the last time step T will become expired
+                        for i in ZONES 
+                        for j in ZONES
+                    ) if t == T else 0
+                )
+                for t in TIMESTEPS
+            )
 
-        model.setObjective(
-            gp.quicksum(service_revenues[t] for t in TIMESTEPS) -
-            gp.quicksum(penalty_costs[t] for t in TIMESTEPS) -
-            gp.quicksum(charge_costs[t] for t in TIMESTEPS) ,
-            GRB.MAXIMIZE
-        )
-        logger.info("Objective function set")
+            model.addConstrs (
+                charge_costs[t] == charge_cost_low.get(t, 0) * gp.quicksum(     # base cost
+                    x[e] * all_arcs[e].charge_speed
+                    for e in charge_arcs_t.get(t, set())
+                ) \
+                + charge_cost_high.get(t, 0) * q[t]                             # additional cost for usage above threshold
+                for t in TIMESTEPS
+            )
 
-        model.update()  # Apply all changes to the model
-        
-        if last:
-            logger.info("Model built successfully")
-            logger.info(f"Optimizing model with {model.NumVars} variables and {model.NumConstrs} constraints")
-            model.write (os.path.join ("Logs", folder_name, f"gurobi_model_{file_name}_{timestamp}.lp"))
+            model.setObjective(
+                gp.quicksum(service_revenues[t] for t in TIMESTEPS) -
+                gp.quicksum(penalty_costs[t] for t in TIMESTEPS) -
+                gp.quicksum(charge_costs[t] for t in TIMESTEPS) ,
+                GRB.MAXIMIZE
+            )
+            logger.info("4/10: Objective function set")
 
-        # model.Params.DualReductions = 0 # debug infeasible or unbounded
+            model.update()  # Apply all changes to the model
+            
+            if last:
+                logger.info("Model built successfully")
+                logger.info(f"Optimizing model with {model.NumVars} variables and {model.NumConstrs} constraints")
+                model.write (os.path.join ("Logs", folder_name, f"gurobi_model_{file_name}_{timestamp}.lp"))
 
-        model.setParam("Method"     , 2)    # use barrier method
-        model.setParam('Crossover'  , 0)    # skip crossover; no dual solution, sensitivity analysis, warm start
-        model.setParam("Threads"    , 1)    # use single thread per process 
+            # model.Params.DualReductions = 0 # debug infeasible or unbounded
 
-        model.optimize()
+            model.setParam("Method"     , 2)            # use barrier method
+            model.setParam('Crossover'  , 0)            # skip crossover; no dual solution, sensitivity analysis, warm start
+            model.setParam("Threads"    , NUM_THREADS)  # use two threads per process 
 
-        logger.info(f"Optimization completed with status {model.Status}")
+            if not last:
+                model.optimize (log_callback)
+            else:
+                model.optimize()
 
-        if model.Status != GRB.OPTIMAL:
-            logger.error(f"Optimization was not successful. Status: {model.Status}")
+            logger.info(f"5/10: Optimization completed with status {model.Status}")
 
-            if last and model.Status == GRB.INFEASIBLE:
-                model.computeIIS()
-                model.write (os.path.join ("Logs", folder_name, f"gurobi_model_infeasible_{file_name}_{timestamp}.ilp"))
-                logger.error("Model is infeasible. IIS written to file.")
+            if model.Status != GRB.OPTIMAL:
+                logger.error(f"Optimization was not successful. Status: {model.Status}")
 
-            raise OptimizationError ("Optimization was not successful.", status=model.Status)
-        
-        if last:     
-            logger.info("Optimization successful.")
-            logger.info(f"  Runtime: {model.Runtime:.4f} seconds")
-            logger.info(f"  Objective value: {model.ObjVal:.4f}")
+                if last and model.Status == GRB.INFEASIBLE:
+                    model.computeIIS()
+                    model.write (os.path.join ("Logs", folder_name, f"gurobi_model_infeasible_{file_name}_{timestamp}.ilp"))
+                    logger.error("Model is infeasible. IIS written to file.")
 
-        # all float to allow relaxed solutions
-        x_sol: dict[int                         , float] = {e: v.X for e, v in x.items()} # Keys are arc ids
-        s_sol: dict[tuple[int, int, int]        , float] = {k: v.X for k, v in s.items()} # Keys are (i, j, t) tuples
-        u_sol: dict[tuple[int, int, int, int]   , float] = {k: v.X for k, v in u.items()}
-        e_sol: dict[tuple[int, int, int]        , float] = {k: v.X for k, v in e.items()}
-        q_sol: dict[int                         , float] = {t: v.X for t, v in q.items()}
+                raise OptimizationError ("Optimization was not successful.", status=model.Status)
+            
+            if last:     
+                logger.info("Optimization successful.")
+                logger.info(f"  Runtime: {model.Runtime:.4f} seconds")
+                logger.info(f"  Objective value: {model.ObjVal:.4f}")
 
-        service_revenues_sol: dict[int, float] = {t: v.X for t, v in service_revenues.items()}
-        penalty_costs_sol   : dict[int, float] = {t: v.X for t, v in penalty_costs.items()}
-        charge_costs_sol    : dict[int, float] = {t: v.X for t, v in charge_costs.items()}
+            # all float to allow relaxed solutions
+            x_sol: dict[int                         , float] = {e: v.X for e, v in x.items()} # Keys are arc ids
+            s_sol: dict[tuple[int, int, int]        , float] = {k: v.X for k, v in s.items()} # Keys are (i, j, t) tuples
+            u_sol: dict[tuple[int, int, int, int]   , float] = {k: v.X for k, v in u.items()}
+            e_sol: dict[tuple[int, int, int]        , float] = {k: v.X for k, v in e.items()}
+            q_sol: dict[int                         , float] = {t: v.X for t, v in q.items()}
 
-        return {
-            "obj"               : model.ObjVal          ,
-            "x"                 : x_sol                 ,
-            "s"                 : s_sol                 ,
-            "u"                 : u_sol                 ,
-            "e"                 : e_sol                 ,
-            "q"                 : q_sol                 ,
-            "service_revenues"  : service_revenues_sol  ,
-            "penalty_costs"     : penalty_costs_sol     ,
-            "charge_costs"      : charge_costs_sol      ,          
-        }
+            service_revenues_sol: dict[int, float] = {t: v.X for t, v in service_revenues.items()}
+            penalty_costs_sol   : dict[int, float] = {t: v.X for t, v in penalty_costs.items()}
+            charge_costs_sol    : dict[int, float] = {t: v.X for t, v in charge_costs.items()}
+
+            return {
+                "obj"               : model.ObjVal          ,
+                "x"                 : x_sol                 ,
+                "s"                 : s_sol                 ,
+                "u"                 : u_sol                 ,
+                "e"                 : e_sol                 ,
+                "q"                 : q_sol                 ,
+                "service_revenues"  : service_revenues_sol  ,
+                "penalty_costs"     : penalty_costs_sol     ,
+                "charge_costs"      : charge_costs_sol      ,          
+            }
     
         
 
