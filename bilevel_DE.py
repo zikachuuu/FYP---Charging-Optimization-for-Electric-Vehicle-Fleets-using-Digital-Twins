@@ -5,6 +5,9 @@ import multiprocessing
 import os
 from functools import partial
 import traceback
+import gurobipy as gp
+from gurobipy import GRB
+from typing import Any
 
 from model_leader import leader_model
 from model_follower import follower_model
@@ -104,6 +107,14 @@ def _reference_candidate(
     # ----------------------------
     # Parameters
     # ----------------------------
+    model                   : gp.Model                              = kwargs["model"]
+    persistent_vars         : dict[str, Any]                        = kwargs["persistent_vars"]
+    
+    # Pricing Variables
+    charge_cost_low         : dict[int                  , float]    = kwargs["charge_cost_low"]         # a_t
+    charge_cost_high        : dict[int                  , float]    = kwargs["charge_cost_high"]        # b_t
+    elec_threshold          : dict[int                  , int]      = kwargs["elec_threshold"]          # r_t
+
     # Follower model parameters
     N                       : int                                   = kwargs["N"]                       # number of operation zones (1, ..., N)
     T                       : int                                   = kwargs["T"]                       # termination time of daily operations (0, ..., T)
@@ -136,18 +147,17 @@ def _reference_candidate(
     LEVELS                  : list[int]                             = kwargs["LEVELS"]
     AGES                    : list[int]                             = kwargs["AGES"]
 
-    # Pricing Variables
-    charge_cost_low         : dict[int                  , float]    = kwargs["charge_cost_low"]         # a_t
-    charge_cost_high        : dict[int                  , float]    = kwargs["charge_cost_high"]        # b_t
-    elec_threshold          : dict[int                  , int]      = kwargs["elec_threshold"]          # r_t
+    # DE parameters
+    NUM_THREADS             : int                                   = kwargs["NUM_THREADS"]             # number of threads used per candidate evaluation
 
-    # Metadata
+    # Path Metadata
     timestamp               : str                                   = kwargs["timestamp"]               # timestamp for logging
     file_name               : str                                   = kwargs["file_name"]               # filename for logging
     folder_name             : str                                   = kwargs["folder_name"]             # folder name for logging
+
+    # Metadata
     log_queue               : multiprocessing.Queue                 = kwargs["log_queue"]               # multiprocessing log queue
     log_queue_gurobi        : multiprocessing.Queue                 = kwargs["log_queue_gurobi"]        # multiprocessing log queue for gurobi
-    NUM_THREADS             : int                                   = kwargs["NUM_THREADS"]             # number of threads used per candidate evaluation
 
     logger = Logger (
         f"Reference"     ,    
@@ -176,51 +186,10 @@ def _reference_candidate(
     # ----------------------------
     try:
         follower_outputs = follower_model(
-            # Follower model parameters
-            N                       = N                     ,
-            T                       = T                     ,
-            L                       = L                     ,
-            W                       = W                     ,
-            travel_demand           = travel_demand         ,
-            travel_time             = travel_time           ,
-            travel_energy           = travel_energy         ,
-            order_revenue           = order_revenue         ,
-            penalty                 = penalty               ,
-            L_min                   = L_min                 ,
-            num_EVs                 = num_EVs               ,
-            num_ports               = num_ports             ,
-            elec_supplied           = elec_supplied         ,
-            max_charge_speed        = max_charge_speed      ,
-
-            # Network components
-            V_set                   = V_set                 ,
-            all_arcs                = all_arcs              ,
-            type_arcs               = type_arcs             ,
-            in_arcs                 = in_arcs               ,
-            out_arcs                = out_arcs              ,
-            service_arcs_ijt        = service_arcs_ijt      ,
-            charge_arcs_it          = charge_arcs_it        ,
-            charge_arcs_t           = charge_arcs_t         ,
-            valid_travel_demand     = valid_travel_demand   ,
-            invalid_travel_demand   = invalid_travel_demand ,
-            ZONES                   = ZONES                 ,
-            TIMESTEPS               = TIMESTEPS             ,
-            LEVELS                  = LEVELS                ,
-            AGES                    = AGES                  ,
-
-            # Pricing Variables
-            charge_cost_low         = charge_cost_low       ,
-            charge_cost_high        = charge_cost_high      ,
-            elec_threshold          = elec_threshold        ,  
-
+            **kwargs,
             # Metadata
-            relaxed                 = True                  ,
-            timestamp               = timestamp             ,
-            file_name               = file_name             ,
-            folder_name             = folder_name           ,
             logger                  = logger                ,
             logger_gurobi           = logger_gurobi         ,
-            NUM_THREADS             = NUM_THREADS           ,
         )
     except OptimizationError as e:
         raise OptimizationError("Failed to solve follower problem for reference candidate.", details=e) from e
@@ -236,9 +205,6 @@ def _reference_candidate(
     u               : dict[tuple[int, int, int, int], float]    = follower_outputs["u"]
     e               : dict[tuple[int, int, int]     , float]    = follower_outputs["e"]
     q               : dict[int                      , float]    = follower_outputs["q"]
-    service_revenues: dict[int                      , float]    = follower_outputs["service_revenues"]
-    penalty_costs   : dict[int                      , float]    = follower_outputs["penalty_costs"]
-    charge_costs    : dict[int                      , float]    = follower_outputs["charge_costs"]
 
     # Calculate electricity consumption at each time step using vectorized operations
     electricity_usage: npt.NDArray[np.float64] = np.zeros(T + 1)
@@ -269,6 +235,9 @@ def _evaluate_candidate(
     # ----------------------------
     # Parameters
     # ----------------------------
+    model                   : gp.Model                              = kwargs["model"]
+    persistent_vars         : dict[str, Any]                        = kwargs["persistent_vars"]
+
     # Follower model parameters
     N                       : int                                   = kwargs["N"]                       # number of operation zones (1, ..., N)
     T                       : int                                   = kwargs["T"]                       # termination time of daily operations (0, ..., T)
@@ -304,7 +273,6 @@ def _evaluate_candidate(
     # Leader model parameters
     wholesale_elec_price    : dict[int                  , float]    = kwargs["wholesale_elec_price"]    # wholesale electricity price at time t
     PENALTY_WEIGHT          : float                                 = kwargs["PENALTY_WEIGHT"]          # penalty weight for high a_t and b_t
-    reference_variance      : float                                 = kwargs["reference_variance"]      # reference variance for normalization
 
     # Pricing Variable bounds
     lower_bounds_a          : npt.NDArray[np.float64]               = kwargs["lower_bounds_a"]          # lower bounds for a_t
@@ -314,15 +282,17 @@ def _evaluate_candidate(
     
     # DE parameters
     VARS_PER_STEP           : int                                   = kwargs["VARS_PER_STEP"]           # number of variables per time step (3: a_t, b_t, r_t)
-    M                       : npt.NDArray[np.float64]               = kwargs["M"]                       # interpolation matrix
 
-    # Metadata
+    # Path Metadata
     timestamp               : str                                   = kwargs["timestamp"]               # timestamp for logging
     file_name               : str                                   = kwargs["file_name"]               # filename for logging
     folder_name             : str                                   = kwargs["folder_name"]             # folder name for logging
+
+    # Metadata
+    M                       : npt.NDArray[np.float64]               = kwargs["M"]                       # interpolation matrix
+    reference_variance      : float                                 = kwargs["reference_variance"]      # reference variance for normalization
     log_queue               : multiprocessing.Queue                 = kwargs["log_queue"]               # multiprocessing log queue
     log_queue_gurobi        : multiprocessing.Queue                 = kwargs["log_queue_gurobi"]        # multiprocessing log queue for gurobi
-    NUM_THREADS             : int                                   = kwargs["NUM_THREADS"]             # number of threads used per candidate evaluation
 
     logger_worker = Logger (
         f"Worker_{os.getpid()}"     ,    
@@ -344,7 +314,7 @@ def _evaluate_candidate(
         queue       = log_queue_gurobi      ,
     )
 
-    solutions = _expand_trajectory(
+    charging_price_parameters = _expand_trajectory(
         candidate_flat  = candidate_flat    ,
         M               = M                 ,
         VARS_PER_STEP   = VARS_PER_STEP     ,
@@ -354,154 +324,46 @@ def _evaluate_candidate(
         upper_bounds_r  = upper_bounds_r    ,   
         TIMESTEPS       = TIMESTEPS         ,
     )
-    charge_cost_low     = solutions["charge_cost_low"]
-    charge_cost_high    = solutions["charge_cost_high"]
-    elec_threshold      = solutions["elec_threshold"]
 
-    logger_worker.info("1/10: Solving follower problem for candidate...")
+    logger_worker.info("Solving follower problem for candidate...")
 
     # ----------------------------
     # Solve Follower Problem
     # ----------------------------
     try:
-        follower_outputs = follower_model(
-            # Follower model parameters
-            N                       = N                     ,
-            T                       = T                     ,
-            L                       = L                     ,
-            W                       = W                     ,
-            travel_demand           = travel_demand         ,
-            travel_time             = travel_time           ,
-            travel_energy           = travel_energy         ,
-            order_revenue           = order_revenue         ,
-            penalty                 = penalty               ,
-            L_min                   = L_min                 ,
-            num_EVs                 = num_EVs               ,
-            num_ports               = num_ports             ,
-            elec_supplied           = elec_supplied         ,
-            max_charge_speed        = max_charge_speed      ,
-
-            # Network components
-            V_set                   = V_set                 ,
-            all_arcs                = all_arcs              ,
-            type_arcs               = type_arcs             ,
-            in_arcs                 = in_arcs               ,
-            out_arcs                = out_arcs              ,
-            service_arcs_ijt        = service_arcs_ijt      ,
-            charge_arcs_it          = charge_arcs_it        ,
-            charge_arcs_t           = charge_arcs_t         ,
-            valid_travel_demand     = valid_travel_demand   ,
-            invalid_travel_demand   = invalid_travel_demand ,
-            ZONES                   = ZONES                 ,
-            TIMESTEPS               = TIMESTEPS             ,
-            LEVELS                  = LEVELS                ,
-            AGES                    = AGES                  ,
-
-            # Pricing Variables
-            charge_cost_low         = charge_cost_low       ,
-            charge_cost_high        = charge_cost_high      ,
-            elec_threshold          = elec_threshold        ,  
-
+        solutions_candidate = follower_model(
+            **kwargs                                ,
+            **charging_price_parameters             ,
             # Metadata
-            relaxed                 = True                  ,
-            timestamp               = timestamp             ,
-            file_name               = file_name             ,
-            folder_name             = folder_name           ,
-            logger                  = logger_worker         ,
-            logger_gurobi           = logger_worker_gurobi  ,
-            NUM_THREADS             = NUM_THREADS           ,
+            logger          = logger_worker         ,
+            logger_gurobi   = logger_worker_gurobi  ,
         )
     except OptimizationError as e:
         raise OptimizationError("Failed to solve follower problem for candidate.", details=e) from e
     except Exception as e:
         raise Exception("Unexpected error when solving follower problem for candidate.") from e
 
-    logger_worker.info("6/10: Follower problem for candidate solved successfully.")
+    logger_worker.info("Follower problem for candidate solved successfully. Solving leader problem...")
 
-    # Extract variables and sets from the follower_outputs    
-    obj             : float                                     = follower_outputs["obj"]
-    x               : dict[int, float]                          = follower_outputs["x"]
-    s               : dict[tuple[int, int, int]     , float]    = follower_outputs["s"]
-    u               : dict[tuple[int, int, int, int], float]    = follower_outputs["u"]
-    e               : dict[tuple[int, int, int]     , float]    = follower_outputs["e"]
-    q               : dict[int                      , float]    = follower_outputs["q"]
-    service_revenues: dict[int                      , float]    = follower_outputs["service_revenues"]
-    penalty_costs   : dict[int                      , float]    = follower_outputs["penalty_costs"]
-    charge_costs    : dict[int                      , float]    = follower_outputs["charge_costs"]
-
-    logger_worker.info("7/10: Solving leader problem for candidate...")
 
     # ----------------------------
     # Solve Leader Problem
     # ----------------------------
     leader_outputs = leader_model(
-        # Follower model parameters
-        N                       = N                     ,
-        T                       = T                     ,
-        L                       = L                     ,
-        W                       = W                     ,
-        travel_demand           = travel_demand         ,
-        travel_time             = travel_time           ,
-        travel_energy           = travel_energy         ,
-        order_revenue           = order_revenue         ,
-        penalty                 = penalty               ,
-        L_min                   = L_min                 ,
-        num_EVs                 = num_EVs               ,
-        num_ports               = num_ports             ,
-        elec_supplied           = elec_supplied         ,
-        max_charge_speed        = max_charge_speed      ,
-
-        # Network components
-        V_set                   = V_set                 ,
-        all_arcs                = all_arcs              ,
-        type_arcs               = type_arcs             ,
-        in_arcs                 = in_arcs               ,
-        out_arcs                = out_arcs              ,
-        service_arcs_ijt        = service_arcs_ijt      ,
-        charge_arcs_it          = charge_arcs_it        ,
-        charge_arcs_t           = charge_arcs_t         ,
-        valid_travel_demand     = valid_travel_demand   ,
-        invalid_travel_demand   = invalid_travel_demand ,
-        ZONES                   = ZONES                 ,
-        TIMESTEPS               = TIMESTEPS             ,
-        LEVELS                  = LEVELS                ,
-        AGES                    = AGES                  ,
-
-        # Leader model parameters
-        wholesale_elec_price    = wholesale_elec_price  ,
-        PENALTY_WEIGHT          = PENALTY_WEIGHT        ,
-        reference_variance      = reference_variance    ,
-
-        # Pricing Variables
-        charge_cost_low         = charge_cost_low       ,
-        charge_cost_high        = charge_cost_high      ,
-        elec_threshold          = elec_threshold        ,  
-
-        # Solutions
-        obj                     = obj                   ,
-        x                       = x                     ,
-        s                       = s                     ,
-        u                       = u                     ,
-        e                       = e                     ,
-        q                       = q                     ,
-        service_revenues        = service_revenues      ,
-        penalty_costs           = penalty_costs         ,
-        charge_costs            = charge_costs          ,
-
+        **kwargs                    ,
+        **charging_price_parameters ,
+        **solutions_candidate       ,
         # Metadata
-        timestamp               = timestamp             ,
-        file_name               = file_name             ,
-        folder_name             = folder_name           ,
-        logger                  = logger_worker                ,
+        logger = logger_worker      ,
     )
 
-    logger_worker.info("10/10: Leader problem for candidate solved successfully.")
+    logger_worker.info("Leader problem for candidate solved successfully.")
 
     return (
-        leader_outputs["fitness"],
-        leader_outputs["variance"],
-        leader_outputs["variance_ratio"],
-        leader_outputs["percentage_price_increase"]
+        leader_outputs["fitness"]                   ,
+        leader_outputs["variance"]                  ,
+        leader_outputs["variance_ratio"]            ,
+        leader_outputs["percentage_price_increase"] ,
     )
 
 
@@ -514,6 +376,9 @@ def run_parallel_de(
     # ----------------------------
     # Parameters
     # ----------------------------
+    model                   : gp.Model                              = kwargs["model"]
+    persistent_vars         : dict[str, Any]                        = kwargs["persistent_vars"]
+
     # Follower model parameters
     N                       : int                                   = kwargs["N"]                       # number of operation zones (1, ..., N)
     T                       : int                                   = kwargs["T"]                       # termination time of daily operations (0, ..., T)
@@ -552,6 +417,8 @@ def run_parallel_de(
     
     # DE parameters
     POP_SIZE                : int                                   = kwargs["POP_SIZE"]                # population size for DE
+    NUM_CORES               : int                                   = kwargs["NUM_CORES"]               # number of CPU cores to use
+    NUM_THREADS             : int                                   = kwargs["NUM_THREADS"]             # number of threads used per candidate evaluation
     MAX_ITER                : int                                   = kwargs["MAX_ITER"]                # max iterations for DE
     DIFF_WEIGHT             : float                                 = kwargs["DIFF_WEIGHT"]             # differential weight
     CROSS_PROB              : float                                 = kwargs["CROSS_PROB"]              # crossover probability
@@ -559,12 +426,10 @@ def run_parallel_de(
     NUM_ANCHORS             : int                                   = kwargs["NUM_ANCHORS"]             # number of anchors for DE
     VARS_PER_STEP           : int                                   = kwargs["VARS_PER_STEP"]           # number of variables per time step (3: a_t, b_t, r_t)
 
-    # Metadata
+    # Path Metadata
     timestamp               : str                                   = kwargs["timestamp"]               # timestamp for logging
     file_name               : str                                   = kwargs["file_name"]               # filename for logging
     folder_name             : str                                   = kwargs["folder_name"]             # folder name for logging
-    NUM_CORES               : int                                   = kwargs["NUM_CORES"]               # number of CPU cores to use
-    NUM_THREADS             : int                                   = kwargs["NUM_THREADS"]             # number of threads used per candidate evaluation
 
 
     # ----------------------------
@@ -577,28 +442,23 @@ def run_parallel_de(
     manager_gurobi = multiprocessing.Manager()
     log_queue_gurobi = manager_gurobi.Queue()
 
-    # 2. Start the Listener Process
-    listener = LogListener(
-        "stage1_MP_evaluate_candidate",
-        folder_name         , 
-        file_name           , 
-        timestamp           ,
-        log_queue           ,
-        to_console = True   ,
-    )
-    listener.start()
-
-    listener_gurobi = LogListener(
-        "stage1_MP_gurobi_logs",
-        folder_name         ,
-        file_name           ,
-        timestamp           ,
-        log_queue_gurobi    ,
-        to_console = False  ,
-    )
-    listener_gurobi.start()
-
-    try:
+    with LogListener(
+            "stage1_MP_evaluate_candidate",
+            folder_name         , 
+            file_name           , 
+            timestamp           ,
+            log_queue           ,
+            to_console = True   ,
+        ) as listener, \
+        LogListener(
+            "stage1_MP_gurobi_logs",
+            folder_name         ,
+            file_name           ,
+            timestamp           ,
+            log_queue_gurobi    ,
+            to_console = False  ,
+        ) as listener_gurobi:
+        
         # Logger for this process (no need multiprocessing logger here)
         logger = Logger (
             "bilevel_DE"                ,
@@ -682,52 +542,18 @@ def run_parallel_de(
         lowest_charge_cost_high = {t: 0.0 for t in TIMESTEPS}
         lowest_elec_threshold   = {t: 0 for t in TIMESTEPS}
 
+        logger.info("Calculating reference variance from candidate with lowest prices...")
+        start_time_ref = time.time()
+
         try:
             reference_variance = _reference_candidate(
-                # Follower model parameters
-                N                       = N                     ,
-                T                       = T                     ,
-                L                       = L                     ,
-                W                       = W                     ,
-                travel_demand           = travel_demand         ,
-                travel_time             = travel_time           ,
-                travel_energy           = travel_energy         ,
-                order_revenue           = order_revenue         ,
-                penalty                 = penalty               ,
-                L_min                   = L_min                 ,
-                num_EVs                 = num_EVs               ,
-                num_ports               = num_ports             ,
-                elec_supplied           = elec_supplied         ,
-                max_charge_speed        = max_charge_speed      ,
-
-                # Network components
-                V_set                   = V_set                 ,
-                all_arcs                = all_arcs              ,
-                type_arcs               = type_arcs             ,
-                in_arcs                 = in_arcs               ,
-                out_arcs                = out_arcs              ,
-                service_arcs_ijt        = service_arcs_ijt      ,
-                charge_arcs_it          = charge_arcs_it        ,
-                charge_arcs_t           = charge_arcs_t         ,
-                valid_travel_demand     = valid_travel_demand   ,
-                invalid_travel_demand   = invalid_travel_demand ,
-                ZONES                   = ZONES                 ,
-                TIMESTEPS               = TIMESTEPS             ,
-                LEVELS                  = LEVELS                ,
-                AGES                    = AGES                  ,
-
-                # Pricing Variables
-                charge_cost_low         = lowest_charge_cost_low ,
-                charge_cost_high        = lowest_charge_cost_high,
-                elec_threshold          = lowest_elec_threshold  ,
-
+                charge_cost_low     = lowest_charge_cost_low    ,
+                charge_cost_high    = lowest_charge_cost_high   ,
+                elec_threshold      = lowest_elec_threshold     ,
+                **kwargs                                        ,  
                 # Metadata
-                timestamp               = timestamp             ,
-                file_name               = file_name             ,
-                folder_name             = folder_name           ,
-                log_queue               = log_queue             ,
-                log_queue_gurobi        = log_queue_gurobi      ,
-                NUM_THREADS             = multiprocessing.cpu_count() - 1,
+                log_queue           = log_queue                 ,
+                log_queue_gurobi    = log_queue_gurobi          ,
             )
         except OptimizationError as e:
             logger.error("Failed to obtain reference variance from reference candidate.")
@@ -736,75 +562,37 @@ def run_parallel_de(
             logger.error(f"An unexpected error occurred: {e}")
             raise e
 
-        logger.info(f"Reference variance obtained: {reference_variance:.5f}")
+        end_time_ref = time.time()
+        logger.info(f"Reference variance obtained: {reference_variance:.5f} in {end_time_ref - start_time_ref:.2f} seconds")
 
         if reference_variance < VAR_THRESHOLD:
-            logger.info("Reference variance is already below the variance threshold. No optimization needed.")
+            logger.info(f"Reference variance ({reference_variance:.5f}) is already below the variance threshold ({VAR_THRESHOLD:.5f}). No optimization needed.")
             return {
                 "charge_cost_low"    : lowest_charge_cost_low ,
                 "charge_cost_high"   : lowest_charge_cost_high,
                 "elec_threshold"     : lowest_elec_threshold  ,
             }
+        else:
+            logger.info(f"Reference variance ({reference_variance:.5f}) is above the variance threshold ({VAR_THRESHOLD:.5f}). Proceeding with optimization.")
+            logger.info("Starting Differential Evolution optimization...")
 
         # Create a partial function with fixed parameters for the worker function
         # Now the worker function only needs the candidate vector as input
         evaluate_single_candidate_worker = partial(
             _evaluate_candidate,
+            **kwargs,
 
-            # Follower model parameters
-            N                       = N                     ,
-            T                       = T                     ,
-            L                       = L                     ,
-            W                       = W                     ,
-            travel_demand           = travel_demand         ,
-            travel_time             = travel_time           ,
-            travel_energy           = travel_energy         ,
-            order_revenue           = order_revenue         ,
-            penalty                 = penalty               ,
-            L_min                   = L_min                 ,
-            num_EVs                 = num_EVs               ,
-            num_ports               = num_ports             ,
-            elec_supplied           = elec_supplied         ,
-            max_charge_speed        = max_charge_speed      ,
-
-            # Network components
-            V_set                   = V_set                 ,
-            all_arcs                = all_arcs              ,
-            type_arcs               = type_arcs             ,
-            in_arcs                 = in_arcs               ,
-            out_arcs                = out_arcs              ,
-            service_arcs_ijt        = service_arcs_ijt      ,
-            charge_arcs_it          = charge_arcs_it        ,
-            charge_arcs_t           = charge_arcs_t         ,
-            valid_travel_demand     = valid_travel_demand   ,
-            invalid_travel_demand   = invalid_travel_demand ,
-            ZONES                   = ZONES                 ,
-            TIMESTEPS               = TIMESTEPS             ,
-            LEVELS                  = LEVELS                ,
-            AGES                    = AGES                  ,
-
-            # Leader model parameters
-            wholesale_elec_price    = wholesale_elec_price  ,
-            PENALTY_WEIGHT          = PENALTY_WEIGHT        ,
-            reference_variance      = reference_variance    ,
-            
             # Pricing Variable bounds
             lower_bounds_a          = lower_bounds_a        ,
             lower_bounds_b          = lower_bounds_b        ,
             lower_bounds_r          = lower_bounds_r        ,
             upper_bounds_r          = upper_bounds_r        ,
 
-            # DE parameters
-            VARS_PER_STEP           = VARS_PER_STEP         ,
-            M                       = M                     ,
-
             # Metadata
-            timestamp               = timestamp             ,
-            file_name               = file_name             ,
-            folder_name             = folder_name           ,
+            M                       = M                     ,
+            reference_variance      = reference_variance    ,
             log_queue               = log_queue             ,
             log_queue_gurobi        = log_queue_gurobi      ,
-            NUM_THREADS             = NUM_THREADS           ,
         )
 
 
@@ -815,8 +603,6 @@ def run_parallel_de(
 
         # Initial Evaluation
         # We use a Pool to run all candidates in parallel
-        # Use processes=cpu_count()-1 to leave one core free
-        # num_cores = max(1, multiprocessing.cpu_count() - 1)        
         logger.info(f"Initializing pool with {NUM_CORES} cores...")
 
         with multiprocessing.Pool(processes=NUM_CORES) as pool:
@@ -824,7 +610,7 @@ def run_parallel_de(
             # Calculate initial fitness (Parallel)
             # Runs the evaluate_single_candidate function on each candidate in the population in parallel
             try:
-                results     : npt.NDArray[np.float64]    = np.array(pool.map(evaluate_single_candidate_worker, population))
+                results: npt.NDArray[np.float64] = np.array(pool.map(evaluate_single_candidate_worker, population))
             except Exception as e:
                 logger.error("An error occurred during the initial evaluation of candidates.")
                 raise e
@@ -997,8 +783,3 @@ def run_parallel_de(
             upper_bounds_r  = upper_bounds_r    ,
             TIMESTEPS       = TIMESTEPS         ,
         )
-    except Exception as e:
-        raise e
-    finally:
-        listener.stop()
-        listener_gurobi.stop()

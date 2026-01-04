@@ -4,9 +4,11 @@ import os
 import traceback
 import math
 import multiprocessing
+import gurobipy as gp
+import time
 
 from logger import Logger
-from model_follower import follower_model, follower_model_builder
+from model_follower import follower_model, follower_graph_builder, follower_model_builder
 from networkClass import Node, Arc, ArcType
 from utility import convert_key_types
 from postprocessing import postprocessing
@@ -30,9 +32,7 @@ VARS_PER_STEP   : int   = 3         # number of dimensions (variables) per time 
 
 """
 Notes for setting POP_SIZE and MAX_ITER:
-    - POP_SIZE should be a multiple of number of CPU cores - 1 (1 core is used for main process)
-    - number of CPU cores - 1 candidates are evaluated in parallel in each iteration
-    - Time to iterate the entire population once = time to evaluate one candidate * ceil (POP_SIZE / (num_cores - 1))
+    - Time to iterate the entire population once = time to evaluate one candidate * ceil (POP_SIZE / NUM_CORES)
     - MAX_ITER = (desired max runtime) / (time to iterate entire population once)
     - Check time to evaluate one candidate by running only the follower model (Stage 2) by choosing model_choice = '1' in the main.py
 """
@@ -54,7 +54,7 @@ if __name__ == "__main__":
     print ()
     print ("------------------------------------------------------")
     print ()
-    model_choice = input ("Enter '1' to run only the follower model, or press '2' to run the bilevel optimization model (default is '2'): \n").strip()
+    model_choice = input ("Enter '1' to run only the follower model (stage 2), or press '2' to run the bilevel optimization model (stage 1 and 2); default is '2': \n").strip()
     print ()
     directory = input ("Enter the specific folder in the Testcases folder (or press Enter if the file is directly in the Testcases folder): \n").strip()
     print ()
@@ -71,6 +71,12 @@ if __name__ == "__main__":
     else:
         folder_name = f"{folder_name}_{file_name}_{timestamp}"
 
+    path_metadata = {
+        "file_name"     : file_name     ,
+        "folder_name"   : folder_name   ,
+        "timestamp"     : timestamp     ,
+    }
+
     # Create necessary directories if they do not exist
     os.makedirs("Logs", exist_ok=True)
     os.makedirs(os.path.join("Logs", folder_name), exist_ok=True)
@@ -79,12 +85,10 @@ if __name__ == "__main__":
 
     # Set up logger
     logger = Logger(
-        "main"                      , 
+        name        = "main"        , 
         level       = "DEBUG"       , 
         to_console  = True          , 
-        folder_name = folder_name   , 
-        file_name   = file_name     , 
-        timestamp   = timestamp     ,    
+        **path_metadata             ,
     )
     logger.save()
 
@@ -142,209 +146,185 @@ if __name__ == "__main__":
     except Exception as e:
         logger.error(f"An unexpected error occurred while extracting parameters: {e}")
         exit(1)
+
+    follower_model_parameters = {
+        "N"                     : N                     ,
+        "T"                     : T                     ,
+        "L"                     : L                     ,
+        "W"                     : W                     ,
+        "travel_demand"         : travel_demand         ,
+        "travel_time"           : travel_time           ,
+        "travel_energy"         : travel_energy         ,
+        "order_revenue"         : order_revenue         ,
+        "penalty"               : penalty               ,
+        "L_min"                 : L_min                 ,
+        "num_EVs"               : num_EVs               ,
+        "num_ports"             : num_ports             ,
+        "elec_supplied"         : elec_supplied         ,
+        "max_charge_speed"      : max_charge_speed      ,
+    }
+    leader_model_parameters = {
+        "wholesale_elec_price"  : wholesale_elec_price  ,
+        "PENALTY_WEIGHT"        : PENALTY_WEIGHT        ,
+    }
+    DE_parameters = {
+        "POP_SIZE"              : POP_SIZE              ,
+        "NUM_CORES"             : NUM_CORES             ,
+        "NUM_THREADS"           : NUM_THREADS           ,
+        "MAX_ITER"              : MAX_ITER              ,
+        "DIFF_WEIGHT"           : DIFF_WEIGHT           ,
+        "CROSS_PROB"            : CROSS_PROB            ,
+        "VAR_THRESHOLD"         : VAR_THRESHOLD         ,
+        "NUM_ANCHORS"           : NUM_ANCHORS           ,
+        "VARS_PER_STEP"         : VARS_PER_STEP         ,
+    }
     
 
     # -----------------------------------------------------------
     # Build the network for the follower model (reusable)
     # -----------------------------------------------------------
-    network = follower_model_builder(
-        # Follower model parameters
-        N                       = N                     ,
-        T                       = T                     ,
-        L                       = L                     ,
-        W                       = W                     ,
-        travel_demand           = travel_demand         ,
-        travel_time             = travel_time           ,
-        travel_energy           = travel_energy         ,
-        order_revenue           = order_revenue         ,
-        penalty                 = penalty               ,
-        L_min                   = L_min                 ,
-        num_EVs                 = num_EVs               ,
-        num_ports               = num_ports             ,
-        elec_supplied           = elec_supplied         ,
-        max_charge_speed        = max_charge_speed      ,
-
-        # Metadata
-        timestamp               = timestamp             ,
-        file_name               = file_name             ,
-        folder_name             = folder_name           ,
+    start_time_build_network = time.time()
+    network_parameters = follower_graph_builder(
+        **follower_model_parameters ,
+        **path_metadata             ,
     )
+    end_time_build_network = time.time()
 
     # Extract reusable network components
-    V_set                  : set[Node]                              = network["V_set"]
-    
-    all_arcs               : dict[int                   , Arc]      = network["all_arcs"]
-    type_arcs              : dict[ArcType               , set[int]] = network["type_arcs"]
-    in_arcs                : dict[Node                  , set[int]] = network["in_arcs"]
-    out_arcs               : dict[Node                  , set[int]] = network["out_arcs"]
-    service_arcs_ijt       : dict[tuple[int, int, int]  , set[int]] = network["service_arcs_ijt"]
-    charge_arcs_it         : dict[tuple[int, int]       , set[int]] = network["charge_arcs_it"]
-    charge_arcs_t          : dict[int                   , set[int]] = network["charge_arcs_t"]
-    valid_travel_demand    : dict[tuple[int, int, int]  , int]      = network["valid_travel_demand"]
-    invalid_travel_demand  : set[tuple[int, int, int]]              = network["invalid_travel_demand"]
-    
-    ZONES                  : list[int]                              = network["ZONES"]
-    TIMESTEPS              : list[int]                              = network["TIMESTEPS"]
-    LEVELS                 : list[int]                              = network["LEVELS"]
-    AGES                   : list[int]                              = network["AGES"]
+    V_set                  : set[Node]                              = network_parameters["V_set"]
+    all_arcs               : dict[int                   , Arc]      = network_parameters["all_arcs"]
+    type_arcs              : dict[ArcType               , set[int]] = network_parameters["type_arcs"]
+    in_arcs                : dict[Node                  , set[int]] = network_parameters["in_arcs"]
+    out_arcs               : dict[Node                  , set[int]] = network_parameters["out_arcs"]
+    service_arcs_ijt       : dict[tuple[int, int, int]  , set[int]] = network_parameters["service_arcs_ijt"]
+    charge_arcs_it         : dict[tuple[int, int]       , set[int]] = network_parameters["charge_arcs_it"]
+    charge_arcs_t          : dict[int                   , set[int]] = network_parameters["charge_arcs_t"]
+    valid_travel_demand    : dict[tuple[int, int, int]  , int]      = network_parameters["valid_travel_demand"]
+    invalid_travel_demand  : set[tuple[int, int, int]]              = network_parameters["invalid_travel_demand"]
+    ZONES                  : list[int]                              = network_parameters["ZONES"]
+    TIMESTEPS              : list[int]                              = network_parameters["TIMESTEPS"]
+    LEVELS                 : list[int]                              = network_parameters["LEVELS"]
+    AGES                   : list[int]                              = network_parameters["AGES"]
+
+    logger.info(f"Network built in {end_time_build_network - start_time_build_network:.2f} seconds.")
 
 
     # -----------------------------------------------------------
-    # Stage 1: Run the bilevel optimization on relaxed model
+    # Run the bilevel optimization model
     # -----------------------------------------------------------
-    if model_choice == "1":
-        logger.info("Stage 1 skipped as per user choice. Running only the follower model (Stage 2).")
+    with gp.Env(empty=True) as env:
+        env.setParam("OutputFlag", 0)  # Silence console output (we log manually if needed)
+        logger.info ("Gurobi environment set up for bilevel optimization.")
+
+        # -----------------------------------------------------------
+        # Stage 1: Run the bilevel optimization on relaxed model
+        # -----------------------------------------------------------
+        if model_choice == "1":
+            logger.info("Stage 1 skipped as per user choice. Running only the follower model (Stage 2).")
+            try:
+                charge_cost_low     : dict[int, float]                  = processed_data["charge_cost_low"]       # a_t
+                charge_cost_high    : dict[int, float]                  = processed_data["charge_cost_high"]      # b_t
+                elec_threshold      : dict[int, int]                    = processed_data["elec_threshold"]        # r_t
+
+                charge_price_parameters = {
+                    "charge_cost_low"    : charge_cost_low     ,
+                    "charge_cost_high"   : charge_cost_high    ,
+                    "elec_threshold"     : elec_threshold      ,
+                }
+            except KeyError as e:
+                logger.error(f"Missing required pricing/threshold parameter in input data for follower model: {e}")
+                exit(1)
+        else:
+            logger.info("Stage 1: Starting bilevel optimization using Differential Evolution...")
+            start_time_stage1 = time.time()
+
+            model1_raw = gp.Model(env = env)
+            try:
+                model1, persistent_vars1 = follower_model_builder (
+                    model           = model1_raw        ,
+                    **follower_model_parameters         ,
+                    **network_parameters                ,
+                    **DE_parameters                     ,
+                    **path_metadata                     ,
+                    # Metadata
+                    relaxed         = True              ,   # Relaxed model for bilevel optimization
+                    logger          = logger            ,   # pass main logger into builder
+                )
+
+                charge_price_parameters = run_parallel_de(
+                    model           = model1            ,
+                    persistent_vars = persistent_vars1  ,
+                    **follower_model_parameters         ,
+                    **leader_model_parameters           ,
+                    **network_parameters                ,
+                    **DE_parameters                     ,
+                    **path_metadata                     ,
+                )   
+            except Exception as e:
+                logger.error(f"Failure in Stage 1: {e}")
+                logger.error(traceback.format_exc())
+                exit(1)
+            finally:
+                model1_raw.dispose()
+            
+            logger.info(f"Stage 1 completed in {time.time() - start_time_stage1:.2f} seconds.")
+
+            charge_cost_low     : dict[int, float]                  = charge_price_parameters["charge_cost_low"]       # a_t
+            charge_cost_high    : dict[int, float]                  = charge_price_parameters["charge_cost_high"]      # b_t
+            elec_threshold      : dict[int, int]                    = charge_price_parameters["elec_threshold"]        # r_t
+
+
+        # ----------------------------------------------------------------------------------
+        # Stage 2: Run the original follower model with the obtained pricing and threshold
+        # ----------------------------------------------------------------------------------
+        logger.info("Stage 2: Running follower model with obtained pricing and threshold...")
+        start_time_stage2 = time.time()
+
+        model2_raw = gp.Model(env = env)
         try:
-            charge_cost_low     : dict[int, float]                  = processed_data["charge_cost_low"]       # a_t
-            charge_cost_high    : dict[int, float]                  = processed_data["charge_cost_high"]      # b_t
-            elec_threshold      : dict[int, int]                    = processed_data["elec_threshold"]        # r_t
-        except KeyError as e:
-            logger.error(f"Missing required pricing/threshold parameter in input data for follower model: {e}")
-            exit(1)
-
-    else:
-        logger.info("Stage 1: Starting bilevel optimization using Differential Evolution...")
-        try:
-            best_solution = run_parallel_de(
-                # Follower model parameters
-                N                       = N                     ,
-                T                       = T                     ,
-                L                       = L                     ,
-                W                       = W                     ,
-                travel_demand           = travel_demand         ,
-                travel_time             = travel_time           ,
-                travel_energy           = travel_energy         ,
-                order_revenue           = order_revenue         ,
-                penalty                 = penalty               ,
-                L_min                   = L_min                 ,
-                num_EVs                 = num_EVs               ,
-                num_ports               = num_ports             ,
-                elec_supplied           = elec_supplied         ,
-                max_charge_speed        = max_charge_speed      ,
-
-                # Network components
-                V_set                   = V_set                 ,
-                all_arcs                = all_arcs              ,
-                type_arcs               = type_arcs             ,
-                in_arcs                 = in_arcs               ,
-                out_arcs                = out_arcs              ,
-                service_arcs_ijt        = service_arcs_ijt      ,
-                charge_arcs_it          = charge_arcs_it        ,
-                charge_arcs_t           = charge_arcs_t         ,
-                valid_travel_demand     = valid_travel_demand   ,
-                invalid_travel_demand   = invalid_travel_demand ,
-                ZONES                   = ZONES                 ,
-                TIMESTEPS               = TIMESTEPS             ,
-                LEVELS                  = LEVELS                ,
-                AGES                    = AGES                  ,
-
-                # Leader model parameters
-                wholesale_elec_price    = wholesale_elec_price  ,
-                PENALTY_WEIGHT          = PENALTY_WEIGHT        ,
-
-                # DE parameters
-                POP_SIZE                = POP_SIZE              ,
-                MAX_ITER                = MAX_ITER              ,
-                DIFF_WEIGHT             = DIFF_WEIGHT           ,
-                CROSS_PROB              = CROSS_PROB            ,
-                VAR_THRESHOLD           = VAR_THRESHOLD         ,
-                NUM_ANCHORS             = NUM_ANCHORS           ,
-                VARS_PER_STEP           = VARS_PER_STEP         ,
-
+            model2, persistent_vars2 = follower_model_builder (
+                model       = model2_raw                        ,
+                **follower_model_parameters                     ,
+                **network_parameters                            ,
+                **path_metadata                                 ,
                 # Metadata
-                timestamp               = timestamp             ,
-                file_name               = file_name             ,
-                folder_name             = folder_name           ,
-                NUM_CORES               = NUM_CORES             ,
-                NUM_THREADS             = NUM_THREADS           ,
+                relaxed     = True                              ,   # Change to False for actual run
+                logger      = logger                            ,   # pass main logger
+                NUM_THREADS = multiprocessing.cpu_count() - 1   ,   # use all available cores minus one for the final run
+            )
+
+            solutions_stage2 = follower_model(
+                model           = model2                        ,
+                persistent_vars = persistent_vars2              ,
+                **follower_model_parameters                     ,
+                **network_parameters                            ,
+                **charge_price_parameters                       ,
+                **path_metadata                                 ,
             )
         except Exception as e:
-            logger.error(f"Bilevel optimization failed in Stage 1: {e}")
+            logger.error(f"Failure in Stage 2: {e}")
             logger.error(traceback.format_exc())
             exit(1)
-        
-        logger.info("Bilevel optimization completed.")
+        finally:
+            model2_raw.dispose()
+            
+        logger.info(f"Stage 2 completed in {time.time() - start_time_stage2:.2f} seconds.")
 
-        charge_cost_low     : dict[int, float]                  = best_solution["charge_cost_low"]       # a_t
-        charge_cost_high    : dict[int, float]                  = best_solution["charge_cost_high"]      # b_t
-        elec_threshold      : dict[int, int]                    = best_solution["elec_threshold"]        # r_t
-
-    # ----------------------------------------------------------------------------------
-    # Stage 2: Run the original follower model with the obtained pricing and threshold
-    # ----------------------------------------------------------------------------------
-    logger.info("Stage 2: Running follower model with obtained pricing and threshold...")
-
-    try:
-        follower_outputs = follower_model(
-            # Follower model parameters
-            N                       = N                     ,
-            T                       = T                     ,
-            L                       = L                     ,
-            W                       = W                     ,
-            travel_demand           = travel_demand         ,
-            travel_time             = travel_time           ,
-            travel_energy           = travel_energy         ,
-            order_revenue           = order_revenue         ,
-            penalty                 = penalty               ,
-            L_min                   = L_min                 ,
-            num_EVs                 = num_EVs               ,
-            num_ports               = num_ports             ,
-            elec_supplied           = elec_supplied         ,
-            max_charge_speed        = max_charge_speed      ,
-
-            # Network components
-            V_set                   = V_set                 ,
-            all_arcs                = all_arcs              ,
-            type_arcs               = type_arcs             ,
-            in_arcs                 = in_arcs               ,
-            out_arcs                = out_arcs              ,
-            service_arcs_ijt        = service_arcs_ijt      ,
-            charge_arcs_it          = charge_arcs_it        ,
-            charge_arcs_t           = charge_arcs_t         ,
-            valid_travel_demand     = valid_travel_demand   ,
-            invalid_travel_demand   = invalid_travel_demand ,
-            ZONES                   = ZONES                 ,
-            TIMESTEPS               = TIMESTEPS             ,
-            LEVELS                  = LEVELS                ,
-            AGES                    = AGES                  ,
-
-            # Pricing and threshold
-            charge_cost_low         = charge_cost_low       ,
-            charge_cost_high        = charge_cost_high      ,
-            elec_threshold          = elec_threshold        ,
-
-            # Metadata
-            relaxed                 = True                  ,
-            to_console              = False                 ,
-            to_file                 = True                  ,
-            timestamp               = timestamp             ,
-            file_name               = file_name             ,
-            folder_name             = folder_name           ,
-            NUM_THREADS             = multiprocessing.cpu_count() - 1,
-        )
-    except Exception as e:
-        logger.error(f"Follower model failed in Stage 2: {e}")
-        logger.error(traceback.format_exc())
-        exit(1)
-    
-    logger.info("Solution retreived from model.")
 
     # Extract variables and sets from the output
-    obj             : float                                     = follower_outputs["obj"]
-    x               : dict[int, float]                          = follower_outputs["x"]
-    s               : dict[tuple[int, int, int]     , float]    = follower_outputs["s"]
-    u               : dict[tuple[int, int, int, int], float]    = follower_outputs["u"]
-    e               : dict[tuple[int, int, int]     , float]    = follower_outputs["e"]
-    q               : dict[int                      , float]    = follower_outputs["q"]
-    service_revenues: dict[int                      , float]    = follower_outputs["service_revenues"]
-    penalty_costs   : dict[int                      , float]    = follower_outputs["penalty_costs"]
-    charge_costs    : dict[int                      , float]    = follower_outputs["charge_costs"]
+    obj             : float                                     = solutions_stage2["obj"]
+    x               : dict[int, float]                          = solutions_stage2["x"]
+    s               : dict[tuple[int, int, int]     , float]    = solutions_stage2["s"]
+    u               : dict[tuple[int, int, int, int], float]    = solutions_stage2["u"]
+    e               : dict[tuple[int, int, int]     , float]    = solutions_stage2["e"]
+    q               : dict[int                      , float]    = solutions_stage2["q"]
+
 
     # ----------------------------
     # Arcs Information
     # ----------------------------    
     logger_arcs = Logger(
-        "arcs"                      , 
+        name        = "arcs"        , 
         level       = "DEBUG"       , 
         to_console  = False         , 
         folder_name = folder_name   , 
@@ -357,6 +337,7 @@ if __name__ == "__main__":
     for id, arc in all_arcs.items():
         logger_arcs.debug (f"  Arc {id}: type {arc.type} from node ({arc.o.i}, {arc.o.t}, {arc.o.l}) to ({arc.d.i}, {arc.d.t}, {arc.d.l}); flow: {x[id]}")
     
+
     # ----------------------------
     # EV flow in each arcs
     # ----------------------------
@@ -384,6 +365,31 @@ if __name__ == "__main__":
     # ----------------------------
     # Summarised Information
     # ----------------------------
+    service_revenues        : dict[int, float] = {
+        t: sum (x[e_id] * all_arcs[e_id].revenue
+            for i in ZONES
+            for j in ZONES
+            for e_id in service_arcs_ijt.get((i, j, t), set())
+        )
+        for t in TIMESTEPS
+    }
+    penalty_costs           : dict[int, float] = {
+        t: sum (e[(i, j, t)] * penalty.get((i, j, t), 0)
+            for i in ZONES
+            for j in ZONES
+        ) + sum (s[(i, j, t)] * penalty.get((i, j, t), 0)
+            for i in ZONES
+            for j in ZONES
+        ) if t == T else 0
+        for t in TIMESTEPS
+    }
+    charge_costs            : dict[int, float] = {
+        t: sum (x[e_id] * all_arcs[e_id].charge_speed
+            for e_id in charge_arcs_t.get(t, set())
+        ) * charge_cost_low.get(t, 0) \
+        + q[t] * charge_cost_high.get(t, 0)
+        for t in TIMESTEPS
+    }
     total_service_revenue   : float = sum(service_revenues.values())
     total_penalty_cost      : float = sum(penalty_costs.values())
     total_charge_cost       : float = sum(charge_costs.values())
@@ -393,8 +399,11 @@ if __name__ == "__main__":
     logger.info(f"  Total service revenue: {total_service_revenue:.2f}")
     logger.info(f"  Total penalty cost: {total_penalty_cost:.2f}")
     logger.info(f"  Total charge cost: {total_charge_cost:.2f}")    
+
+    if not math.isclose(obj, total_service_revenue - total_penalty_cost - total_charge_cost):
+        logger.warning (f"  Objective value ({obj:.2f}) does not match total service revenue - total penalty cost - total charge cost ({total_service_revenue - total_penalty_cost - total_charge_cost:.2f}).")
     
-    
+
     # ----------------------------
     # Calculated information
     # ----------------------------
@@ -409,14 +418,14 @@ if __name__ == "__main__":
     )
     # total number of valid trips unserved (carried over from all intervals)
     total_trips_unserved: int = sum (
-        e[(i, j, t)]
-        for i in ZONES
-        for j in ZONES
-        for t in TIMESTEPS
-    ) + sum (
-        s[(i, j, T)]
-        for i in ZONES
-        for j in ZONES
+            e[(i, j, t)]
+            for i in ZONES
+            for j in ZONES
+            for t in TIMESTEPS
+        ) + sum (
+            s[(i, j, T)]
+            for i in ZONES
+            for j in ZONES
     )
     # total number of time intervals spent on service (sum of all EVs)
     total_service_time: int = sum (
@@ -445,68 +454,27 @@ if __name__ == "__main__":
     if not math.isclose(total_service_time + total_charge_time + total_relocation_time + total_idle_time, T * num_EVs):
         logger.warning (f"  Total time does not sum up! Total time: {T * num_EVs}, Service time: {total_service_time}, Charge time: {total_charge_time}, Relocation time: {total_relocation_time}, Idle time: {total_idle_time}")
 
+
+    # ---------------------------------
+    # Postprocessing and save results
+    # ---------------------------------
     postprocessing(
-        # Follower model parameters
-        N                       = N                     ,
-        T                       = T                     ,
-        L                       = L                     ,
-        W                       = W                     ,
-        travel_demand           = travel_demand         ,
-        travel_time             = travel_time           ,
-        travel_energy           = travel_energy         ,
-        order_revenue           = order_revenue         ,
-        penalty                 = penalty               ,
-        L_min                   = L_min                 ,
-        num_EVs                 = num_EVs               ,
-        num_ports               = num_ports             ,
-        elec_supplied           = elec_supplied         ,
-        max_charge_speed        = max_charge_speed      ,
+        **follower_model_parameters                     ,
+        **leader_model_parameters                       ,
+        **network_parameters                            ,
+        **charge_price_parameters                       ,
+        **solutions_stage2                              ,
+        **path_metadata                                 ,
 
-        # Network components
-        V_set                   = V_set                 ,
-        all_arcs                = all_arcs              ,
-        type_arcs               = type_arcs             ,
-        in_arcs                 = in_arcs               ,
-        out_arcs                = out_arcs              ,
-        service_arcs_ijt        = service_arcs_ijt      ,
-        charge_arcs_it          = charge_arcs_it        ,
-        charge_arcs_t           = charge_arcs_t         ,
-        valid_travel_demand     = valid_travel_demand   ,
-        invalid_travel_demand   = invalid_travel_demand ,
-        ZONES                   = ZONES                 ,
-        TIMESTEPS               = TIMESTEPS             ,
-        LEVELS                  = LEVELS                ,
-        AGES                    = AGES                  ,
-
-        # Leader model parameters
-        wholesale_elec_price    = wholesale_elec_price  ,
-        PENALTY_WEIGHT          = PENALTY_WEIGHT        ,
-
-        # Pricing Variables
-        charge_cost_low         = charge_cost_low       ,
-        charge_cost_high        = charge_cost_high      ,
-        elec_threshold          = elec_threshold        ,  
-
-        # Solutions
-        obj                     = obj                   ,
-        x                       = x                     ,
-        s                       = s                     ,
-        u                       = u                     ,
-        e                       = e                     ,
-        q                       = q                     ,
+        # Calculated information
         service_revenues        = service_revenues      ,
         penalty_costs           = penalty_costs         ,
         charge_costs            = charge_costs          ,
-
-        # Calculated information
         total_service_revenue   = total_service_revenue ,
         total_penalty_cost      = total_penalty_cost    ,
         total_charge_cost       = total_charge_cost     ,
 
         # Metadata
-        timestamp               = timestamp             ,
-        file_name               = file_name             ,
-        folder_name             = folder_name           ,
         results_name            = results_name          ,
     )
 

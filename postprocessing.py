@@ -54,11 +54,11 @@ def postprocessing(**kwargs):
     u                       : dict[tuple[int, int, int, int], float]    = kwargs["u"]
     e                       : dict[tuple[int, int, int]     , float]    = kwargs["e"]
     q                       : dict[int                      , float]    = kwargs["q"]
+
+    # Calculated information
     service_revenues        : dict[int                      , float]    = kwargs["service_revenues"]
     penalty_costs           : dict[int                      , float]    = kwargs["penalty_costs"]
     charge_costs            : dict[int                      , float]    = kwargs["charge_costs"]
-
-    # Calculated information
     total_service_revenue   : float                                     = kwargs["total_service_revenue"]
     total_penalty_cost      : float                                     = kwargs["total_penalty_cost"]
     total_charge_cost       : float                                     = kwargs["total_charge_cost"]

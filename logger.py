@@ -101,6 +101,13 @@ class LogListener:
     def stop(self):
         self.listener.stop()
         # QueueListener automatically closes its handlers, so manual closing is optional
+    
+    def __enter__(self):
+        self.start()
+        return self
+
+    def __exit__(self, *args):
+        self.stop()
 
 
 class Logger:
@@ -167,6 +174,11 @@ class Logger:
                 sh.addFilter(self._name_filter_obj)
                 self._logger.addHandler(sh)
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        self.close()
 
     def _create_name_filter(self):
         # Helper to create a filter that adds 'short_name' to log records
@@ -238,3 +250,4 @@ class Logger:
             self._file_handler = None
         else:
             raise RuntimeError("No file handler to close.")
+        
