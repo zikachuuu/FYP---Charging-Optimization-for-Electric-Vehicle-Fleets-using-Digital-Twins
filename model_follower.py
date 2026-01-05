@@ -12,6 +12,12 @@ from logger import Logger
 from networkClass import Node, Arc, ArcType, ServiceArc, ChargingArc, RelocationArc, IdleArc, WraparoundArc
 from exceptions import OptimizationError
 
+# ----------------------------
+# Persistent Model
+# ----------------------------
+_PERSISTENT_MODEL = None
+_PERSISTENT_VARS = None
+
 
 # ----------------------------
 # Graph Builder
@@ -39,8 +45,6 @@ def follower_graph_builder(
     order_revenue           : dict[tuple[int, int, int] , float]    = kwargs["order_revenue"]               # order revenue for each trip served from i to j at time t
     penalty                 : dict[tuple[int, int, int] , float]    = kwargs["penalty"]                     # penalty cost for each unserved trip from i to j at time t 
     L_min                   : int                                   = kwargs["L_min"]                       # min SoC level all EV must end with at the end of the daily operations
-    num_EVs                 : int                                   = kwargs["num_EVs"]                     # total number of EVs in the fleet
-    num_ports               : dict[int                  , int]      = kwargs["num_ports"]                   # number of chargers in each zone
     elec_supplied           : dict[tuple[int, int]      , int]      = kwargs["elec_supplied"]               # electricity supplied (in SoC levels) at zone i at time t
     max_charge_speed        : int                                   = kwargs["max_charge_speed"]            # max charging speed (in SoC levels) of one EV in one time step
         
@@ -431,24 +435,15 @@ def follower_model_builder(
     """
     # ----------------------------
     # Parameters
-    # ----------------------------
-    model                   : gp.Model                              = kwargs["model"]
-    
+    # ----------------------------    
     # Follower model parameters
     N                       : int                                   = kwargs["N"]                       # number of operation zones (1, ..., N)
     T                       : int                                   = kwargs["T"]                       # termination time of daily operations (0, ..., T)
-    L                       : int                                   = kwargs["L"]                       # max SoC level (all EVs start at this level) (0, ..., L)
     W                       : int                                   = kwargs["W"]                       # maximum time intervals a passenger will wait for a ride (0, ..., W-1; demand expires at W)
-    travel_demand           : dict[tuple[int, int, int] , int]      = kwargs["travel_demand"]           # travel demand from zone i to j at starting at time t
-    travel_time             : dict[tuple[int, int, int] , int]      = kwargs["travel_time"]             # travel time from i to j at starting at time t
-    travel_energy           : dict[tuple[int, int]      , int]      = kwargs["travel_energy"]           # energy consumed for trip from zone i to j
-    order_revenue           : dict[tuple[int, int, int] , float]    = kwargs["order_revenue"]           # order revenue for each trip served from i to j at time t
     penalty                 : dict[tuple[int, int, int] , float]    = kwargs["penalty"]                 # penalty cost for each unserved trip from i to j at time t
-    L_min                   : int                                   = kwargs["L_min"]                   # min SoC level all EV must end with at the end of the daily operations
     num_EVs                 : int                                   = kwargs["num_EVs"]                 # total number of EVs in the fleet 
     num_ports               : dict[int                  , int]      = kwargs["num_ports"]               # number of charging ports in each zone
     elec_supplied           : dict[tuple[int, int]      , int]      = kwargs["elec_supplied"]           # electricity supplied (in SoC levels) at zone i at time t
-    max_charge_speed        : int                                   = kwargs["max_charge_speed"]        # max charging speed (in SoC levels) of one EV in one time step
     
     # Network components
     V_set                   : set[Node]                             = kwargs["V_set"]
@@ -460,10 +455,8 @@ def follower_model_builder(
     charge_arcs_it          : dict[tuple[int, int]      , set[int]] = kwargs["charge_arcs_it"]
     charge_arcs_t           : dict[int                  , set[int]] = kwargs["charge_arcs_t"]
     valid_travel_demand     : dict[tuple[int, int, int] , int]      = kwargs["valid_travel_demand"]
-    invalid_travel_demand   : set[tuple[int, int, int]]             = kwargs["invalid_travel_demand"]
     ZONES                   : list[int]                             = kwargs["ZONES"]
     TIMESTEPS               : list[int]                             = kwargs["TIMESTEPS"]
-    LEVELS                  : list[int]                             = kwargs["LEVELS"]
     AGES                    : list[int]                             = kwargs["AGES"]
 
     # DE parameters
@@ -477,6 +470,10 @@ def follower_model_builder(
     # ----------------------------
     # Model Parameters
     # ----------------------------
+    env = gp.Env()
+    env.setParam('OutputFlag', 0)  # suppress Gurobi output
+    model = gp.Model(env=env) 
+
     model.setParam("Method"     , 2             )   # use barrier method
     model.setParam('Crossover'  , 0             )   # skip crossover; no dual solution, sensitivity analysis, warm start
     model.setParam("Threads"    , NUM_THREADS   )   # use two threads per process 
@@ -729,12 +726,11 @@ def follower_model_builder(
     logger.info("Objective coefficients for service revenue and penalty cost set")
     model.update()
 
-    # Return the model and a map of everything we need to access later
     return model, {
-        "x"             : x             , 
-        "s"             : s             , 
-        "u"             : u             , 
-        "e"             : e             , 
+        "x"             : x             ,
+        "s"             : s             ,
+        "u"             : u             ,
+        "e"             : e             ,
         "q"             : q             ,
         "constrs_thres" : constrs_thres ,
     }
@@ -753,47 +749,11 @@ def follower_model(
     """    
     # -------------------------------
     # Step 1: Extract parameters
-    # -------------------------------
-    model                   : gp.Model                                              = kwargs["model"]                   # persistent Gurobi model,
-    persistent_vars         : dict[str                              , Any]          = kwargs["persistent_vars"]         # persistent variables from follower_model_builder,
-    x                       : gp.tupledict[int                      , gp.Var]       = persistent_vars["x"]
-    s                       : gp.tupledict[tuple[int, int, int]     , gp.Var]       = persistent_vars["s"]
-    u                       : gp.tupledict[tuple[int, int, int, int], gp.Var]       = persistent_vars["u"]
-    e                       : gp.tupledict[tuple[int, int, int]     , gp.Var]       = persistent_vars["e"]
-    q                       : gp.tupledict[int                      , gp.Var]       = persistent_vars["q"]
-    constrs_thres           : gp.tupledict[int                      , gp.Constr]    = persistent_vars["constrs_thres"]
-    
-    # Follower model parameters
-    N                       : int                                   = kwargs["N"]                       # number of operation zones (1, ..., N)
-    T                       : int                                   = kwargs["T"]                       # termination time of daily operations (0, ..., T)
-    L                       : int                                   = kwargs["L"]                       # max SoC level (all EVs start at this level) (0, ..., L)
-    W                       : int                                   = kwargs["W"]                       # maximum time intervals a passenger will wait for a ride (0, ..., W-1; demand expires at W)
-    travel_demand           : dict[tuple[int, int, int] , int]      = kwargs["travel_demand"]           # travel demand from zone i to j at starting at time t
-    travel_time             : dict[tuple[int, int, int] , int]      = kwargs["travel_time"]             # travel time from i to j at starting at time t
-    travel_energy           : dict[tuple[int, int]      , int]      = kwargs["travel_energy"]           # energy consumed for trip from zone i to j
-    order_revenue           : dict[tuple[int, int, int] , float]    = kwargs["order_revenue"]           # order revenue for each trip served from i to j at time t
-    penalty                 : dict[tuple[int, int, int] , float]    = kwargs["penalty"]                 # penalty cost for each unserved trip from i to j at time t
-    L_min                   : int                                   = kwargs["L_min"]                   # min SoC level all EV must end with at the end of the daily operations
-    num_EVs                 : int                                   = kwargs["num_EVs"]                 # total number of EVs in the fleet 
-    num_ports               : dict[int                  , int]      = kwargs["num_ports"]               # number of charging ports in each zone
-    elec_supplied           : dict[tuple[int, int]      , int]      = kwargs["elec_supplied"]           # electricity supplied (in SoC levels) at zone i at time t
-    max_charge_speed        : int                                   = kwargs["max_charge_speed"]        # max charging speed (in SoC levels) of one EV in one time step
-    
+    # -------------------------------        
     # Network components
-    V_set                   : set[Node]                             = kwargs["V_set"]
     all_arcs                : dict[int                  , Arc]      = kwargs["all_arcs"]
-    type_arcs               : dict[ArcType              , set[int]] = kwargs["type_arcs"]
-    in_arcs                 : dict[Node                 , set[int]] = kwargs["in_arcs"]
-    out_arcs                : dict[Node                 , set[int]] = kwargs["out_arcs"]
-    service_arcs_ijt        : dict[tuple[int, int, int] , set[int]] = kwargs["service_arcs_ijt"]
-    charge_arcs_it          : dict[tuple[int, int]      , set[int]] = kwargs["charge_arcs_it"]
     charge_arcs_t           : dict[int                  , set[int]] = kwargs["charge_arcs_t"]
-    valid_travel_demand     : dict[tuple[int, int, int] , int]      = kwargs["valid_travel_demand"]
-    invalid_travel_demand   : set[tuple[int, int, int]]             = kwargs["invalid_travel_demand"]
-    ZONES                   : list[int]                             = kwargs["ZONES"]
     TIMESTEPS               : list[int]                             = kwargs["TIMESTEPS"]
-    LEVELS                  : list[int]                             = kwargs["LEVELS"]
-    AGES                    : list[int]                             = kwargs["AGES"]
 
     # Pricing Variables
     charge_cost_low         : dict[int                  , float]    = kwargs["charge_cost_low"]         # a_t
@@ -808,6 +768,7 @@ def follower_model(
     # Metadata
     logger                  : Logger                                = kwargs.get("logger", None)        # logger instance
     logger_gurobi           : Logger                                = kwargs.get("logger_gurobi", None) # gurobi logger instance
+
 
     # Check if we are at stage 1 or stage 2
     # In stage 1, calls to follower model will provide both logger and logger_gurobi (reference_candidate and evaluate_candidate)
@@ -824,11 +785,38 @@ def follower_model(
             timestamp   = timestamp     ,       
         )
         logger.save()
+        kwargs["logger"] = logger   # pass the logger to follower_model_builder
 
     if not stage2 and logger_gurobi is None:
         logger.error("Gurobi logger must be provided for stage1")
         raise TypeError("Gurobi logger must be provided for stage1")
     
+    logger.info("Starting follower model optimization")
+
+    # -------------------------------
+    # Step 2: Load Persistent Model
+    # -------------------------------
+    global _PERSISTENT_MODEL, _PERSISTENT_VARS
+    if _PERSISTENT_MODEL is None or _PERSISTENT_VARS is None:
+        logger.info ("Model not built yet. Building now...")
+
+        _PERSISTENT_MODEL, _PERSISTENT_VARS = follower_model_builder (
+            **kwargs                            ,   
+            # Metadata
+            relaxed         = True if stage2 else True  ,   # Relaxed model for bilevel optimization
+        )
+    else:
+        logger.info ("Using existing persistent model...")
+
+    model                   : gp.Model                                              = _PERSISTENT_MODEL               # persistent Gurobi model,
+    x                       : gp.tupledict[int                      , gp.Var]       = _PERSISTENT_VARS["x"]
+    s                       : gp.tupledict[tuple[int, int, int]     , gp.Var]       = _PERSISTENT_VARS["s"]
+    u                       : gp.tupledict[tuple[int, int, int, int], gp.Var]       = _PERSISTENT_VARS["u"]
+    e                       : gp.tupledict[tuple[int, int, int]     , gp.Var]       = _PERSISTENT_VARS["e"]
+    q                       : gp.tupledict[int                      , gp.Var]       = _PERSISTENT_VARS["q"]
+    constrs_thres           : gp.tupledict[int                      , gp.Constr]    = _PERSISTENT_VARS["constrs_thres"]
+
+
     class GurobiLogger:
         """
         Redirects Gurobi output to Python Logger
@@ -900,6 +888,7 @@ def follower_model(
     
     model.setAttr("ModelSense", GRB.MAXIMIZE)
     model.update()
+    model.reset()
 
     if stage2:
         logger.info(f"Optimizing model with {model.NumVars} variables and {model.NumConstrs} constraints")

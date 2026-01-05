@@ -107,48 +107,13 @@ def _reference_candidate(
     # ----------------------------
     # Parameters
     # ----------------------------
-    model                   : gp.Model                              = kwargs["model"]
-    persistent_vars         : dict[str, Any]                        = kwargs["persistent_vars"]
-    
-    # Pricing Variables
-    charge_cost_low         : dict[int                  , float]    = kwargs["charge_cost_low"]         # a_t
-    charge_cost_high        : dict[int                  , float]    = kwargs["charge_cost_high"]        # b_t
-    elec_threshold          : dict[int                  , int]      = kwargs["elec_threshold"]          # r_t
-
     # Follower model parameters
-    N                       : int                                   = kwargs["N"]                       # number of operation zones (1, ..., N)
     T                       : int                                   = kwargs["T"]                       # termination time of daily operations (0, ..., T)
-    L                       : int                                   = kwargs["L"]                       # max SoC level (all EVs start at this level) (0, ..., L)
-    W                       : int                                   = kwargs["W"]                       # maximum time intervals a passenger will wait for a ride (0, ..., W-1; demand expires at W)
-    travel_demand           : dict[tuple[int, int, int] , int]      = kwargs["travel_demand"]           # travel demand from zone i to j at starting at time t
-    travel_time             : dict[tuple[int, int, int] , int]      = kwargs["travel_time"]             # travel time from i to j at starting at time t
-    travel_energy           : dict[tuple[int, int]      , int]      = kwargs["travel_energy"]           # energy consumed for trip from zone i to j
-    order_revenue           : dict[tuple[int, int, int] , float]    = kwargs["order_revenue"]           # order revenue for each trip served from i to j at time t
-    penalty                 : dict[tuple[int, int, int] , float]    = kwargs["penalty"]                 # penalty cost for each unserved trip from i to j at time t
-    L_min                   : int                                   = kwargs["L_min"]                   # min SoC level all EV must end with at the end of the daily operations
-    num_EVs                 : int                                   = kwargs["num_EVs"]                 # total number of EVs in the fleet 
-    num_ports               : dict[int                  , int]      = kwargs["num_ports"]               # number of charging ports in each zone
-    elec_supplied           : dict[tuple[int, int]      , int]      = kwargs["elec_supplied"]           # electricity supplied (in SoC levels) at zone i at time t
-    max_charge_speed        : int                                   = kwargs["max_charge_speed"]        # max charging speed (in SoC levels) of one EV in one time step
 
     # Network components
-    V_set                   : set[Node]                             = kwargs["V_set"]
     all_arcs                : dict[int                  , Arc]      = kwargs["all_arcs"]
-    type_arcs               : dict[ArcType              , set[int]] = kwargs["type_arcs"]
-    in_arcs                 : dict[Node                 , set[int]] = kwargs["in_arcs"]
-    out_arcs                : dict[Node                 , set[int]] = kwargs["out_arcs"]
-    service_arcs_ijt        : dict[tuple[int, int, int] , set[int]] = kwargs["service_arcs_ijt"]
-    charge_arcs_it          : dict[tuple[int, int]      , set[int]] = kwargs["charge_arcs_it"]
     charge_arcs_t           : dict[int                  , set[int]] = kwargs["charge_arcs_t"]
-    valid_travel_demand     : dict[tuple[int, int, int] , int]      = kwargs["valid_travel_demand"]
-    invalid_travel_demand   : set[tuple[int, int, int]]             = kwargs["invalid_travel_demand"]
-    ZONES                   : list[int]                             = kwargs["ZONES"]
     TIMESTEPS               : list[int]                             = kwargs["TIMESTEPS"]
-    LEVELS                  : list[int]                             = kwargs["LEVELS"]
-    AGES                    : list[int]                             = kwargs["AGES"]
-
-    # DE parameters
-    NUM_THREADS             : int                                   = kwargs["NUM_THREADS"]             # number of threads used per candidate evaluation
 
     # Path Metadata
     timestamp               : str                                   = kwargs["timestamp"]               # timestamp for logging
@@ -168,7 +133,6 @@ def _reference_candidate(
         timestamp   = timestamp     ,
         queue       = log_queue     ,
     )
-
     logger_gurobi = Logger (
         f"Gurobi_Reference"                 ,
         level       = "DEBUG"               ,
@@ -199,12 +163,7 @@ def _reference_candidate(
     logger.info("Reference candidate solved successfully.")
 
     # Extract variables and sets from the follower_outputs    
-    obj             : float                                     = follower_outputs["obj"]
     x               : dict[int, float]                          = follower_outputs["x"]
-    s               : dict[tuple[int, int, int]     , float]    = follower_outputs["s"]
-    u               : dict[tuple[int, int, int, int], float]    = follower_outputs["u"]
-    e               : dict[tuple[int, int, int]     , float]    = follower_outputs["e"]
-    q               : dict[int                      , float]    = follower_outputs["q"]
 
     # Calculate electricity consumption at each time step using vectorized operations
     electricity_usage: npt.NDArray[np.float64] = np.zeros(T + 1)
@@ -235,44 +194,8 @@ def _evaluate_candidate(
     # ----------------------------
     # Parameters
     # ----------------------------
-    model                   : gp.Model                              = kwargs["model"]
-    persistent_vars         : dict[str, Any]                        = kwargs["persistent_vars"]
-
-    # Follower model parameters
-    N                       : int                                   = kwargs["N"]                       # number of operation zones (1, ..., N)
-    T                       : int                                   = kwargs["T"]                       # termination time of daily operations (0, ..., T)
-    L                       : int                                   = kwargs["L"]                       # max SoC level (all EVs start at this level) (0, ..., L)
-    W                       : int                                   = kwargs["W"]                       # maximum time intervals a passenger will wait for a ride (0, ..., W-1; demand expires at W)
-    travel_demand           : dict[tuple[int, int, int] , int]      = kwargs["travel_demand"]           # travel demand from zone i to j at starting at time t
-    travel_time             : dict[tuple[int, int, int] , int]      = kwargs["travel_time"]             # travel time from i to j at starting at time t
-    travel_energy           : dict[tuple[int, int]      , int]      = kwargs["travel_energy"]           # energy consumed for trip from zone i to j
-    order_revenue           : dict[tuple[int, int, int] , float]    = kwargs["order_revenue"]           # order revenue for each trip served from i to j at time t
-    penalty                 : dict[tuple[int, int, int] , float]    = kwargs["penalty"]                 # penalty cost for each unserved trip from i to j at time t
-    L_min                   : int                                   = kwargs["L_min"]                   # min SoC level all EV must end with at the end of the daily operations
-    num_EVs                 : int                                   = kwargs["num_EVs"]                 # total number of EVs in the fleet 
-    num_ports               : dict[int                  , int]      = kwargs["num_ports"]               # number of charging ports in each zone
-    elec_supplied           : dict[tuple[int, int]      , int]      = kwargs["elec_supplied"]           # electricity supplied (in SoC levels) at zone i at time t
-    max_charge_speed        : int                                   = kwargs["max_charge_speed"]        # max charging speed (in SoC levels) of one EV in one time step
-
     # Network components
-    V_set                   : set[Node]                             = kwargs["V_set"]
-    all_arcs                : dict[int                  , Arc]      = kwargs["all_arcs"]
-    type_arcs               : dict[ArcType              , set[int]] = kwargs["type_arcs"]
-    in_arcs                 : dict[Node                 , set[int]] = kwargs["in_arcs"]
-    out_arcs                : dict[Node                 , set[int]] = kwargs["out_arcs"]
-    service_arcs_ijt        : dict[tuple[int, int, int] , set[int]] = kwargs["service_arcs_ijt"]
-    charge_arcs_it          : dict[tuple[int, int]      , set[int]] = kwargs["charge_arcs_it"]
-    charge_arcs_t           : dict[int                  , set[int]] = kwargs["charge_arcs_t"]
-    valid_travel_demand     : dict[tuple[int, int, int] , int]      = kwargs["valid_travel_demand"]
-    invalid_travel_demand   : set[tuple[int, int, int]]             = kwargs["invalid_travel_demand"]
-    ZONES                   : list[int]                             = kwargs["ZONES"]
     TIMESTEPS               : list[int]                             = kwargs["TIMESTEPS"]
-    LEVELS                  : list[int]                             = kwargs["LEVELS"]
-    AGES                    : list[int]                             = kwargs["AGES"]
-
-    # Leader model parameters
-    wholesale_elec_price    : dict[int                  , float]    = kwargs["wholesale_elec_price"]    # wholesale electricity price at time t
-    PENALTY_WEIGHT          : float                                 = kwargs["PENALTY_WEIGHT"]          # penalty weight for high a_t and b_t
 
     # Pricing Variable bounds
     lower_bounds_a          : npt.NDArray[np.float64]               = kwargs["lower_bounds_a"]          # lower bounds for a_t
@@ -290,7 +213,6 @@ def _evaluate_candidate(
 
     # Metadata
     M                       : npt.NDArray[np.float64]               = kwargs["M"]                       # interpolation matrix
-    reference_variance      : float                                 = kwargs["reference_variance"]      # reference variance for normalization
     log_queue               : multiprocessing.Queue                 = kwargs["log_queue"]               # multiprocessing log queue
     log_queue_gurobi        : multiprocessing.Queue                 = kwargs["log_queue_gurobi"]        # multiprocessing log queue for gurobi
 
@@ -376,49 +298,20 @@ def run_parallel_de(
     # ----------------------------
     # Parameters
     # ----------------------------
-    model                   : gp.Model                              = kwargs["model"]
-    persistent_vars         : dict[str, Any]                        = kwargs["persistent_vars"]
-
     # Follower model parameters
-    N                       : int                                   = kwargs["N"]                       # number of operation zones (1, ..., N)
     T                       : int                                   = kwargs["T"]                       # termination time of daily operations (0, ..., T)
-    L                       : int                                   = kwargs["L"]                       # max SoC level (all EVs start at this level) (0, ..., L)
-    W                       : int                                   = kwargs["W"]                       # maximum time intervals a passenger will wait for a ride (0, ..., W-1; demand expires at W)
-    travel_demand           : dict[tuple[int, int, int] , int]      = kwargs["travel_demand"]           # travel demand from zone i to j at starting at time t
-    travel_time             : dict[tuple[int, int, int] , int]      = kwargs["travel_time"]             # travel time from i to j at starting at time t
-    travel_energy           : dict[tuple[int, int]      , int]      = kwargs["travel_energy"]           # energy consumed for trip from zone i to j
-    order_revenue           : dict[tuple[int, int, int] , float]    = kwargs["order_revenue"]           # order revenue for each trip served from i to j at time t
-    penalty                 : dict[tuple[int, int, int] , float]    = kwargs["penalty"]                 # penalty cost for each unserved trip from i to j at time t
-    L_min                   : int                                   = kwargs["L_min"]                   # min SoC level all EV must end with at the end of the daily operations
-    num_EVs                 : int                                   = kwargs["num_EVs"]                 # total number of EVs in the fleet 
-    num_ports               : dict[int                  , int]      = kwargs["num_ports"]               # number of charging ports in each zone
     elec_supplied           : dict[tuple[int, int]      , int]      = kwargs["elec_supplied"]           # electricity supplied (in SoC levels) at zone i at time t
-    max_charge_speed        : int                                   = kwargs["max_charge_speed"]        # max charging speed (in SoC levels) of one EV in one time step
     
     # Network components
-    V_set                   : set[Node]                             = kwargs["V_set"]
-    all_arcs                : dict[int                  , Arc]      = kwargs["all_arcs"]
-    type_arcs               : dict[ArcType              , set[int]] = kwargs["type_arcs"]
-    in_arcs                 : dict[Node                 , set[int]] = kwargs["in_arcs"]
-    out_arcs                : dict[Node                 , set[int]] = kwargs["out_arcs"]
-    service_arcs_ijt        : dict[tuple[int, int, int] , set[int]] = kwargs["service_arcs_ijt"]
-    charge_arcs_it          : dict[tuple[int, int]      , set[int]] = kwargs["charge_arcs_it"]
-    charge_arcs_t           : dict[int                  , set[int]] = kwargs["charge_arcs_t"]
-    valid_travel_demand     : dict[tuple[int, int, int] , int]      = kwargs["valid_travel_demand"]
-    invalid_travel_demand   : set[tuple[int, int, int]]             = kwargs["invalid_travel_demand"]
     ZONES                   : list[int]                             = kwargs["ZONES"]
     TIMESTEPS               : list[int]                             = kwargs["TIMESTEPS"]
-    LEVELS                  : list[int]                             = kwargs["LEVELS"]
-    AGES                    : list[int]                             = kwargs["AGES"]
 
     # Leader model parameters
     wholesale_elec_price    : dict[int                  , float]    = kwargs["wholesale_elec_price"]    # wholesale electricity price at time t
-    PENALTY_WEIGHT          : float                                 = kwargs["PENALTY_WEIGHT"]          # penalty weight for high a_t and b_t
     
     # DE parameters
     POP_SIZE                : int                                   = kwargs["POP_SIZE"]                # population size for DE
     NUM_CORES               : int                                   = kwargs["NUM_CORES"]               # number of CPU cores to use
-    NUM_THREADS             : int                                   = kwargs["NUM_THREADS"]             # number of threads used per candidate evaluation
     MAX_ITER                : int                                   = kwargs["MAX_ITER"]                # max iterations for DE
     DIFF_WEIGHT             : float                                 = kwargs["DIFF_WEIGHT"]             # differential weight
     CROSS_PROB              : float                                 = kwargs["CROSS_PROB"]              # crossover probability
@@ -430,7 +323,6 @@ def run_parallel_de(
     timestamp               : str                                   = kwargs["timestamp"]               # timestamp for logging
     file_name               : str                                   = kwargs["file_name"]               # filename for logging
     folder_name             : str                                   = kwargs["folder_name"]             # folder name for logging
-
 
     # ----------------------------
     # Logger Setup

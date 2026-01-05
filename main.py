@@ -208,107 +208,69 @@ if __name__ == "__main__":
 
     logger.info(f"Network built in {end_time_build_network - start_time_build_network:.2f} seconds.")
 
-
     # -----------------------------------------------------------
-    # Run the bilevel optimization model
+    # Stage 1: Run the bilevel optimization on relaxed model
     # -----------------------------------------------------------
-    with gp.Env(empty=True) as env:
-        env.setParam("OutputFlag", 0)  # Silence console output (we log manually if needed)
-        logger.info ("Gurobi environment set up for bilevel optimization.")
-
-        # -----------------------------------------------------------
-        # Stage 1: Run the bilevel optimization on relaxed model
-        # -----------------------------------------------------------
-        if model_choice == "1":
-            logger.info("Stage 1 skipped as per user choice. Running only the follower model (Stage 2).")
-            try:
-                charge_cost_low     : dict[int, float]                  = processed_data["charge_cost_low"]       # a_t
-                charge_cost_high    : dict[int, float]                  = processed_data["charge_cost_high"]      # b_t
-                elec_threshold      : dict[int, int]                    = processed_data["elec_threshold"]        # r_t
-
-                charge_price_parameters = {
-                    "charge_cost_low"    : charge_cost_low     ,
-                    "charge_cost_high"   : charge_cost_high    ,
-                    "elec_threshold"     : elec_threshold      ,
-                }
-            except KeyError as e:
-                logger.error(f"Missing required pricing/threshold parameter in input data for follower model: {e}")
-                exit(1)
-        else:
-            logger.info("Stage 1: Starting bilevel optimization using Differential Evolution...")
-            start_time_stage1 = time.time()
-
-            model1_raw = gp.Model(env = env)
-            try:
-                model1, persistent_vars1 = follower_model_builder (
-                    model           = model1_raw        ,
-                    **follower_model_parameters         ,
-                    **network_parameters                ,
-                    **DE_parameters                     ,
-                    **path_metadata                     ,
-                    # Metadata
-                    relaxed         = True              ,   # Relaxed model for bilevel optimization
-                    logger          = logger            ,   # pass main logger into builder
-                )
-
-                charge_price_parameters = run_parallel_de(
-                    model           = model1            ,
-                    persistent_vars = persistent_vars1  ,
-                    **follower_model_parameters         ,
-                    **leader_model_parameters           ,
-                    **network_parameters                ,
-                    **DE_parameters                     ,
-                    **path_metadata                     ,
-                )   
-            except Exception as e:
-                logger.error(f"Failure in Stage 1: {e}")
-                logger.error(traceback.format_exc())
-                exit(1)
-            finally:
-                model1_raw.dispose()
-            
-            logger.info(f"Stage 1 completed in {time.time() - start_time_stage1:.2f} seconds.")
-
-            charge_cost_low     : dict[int, float]                  = charge_price_parameters["charge_cost_low"]       # a_t
-            charge_cost_high    : dict[int, float]                  = charge_price_parameters["charge_cost_high"]      # b_t
-            elec_threshold      : dict[int, int]                    = charge_price_parameters["elec_threshold"]        # r_t
-
-
-        # ----------------------------------------------------------------------------------
-        # Stage 2: Run the original follower model with the obtained pricing and threshold
-        # ----------------------------------------------------------------------------------
-        logger.info("Stage 2: Running follower model with obtained pricing and threshold...")
-        start_time_stage2 = time.time()
-
-        model2_raw = gp.Model(env = env)
+    if model_choice == "1":
+        logger.info("Stage 1 skipped as per user choice. Running only the follower model (Stage 2).")
         try:
-            model2, persistent_vars2 = follower_model_builder (
-                model       = model2_raw                        ,
-                **follower_model_parameters                     ,
-                **network_parameters                            ,
-                **path_metadata                                 ,
-                # Metadata
-                relaxed     = True                              ,   # Change to False for actual run
-                logger      = logger                            ,   # pass main logger
-                NUM_THREADS = multiprocessing.cpu_count() - 1   ,   # use all available cores minus one for the final run
-            )
+            charge_cost_low     : dict[int, float]                  = processed_data["charge_cost_low"]       # a_t
+            charge_cost_high    : dict[int, float]                  = processed_data["charge_cost_high"]      # b_t
+            elec_threshold      : dict[int, int]                    = processed_data["elec_threshold"]        # r_t
 
-            solutions_stage2 = follower_model(
-                model           = model2                        ,
-                persistent_vars = persistent_vars2              ,
-                **follower_model_parameters                     ,
-                **network_parameters                            ,
-                **charge_price_parameters                       ,
-                **path_metadata                                 ,
-            )
+            charge_price_parameters = {
+                "charge_cost_low"    : charge_cost_low     ,
+                "charge_cost_high"   : charge_cost_high    ,
+                "elec_threshold"     : elec_threshold      ,
+            }
+        except KeyError as e:
+            logger.error(f"Missing required pricing/threshold parameter in input data for follower model: {e}")
+            exit(1)
+    else:
+        logger.info("Stage 1: Starting bilevel optimization using Differential Evolution...")
+        start_time_stage1 = time.time()
+
+        try:
+            charge_price_parameters = run_parallel_de(
+                **follower_model_parameters         ,
+                **leader_model_parameters           ,
+                **network_parameters                ,
+                **DE_parameters                     ,
+                **path_metadata                     ,
+            )   
         except Exception as e:
-            logger.error(f"Failure in Stage 2: {e}")
+            logger.error(f"Failure in Stage 1: {e}")
             logger.error(traceback.format_exc())
             exit(1)
-        finally:
-            model2_raw.dispose()
-            
-        logger.info(f"Stage 2 completed in {time.time() - start_time_stage2:.2f} seconds.")
+        
+        logger.info(f"Stage 1 completed in {time.time() - start_time_stage1:.2f} seconds.")
+
+        charge_cost_low     : dict[int, float]                  = charge_price_parameters["charge_cost_low"]       # a_t
+        charge_cost_high    : dict[int, float]                  = charge_price_parameters["charge_cost_high"]      # b_t
+        elec_threshold      : dict[int, int]                    = charge_price_parameters["elec_threshold"]        # r_t
+
+
+    # ----------------------------------------------------------------------------------
+    # Stage 2: Run the original follower model with the obtained pricing and threshold
+    # ----------------------------------------------------------------------------------
+    logger.info("Stage 2: Running follower model with obtained pricing and threshold...")
+    start_time_stage2 = time.time()
+
+    try:
+        solutions_stage2 = follower_model(
+            **follower_model_parameters                     ,
+            **network_parameters                            ,
+            **charge_price_parameters                       ,
+            **path_metadata                                 ,
+            # Metadata
+            NUM_THREADS = multiprocessing.cpu_count() - 1   ,   # use all available cores minus one for the final run
+        )
+    except Exception as e:
+        logger.error(f"Failure in Stage 2: {e}")
+        logger.error(traceback.format_exc())
+        exit(1)
+        
+    logger.info(f"Stage 2 completed in {time.time() - start_time_stage2:.2f} seconds.")
 
 
     # Extract variables and sets from the output
@@ -377,10 +339,11 @@ if __name__ == "__main__":
         t: sum (e[(i, j, t)] * penalty.get((i, j, t), 0)
             for i in ZONES
             for j in ZONES
-        ) + sum (s[(i, j, t)] * penalty.get((i, j, t), 0)
+        ) + (sum (s[(i, j, t)] * penalty.get((i, j, t), 0)
             for i in ZONES
             for j in ZONES
-        ) if t == T else 0
+            ) if t == T else 0
+        )
         for t in TIMESTEPS
     }
     charge_costs            : dict[int, float] = {
