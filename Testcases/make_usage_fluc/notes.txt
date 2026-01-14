@@ -1,0 +1,11 @@
+1_fluc:
+    travel time all 1 -> fluc between 1 to 3 in 60% 30% 10% probablity
+    travel energy all 1 -> fluc between +- 1 of travel time (t=0)
+    order penalty -> half of order revenue
+    charge_cost_low 0.1 -> 10
+    charge_cost_high 0.2 -> 10
+    elec_threshold 30 -> 200
+
+2_fix:
+    added penalty for time step t=24
+    charge_cost_low 10 -> 20
