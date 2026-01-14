@@ -472,6 +472,7 @@ def follower_model_builder(
     # ----------------------------
     env = gp.Env()
     env.setParam('OutputFlag', 0)  # suppress Gurobi output
+    env.setParam('LogToConsole', 0)  # suppress Gurobi output to console
     model = gp.Model(env=env) 
 
     model.setParam("Method"     , 2             )   # use barrier method
@@ -797,13 +798,13 @@ def follower_model(
     # Step 2: Load Persistent Model
     # -------------------------------
     global _PERSISTENT_MODEL, _PERSISTENT_VARS
-    if _PERSISTENT_MODEL is None or _PERSISTENT_VARS is None:
+    if _PERSISTENT_MODEL is None or _PERSISTENT_VARS is None or stage2:
         logger.info ("Model not built yet. Building now...")
 
         _PERSISTENT_MODEL, _PERSISTENT_VARS = follower_model_builder (
-            **kwargs                            ,   
+            **kwargs,   
             # Metadata
-            relaxed         = True if stage2 else True  ,   # Relaxed model for bilevel optimization
+            relaxed = True if stage2 else True,   # Relaxed model for bilevel optimization
         )
     else:
         logger.info ("Using existing persistent model...")
@@ -835,7 +836,9 @@ def follower_model(
     if not stage2:
         model._logger = GurobiLogger(logger_gurobi)     
     else:
-        model.Params.LogFile = os.path.join ("Logs", folder_name, f"stage2_gurobi_logs_{file_name}_{timestamp}.log")      
+        model.Params.LogFile = os.path.join ("Logs", folder_name, f"stage2_gurobi_logs_{file_name}_{timestamp}.log")  
+        model.Params.OutputFlag = 1  # enable Gurobi output to log file
+        model.Params.LogToConsole = 0  # disable Gurobi output to console    
 
     logger.info("1: Parameters loaded successfully")
 

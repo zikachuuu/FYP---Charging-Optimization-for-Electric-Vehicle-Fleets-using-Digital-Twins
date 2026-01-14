@@ -340,7 +340,7 @@ def run_parallel_de(
             file_name           , 
             timestamp           ,
             log_queue           ,
-            to_console = True   ,
+            to_console = False  ,
         ) as listener, \
         LogListener(
             "stage1_MP_gurobi_logs",
