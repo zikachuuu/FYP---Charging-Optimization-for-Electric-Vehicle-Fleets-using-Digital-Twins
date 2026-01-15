@@ -206,6 +206,13 @@ def postprocessing(**kwargs):
 
         # Plot
         plt.figure(figsize=(10, 5))
+        type_colors = {
+            "SERVICE"   : 'tab:blue'   ,
+            "CHARGE"    : 'tab:orange' ,
+            "IDLE"      : 'tab:green'  ,
+            "RELOCATE"  : 'tab:red'    ,
+        }
+
         for col in df_ev_operations.columns:
             label = col.split("Percentage of ")[1].split(" EVs")[0]  # Extract arc type name
             marker = markers[df_ev_operations.columns.get_loc(col) % len(markers)]
@@ -215,6 +222,7 @@ def postprocessing(**kwargs):
                 marker      = marker    , 
                 linewidth   = 2         , 
                 label       = label     ,
+                color       = type_colors.get(label, None),
             )
 
         plt.xlabel  ("Time Intervals")
@@ -431,18 +439,21 @@ def postprocessing(**kwargs):
         
         # Extract total metrics over time
         new_demand                  = []
+        fulfilled                   = []
         unfulfilled                 = []
         cumulative_expired_demand   = []
         
         for t in TIMESTEPS:
-            new_demand.append(demand_metrics[t]["total"]["new demand"])
+            new_demand.append               (demand_metrics[t]["total"]["new demand"])
+            fulfilled.append                (demand_metrics[t]["total"]["served demand"])
+            unfulfilled.append              (demand_metrics[t]["total"]["remaining unserved demand"])
             cumulative_expired_demand.append(demand_metrics[t]["total"]["expired demand"] + (cumulative_expired_demand[t-1] if t > 0 else 0))
-            unfulfilled.append(demand_metrics[t]["total"]["remaining unserved demand"])
         
         # Create DataFrame
         df_combined = pd.DataFrame({
             "EV Service %"              : service_percentage        ,
             "New Demand"                : new_demand                ,
+            "Fulfilled"                 : fulfilled                 ,
             "Remaining Unfulfilled"     : unfulfilled               ,
             "Cumulative Expired Demand" : cumulative_expired_demand ,
         }, index=TIMESTEPS)
@@ -472,13 +483,22 @@ def postprocessing(**kwargs):
         line2 = ax2.plot(
             df_combined.index           ,  
             df_combined["New Demand"]   , 
-            color       = 'tab:green'   , 
+            color       = 'tab:purple'  , 
             linewidth   = 2             , 
             marker      = markers[1]    ,
             label       = 'New Demand'  , 
             linestyle   = '--'          ,
         )
         line3 = ax2.plot(
+            df_combined.index           ,
+            df_combined["Fulfilled"]    ,
+            color       = 'tab:green'  ,
+            linewidth   = 2             ,
+            marker      = markers[4]    ,
+            label       = 'Fulfilled'   ,
+            linestyle   = '--'          ,
+        )
+        line4 = ax2.plot(
             df_combined.index                       , 
             df_combined["Remaining Unfulfilled"]    , 
             color       = 'tab:orange'              , 
@@ -487,7 +507,7 @@ def postprocessing(**kwargs):
             label       = 'Remaining Unfulfilled'   , 
             linestyle   = '--'                      ,
         )
-        line4 = ax2.plot(
+        line5 = ax2.plot(
             df_combined.index                           , 
             df_combined["Cumulative Expired Demand"]    , 
             color       = 'tab:red'                     , 
@@ -496,10 +516,11 @@ def postprocessing(**kwargs):
             label       = 'Cumulative Expired Demand'   , 
             linestyle   = '--'                          ,
         )
+        
         ax2.tick_params(axis='y', labelcolor='tab:red')
         
         # Combined legend
-        lines = line1 + line2 + line3 + line4
+        lines = line1 + line2 + line3 + line4 + line5
         labels = [l.get_label() for l in lines]
         ax1.legend(lines, labels, loc='best', frameon=False)
         
@@ -599,7 +620,7 @@ def postprocessing(**kwargs):
         line4 = ax2.plot(
             df_electricity.index                , 
             df_electricity["Price High ($/SoC)"], 
-            color       = 'tab:pink'            , 
+            color       = 'tab:lightcoral'      ,        
             linewidth   = 2                     , 
             marker      = markers[3]            ,
             label       = 'Price High'          , 
@@ -608,7 +629,7 @@ def postprocessing(**kwargs):
         line5 = ax2.plot(
             df_electricity.index                , 
             df_electricity["Price Low ($/SoC)"] , 
-            color       = 'tab:olive'           , 
+            color       = 'tab:palegreen'       ,     
             linewidth   = 2                     , 
             marker      = markers[4]            ,
             label       = 'Price Low'           , 
@@ -621,7 +642,7 @@ def postprocessing(**kwargs):
             linewidth   = 2                          , 
             marker      = markers[5]                 ,
             label       = 'Wholesale Price'          , 
-            linestyle   = '-'                        ,
+            linestyle   = ':'                        ,
         )
         ax2.tick_params(axis='y', labelcolor='tab:red')
         
@@ -666,13 +687,14 @@ def postprocessing(**kwargs):
                 
                 # Store metrics for this zone at time t
                 electricity_data[t][zone] = {
-                    "Usage (SoC)": usage,
-                    "Max Supply (SoC)": elec_supplied.get((zone, t), 0.0),
-                    "EVs Charging": num_charging
+                    "Usage (SoC)"       : usage,
+                    "Max Supply (SoC)"  : elec_supplied.get((zone, t), 0.0),
+                    "EVs Charging"      : num_charging,
+                    "Num Ports"         : num_ports.get(zone, 0),
                 }
         
         # Convert to DataFrame with MultiIndex columns
-        metrics = ["Usage (SoC)", "Max Supply (SoC)", "EVs Charging"]
+        metrics = ["Usage (SoC)", "Max Supply (SoC)", "EVs Charging", "Num Ports"]
         
         # Build column MultiIndex: zones and metrics
         cols = pd.MultiIndex.from_product(

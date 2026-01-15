@@ -303,7 +303,7 @@ def follower_graph_builder(
 
             for l in LEVELS:
                 if l + charge_speed > L:
-                    return
+                    break
                 # Charging arcs can only be added if there is enough room to charge
 
                 o = Node(i, t, l)
