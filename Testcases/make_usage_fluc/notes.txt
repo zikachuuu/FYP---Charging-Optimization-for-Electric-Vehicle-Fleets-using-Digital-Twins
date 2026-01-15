@@ -9,3 +9,12 @@
 2_fix:
     added penalty for time step t=24
     charge_cost_low 10 -> 20
+
+3_low_price
+    charge_cost_low 20 -> 10
+    charge_cost_high 10 -> 5
+    L_min 2 -> 5
+    num_EVs 10000 -> 1000
+
+4_long_w
+    W: 2 -> 8
