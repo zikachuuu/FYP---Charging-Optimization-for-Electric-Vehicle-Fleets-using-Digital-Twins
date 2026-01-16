@@ -152,7 +152,7 @@ def postprocessing(**kwargs):
         
         plt.xlabel  ('Time Intervals')
         plt.ylabel  ('Money ($)')
-        plt.title   ('Bluebird Profit Breakdown Over Time')
+        plt.title   ('Fleet Operator Profit Breakdown Over Time')
         plt.grid    (True, alpha=0.3)
         plt.legend  (loc='best', frameon=False)
 
@@ -210,7 +210,7 @@ def postprocessing(**kwargs):
             "SERVICE"   : 'tab:blue'   ,
             "CHARGE"    : 'tab:orange' ,
             "IDLE"      : 'tab:green'  ,
-            "RELOCATE"  : 'tab:red'    ,
+            "RELOCATION": 'tab:red'    ,
         }
 
         for col in df_ev_operations.columns:
@@ -227,9 +227,9 @@ def postprocessing(**kwargs):
 
         plt.xlabel  ("Time Intervals")
         plt.ylabel  ("% of EVs")
-        plt.title   ("EV Operations by ArcType over Time")
+        plt.title   ("EV Operations by Activities over Time")
         plt.grid    (True, alpha=0.3)
-        plt.legend  (title="ArcType", loc="best", frameon=False)
+        plt.legend  (title="Activity", loc="best", frameon=False)
         plt.tight_layout()
 
         outfile = os.path.join ("Results", folder_name, f"ev_operations_{file_name}_{timestamp}.png")
@@ -620,7 +620,7 @@ def postprocessing(**kwargs):
         line4 = ax2.plot(
             df_electricity.index                , 
             df_electricity["Price High ($/SoC)"], 
-            color       = 'tab:lightcoral'      ,        
+            color       = 'xkcd:light red'      ,        
             linewidth   = 2                     , 
             marker      = markers[3]            ,
             label       = 'Price High'          , 
@@ -629,7 +629,7 @@ def postprocessing(**kwargs):
         line5 = ax2.plot(
             df_electricity.index                , 
             df_electricity["Price Low ($/SoC)"] , 
-            color       = 'tab:palegreen'       ,     
+            color       = 'xkcd:light green'    ,     
             linewidth   = 2                     , 
             marker      = markers[4]            ,
             label       = 'Price Low'           , 
@@ -742,7 +742,145 @@ def postprocessing(**kwargs):
         df.loc["total"] = total_row_data
         
         return df
+    
+    def _plot_zone_saturation(
+        metric_name: str,
+        title_suffix: str,
+        filename_suffix: str,
+    ):
+        """
+        Generates a stacked area plot showing the % of zones exceeding specific utilization thresholds
+        (10%, 30%, 50%, 70%, 90%) over time.
+        
+        Also returns a DataFrame with the raw saturation data and Top/Bottom 3 zones.
+        """
+        
+        # Thresholds to visualize (High saturation to Low saturation)
+        thresholds = [0.9, 0.7, 0.5, 0.3, 0.1]
+        
+        # Colors: Red (High Saturation) -> Green (Low Saturation)
+        colors = ['#d73027', '#fc8d59', '#fee08b', '#d9ef8b', '#91cf60']
+        labels = [f"≥ {int(t*100)}% Saturation" for t in thresholds]
+        
+        # Data storage
+        saturation_counts = {t: [] for t in thresholds}
+        detailed_rows = []
 
+        # ---------------------------------------------------------
+        # FIX: Define indices strictly as 0 to T-1 (excluding T)
+        # This ensures X and Y axes always have the same length (24 vs 24)
+        # ---------------------------------------------------------
+        plot_indices = TIMESTEPS[:-1] 
+
+        # Iterate only through the active time steps
+        for t in plot_indices:
+            zone_stats = [] # Tuple (zone_id, saturation_ratio)
+
+            # 1. Calculate saturation for every zone at this time step
+            for zone in ZONES:
+                usage = 0.0
+                capacity = 0.0
+
+                if metric_name == "Usage (SoC)":
+                    # Sum electricity usage
+                    for e_id in charge_arcs_it.get((zone, t), set()):
+                        arc = all_arcs[e_id]
+                        usage += x[e_id] * (arc.d.l - arc.o.l)
+                    capacity = elec_supplied.get((zone, t), 0.0)
+                
+                elif metric_name == "EVs Charging":
+                    # Sum active charging arcs
+                    usage = sum(x[e_id] for e_id in charge_arcs_it.get((zone, t), set()))
+                    capacity = num_ports.get(zone, 0)
+
+                # Avoid div by zero
+                ratio = (usage / capacity) if capacity > 0 else 0.0
+                zone_stats.append((zone, ratio))
+
+            # 2. Count how many zones pass each threshold
+            total_zones = len(ZONES)
+            for thresh in thresholds:
+                count = sum(1 for z, r in zone_stats if r >= thresh - 0.001) # tolerance
+                pct = (count / total_zones) * 100 if total_zones > 0 else 0
+                saturation_counts[thresh].append(pct)
+
+            # 3. Sort for Top 3 / Bottom 3
+            zone_stats.sort(key=lambda item: item[1], reverse=True)
+            
+            top_3 = zone_stats[:3]
+            # Bottom 3 (raw)
+            bottom_3 = zone_stats[-3:] if len(zone_stats) >= 3 else zone_stats
+
+            # Prepare row for Excel
+            row_dict = {}
+            for thresh in thresholds:
+                row_dict[f"% Zones ≥ {int(thresh*100)}%"] = saturation_counts[thresh][-1]
+            
+            # Add Top 3
+            for rank, (z, r) in enumerate(top_3):
+                row_dict[f"Top {rank+1} Zone Index"] = z
+                row_dict[f"Top {rank+1} Zone % Saturation"] = round(r * 100, 1)
+            
+            # Add Bottom 3
+            for rank, (z, r) in enumerate(bottom_3):
+                true_rank = len(bottom_3) - rank 
+                row_dict[f"Bottom {true_rank} Zone Index"] = z
+                row_dict[f"Bottom {true_rank} Zone % Saturation"] = round(r * 100, 1)
+
+            detailed_rows.append(row_dict)
+
+        # -----------------------------
+        # PLOTTING
+        # -----------------------------
+        fig, ax = plt.subplots(figsize=(10, 6))
+        
+        # Reverse order for plotting (Largest area first = 10% threshold)
+        check_thresholds = list(reversed(thresholds)) 
+        check_colors = list(reversed(colors))
+        check_labels = list(reversed(labels))
+
+        for i, thresh in enumerate(check_thresholds):
+            y_values = saturation_counts[thresh]
+            
+            # Validate lengths before plotting to catch future errors
+            if len(plot_indices) != len(y_values):
+                logger.error(f"Shape mismatch: X ({len(plot_indices)}) vs Y ({len(y_values)})")
+                continue
+
+            ax.fill_between(
+                plot_indices, 
+                y_values, 
+                0, 
+                color=check_colors[i], 
+                label=check_labels[i], 
+                alpha=0.8
+            )
+            ax.plot(plot_indices, y_values, color='black', linewidth=0.5, alpha=0.3)
+
+        ax.set_xlabel("Time Step")
+        ax.set_ylabel("% of Zones")
+        ax.set_title(f"Zone Saturation by {title_suffix} (Stacked)")
+        ax.set_ylim(0, 105)
+        # x-axis limit matches the indices we plotted
+        ax.set_xlim(0, max(plot_indices) if plot_indices else 0)
+        ax.grid(True, alpha=0.3)
+        
+        handles, leg_labels = ax.get_legend_handles_labels()
+        ax.legend(reversed(handles), reversed(leg_labels), loc='center left', bbox_to_anchor=(1, 0.5), title="Saturation")
+        
+        plt.tight_layout()
+        outfile = os.path.join("Results", folder_name, f"{filename_suffix}_{file_name}_{timestamp}.png")
+        plt.savefig(outfile, dpi=150, bbox_inches="tight")
+        plt.close()
+        logger.info(f"Saved {title_suffix} saturation plot to {outfile}")
+
+        # -----------------------------
+        # EXCEL DATAFRAME
+        # -----------------------------
+        df_saturation = pd.DataFrame(detailed_rows, index=plot_indices)
+        df_saturation.index.name = "Time Step"
+        return df_saturation
+    
     def _round_df(df):
         """
         Round numeric values in a DataFrame to 3 decimal places.
@@ -759,17 +897,17 @@ def postprocessing(**kwargs):
     
     # Create an excel in the Results folder to save results
     with pd.ExcelWriter(results_name, engine="openpyxl") as writer:
-        # 1. Bluebird profit summary
+        # 1. Fleet operator profit summary
         df_summary = _fleet_operator_profit()
         df_summary = _round_df(df_summary)
         df_summary.to_excel(writer, sheet_name="Fleet Operator Profit", index_label="Time Step")
-        logger.info("Saved Fleet Operator Profit to excel")
+        logger.info("1. Saved Fleet Operator Profit to excel")
 
         # 2. EV operations over time
         df_ev_operations = _ev_operations_over_time()
         df_ev_operations = _round_df(df_ev_operations)
         df_ev_operations.to_excel(writer, sheet_name="EV Operations", index_label="Time Step")
-        logger.info("Saved EV Operations to excel")
+        logger.info("2. Saved EV Operations to excel")
 
         # 3. Demand served over time
         df_demand_served = _demand_served_over_time()
@@ -782,24 +920,44 @@ def postprocessing(**kwargs):
             df_demand_served.to_csv(results_name.replace(".xlsx", "_demand_served_full.csv"), index_label="Time Step")
         else:
             df_demand_served.to_excel(writer, sheet_name="Demand Served", index_label="Time Step")
-        logger.info("Saved Demand Served to excel")
+        logger.info("3. Saved Demand Served to excel")
 
         # 4. Service and demand comparison
         df_service_demand = _service_and_demand_comparison()
         df_service_demand = _round_df(df_service_demand)
         df_service_demand.to_excel(writer, sheet_name="Service vs Demand", index_label="Time Step")
-        logger.info("Saved Service and Demand Comparison to excel")
+        logger.info("4. Saved Service and Demand Comparison to excel")
 
-        # 6. Electricity usage and pricing
+        # 5. Electricity usage and pricing
         df_electricity = _electricity_usage_and_pricing()
         df_electricity = _round_df(df_electricity)
         df_electricity.to_excel(writer, sheet_name="Electricity Usage vs Pricing", index_label="Time Step")
-        logger.info("Saved electricity usage and pricing to excel")
+        logger.info("5. Saved electricity usage and pricing to excel")
 
-        # 7. Electricity by zone
+        # 6. Electricity by zone
         df_zone_electricity = _electricity_by_zone()
         df_zone_electricity = _round_df(df_zone_electricity)
         df_zone_electricity.to_excel(writer, sheet_name="Electricity by Zone", index_label="Time Step")
-        logger.info("Saved electricity by zone to excel")
+        logger.info("6. Saved electricity by zone to excel")
+
+        # 7. Zone saturation plots and data - EV Charging
+        df_elec_sat = _plot_zone_saturation(
+            metric_name     = "Usage (SoC)",
+            title_suffix    = "Electricity Supply",
+            filename_suffix = "saturation_elec",
+        )
+        df_elec_sat = _round_df(df_elec_sat)
+        df_elec_sat.to_excel(writer, sheet_name="Saturation - Electricity", index_label="Time Step")
+        logger.info("7. Saved Electricity Saturation data to excel")
+
+        # 8. Zone saturation plots and data - EV Ports
+        df_port_sat = _plot_zone_saturation(
+            metric_name     = "EVs Charging",
+            title_suffix    = "Port Availability",
+            filename_suffix = "saturation_port",
+        )
+        df_port_sat = _round_df(df_port_sat)
+        df_port_sat.to_excel(writer, sheet_name="Saturation - Ports", index_label="Time Step")
+        logger.info("8. Saved Port Saturation data to excel")
 
     logger.info(f"All results saved to {results_name}")
