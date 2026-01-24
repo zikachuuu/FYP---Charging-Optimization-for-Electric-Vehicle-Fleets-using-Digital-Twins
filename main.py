@@ -19,15 +19,15 @@ NUM_CORES       : int   = 4         # number of CPU cores used
 NUM_THREADS     : int   = 2         # number of threads used per candidate evaluation
                                     #   NUM_CORES * NUM_THREADS should be <= total available CPU cores
 MAX_ITER        : int   = 20         # maximum iterations for DE
-DIFF_WEIGHT     : float = 0.9       # Differential Weight / Mutation: Controls jump size
+DIFF_WEIGHT     : float = 0.7       # Differential Weight / Mutation: Controls jump size
                                     #   Higher = bigger jumps (exploration); Lower = fine-tuning (exploitation)
                                     #   Since population size is small, need to aggresively explore to avoid getting stuck.
-CROSS_PROB      : float = 0.9       # Crossover Probability: How much DNA comes from the mutant vs. the parent
-                                    #   0.9 means 90% of the genes change every step.
+CROSS_PROB      : float = 0.7       # Crossover Probability: How much DNA comes from the mutant vs. the parent
+                                    #   0.7 means 70% of the genes change every step.
                                     #   We want to mix good genes quickly, so set it high.
-VAR_THRESHOLD   : float = 1         # variance threshold for early stopping of DE
-PENALTY_WEIGHT  : float = 0.1       # penalty weight for high price settings in leader fitness function
-NUM_ANCHORS     : int   = 8         # number of anchors for DE
+VAR_THRESHOLD   : float = 0         # variance threshold for early stopping of DE
+PENALTY_WEIGHT  : float = 0.5       # penalty weight for high price settings in leader fitness function
+NUM_ANCHORS     : int   = 9         # number of anchors for DE
 VARS_PER_STEP   : int   = 3         # number of dimensions (variables) per time step (i.e. a_t, b_t, r_t)
 
 """

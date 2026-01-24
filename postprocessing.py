@@ -227,7 +227,7 @@ def postprocessing(**kwargs):
 
         plt.xlabel  ("Time Intervals")
         plt.ylabel  ("% of EVs")
-        plt.title   ("EV Operations by Activities over Time")
+        plt.title   ("SAEV Operations by Activities over Time")
         plt.grid    (True, alpha=0.3)
         plt.legend  (title="Activity", loc="best", frameon=False)
         plt.tight_layout()
@@ -423,8 +423,8 @@ def postprocessing(**kwargs):
 
     def _service_and_demand_comparison():
         """
-        Create a plot comparing EV service operations with demand metrics.
-        Left y-axis: percentage of EVs in service
+        Create a plot comparing SAEV service operations with demand metrics.
+        Left y-axis: percentage of SAEVs in service
         Right y-axis: number of rides (new, cumulative unfulfilled, expired)
         
         Returns:
@@ -451,7 +451,7 @@ def postprocessing(**kwargs):
         
         # Create DataFrame
         df_combined = pd.DataFrame({
-            "EV Service %"              : service_percentage        ,
+            "SAEV Service %"            : service_percentage        ,
             "New Demand"                : new_demand                ,
             "Fulfilled"                 : fulfilled                 ,
             "Remaining Unfulfilled"     : unfulfilled               ,
@@ -462,17 +462,17 @@ def postprocessing(**kwargs):
         # Create dual-axis plot
         fig, ax1 = plt.subplots(figsize=(12, 6))
         
-        # Left axis - EV Service percentage
+        # Left axis - SAEV Service percentage
         color = 'tab:blue'
         ax1.set_xlabel('Time Intervals')
-        ax1.set_ylabel('% of EVs in Service', color=color)
+        ax1.set_ylabel('% of SAEVs in Service', color=color)
         line1 = ax1.plot(
             df_combined.index           , 
-            df_combined["EV Service %"] , 
+            df_combined["SAEV Service %"] , 
             color       = color         , 
             linewidth   = 2             , 
             marker      = markers[0]    ,
-            label       = 'EV Service %',
+            label       = 'SAEV Service % (left y-axis)' ,
         )
         ax1.tick_params(axis='y', labelcolor=color)
         ax1.grid(True, alpha=0.3)
@@ -486,7 +486,7 @@ def postprocessing(**kwargs):
             color       = 'tab:purple'  , 
             linewidth   = 2             , 
             marker      = markers[1]    ,
-            label       = 'New Demand'  , 
+            label       = 'New Demand (right y-axis)' , 
             linestyle   = '--'          ,
         )
         line3 = ax2.plot(
@@ -495,7 +495,7 @@ def postprocessing(**kwargs):
             color       = 'tab:green'  ,
             linewidth   = 2             ,
             marker      = markers[4]    ,
-            label       = 'Fulfilled'   ,
+            label       = 'Fulfilled (right y-axis)'   ,
             linestyle   = '--'          ,
         )
         line4 = ax2.plot(
@@ -504,7 +504,7 @@ def postprocessing(**kwargs):
             color       = 'tab:orange'              , 
             linewidth   = 2                         , 
             marker      = markers[2]                ,
-            label       = 'Remaining Unfulfilled'   , 
+            label       = 'Remaining Unfulfilled (right y-axis)'   , 
             linestyle   = '--'                      ,
         )
         line5 = ax2.plot(
@@ -513,7 +513,7 @@ def postprocessing(**kwargs):
             color       = 'tab:red'                     , 
             linewidth   = 2                             , 
             marker      = markers[3]                    ,
-            label       = 'Cumulative Expired Demand'   , 
+            label       = 'Cumulative Expired Demand (right y-axis)'   , 
             linestyle   = '--'                          ,
         )
         
@@ -524,7 +524,7 @@ def postprocessing(**kwargs):
         labels = [l.get_label() for l in lines]
         ax1.legend(lines, labels, loc='best', frameon=False)
         
-        plt.title('EV Service Operations vs Demand Metrics')
+        plt.title('SAEV Service Operations vs Demand Metrics')
         plt.tight_layout()
         
         outfile = os.path.join ("Results", folder_name, f"service_demand_comparison_{file_name}_{timestamp}.png")
@@ -591,7 +591,7 @@ def postprocessing(**kwargs):
             color       = 'tab:blue'                    , 
             linewidth   = 2                             , 
             marker      = markers[0]                    ,
-            label       = 'Electricity Usage'           ,
+            label       = 'Electricity Usage (left y-axis)' ,
         )
         line2 = ax1.plot(
             df_electricity.index                , 
@@ -599,7 +599,7 @@ def postprocessing(**kwargs):
             color       = 'tab:red'             , 
             linewidth   = 2                     , 
             marker      = markers[1]            ,            
-            label       = 'Max Supply'          , 
+            label       = 'Max Supply (left y-axis)'          , 
             linestyle   = '--'                  ,
         )
         line3 = ax1.plot(
@@ -608,7 +608,7 @@ def postprocessing(**kwargs):
             color       = 'tab:orange'          , 
             linewidth   = 2                     , 
             marker      = markers[2]            ,
-            label       = 'Threshold'           , 
+            label       = 'Threshold (left y-axis)'           , 
             linestyle   = '--'                  ,
         )
         ax1.tick_params(axis='y', labelcolor='tab:blue')
@@ -623,7 +623,7 @@ def postprocessing(**kwargs):
             color       = 'xkcd:light red'      ,        
             linewidth   = 2                     , 
             marker      = markers[3]            ,
-            label       = 'Price High'          , 
+            label       = 'Price High (right y-axis)'          , 
             linestyle   = ':'                   ,
         )
         line5 = ax2.plot(
@@ -632,7 +632,7 @@ def postprocessing(**kwargs):
             color       = 'xkcd:light green'    ,     
             linewidth   = 2                     , 
             marker      = markers[4]            ,
-            label       = 'Price Low'           , 
+            label       = 'Price Low (right y-axis)'           , 
             linestyle   = ':'                   ,
         )
         line6 = ax2.plot(
@@ -641,7 +641,7 @@ def postprocessing(**kwargs):
             color       = 'tab:gray'                 , 
             linewidth   = 2                          , 
             marker      = markers[5]                 ,
-            label       = 'Wholesale Price'          , 
+            label       = 'Wholesale Price (right y-axis)'          , 
             linestyle   = ':'                        ,
         )
         ax2.tick_params(axis='y', labelcolor='tab:red')
@@ -760,7 +760,7 @@ def postprocessing(**kwargs):
         
         # Colors: Red (High Saturation) -> Green (Low Saturation)
         colors = ['#d73027', '#fc8d59', '#fee08b', '#d9ef8b', '#91cf60']
-        labels = [f"≥ {int(t*100)}% Saturation" for t in thresholds]
+        labels = [f"≥ {int(t*100)}%" for t in thresholds]
         
         # Data storage
         saturation_counts = {t: [] for t in thresholds}
@@ -859,14 +859,14 @@ def postprocessing(**kwargs):
 
         ax.set_xlabel("Time Step")
         ax.set_ylabel("% of Zones")
-        ax.set_title(f"Zone Saturation by {title_suffix} (Stacked)")
+        ax.set_title(f"% Zone Saturation by {title_suffix} (Stacked)")
         ax.set_ylim(0, 105)
         # x-axis limit matches the indices we plotted
         ax.set_xlim(0, max(plot_indices) if plot_indices else 0)
         ax.grid(True, alpha=0.3)
         
         handles, leg_labels = ax.get_legend_handles_labels()
-        ax.legend(reversed(handles), reversed(leg_labels), loc='center left', bbox_to_anchor=(1, 0.5), title="Saturation")
+        ax.legend(reversed(handles), reversed(leg_labels), loc='center left', bbox_to_anchor=(1, 0.5), title=title_suffix)
         
         plt.tight_layout()
         outfile = os.path.join("Results", folder_name, f"{filename_suffix}_{file_name}_{timestamp}.png")
@@ -943,7 +943,7 @@ def postprocessing(**kwargs):
         # 7. Zone saturation plots and data - EV Charging
         df_elec_sat = _plot_zone_saturation(
             metric_name     = "Usage (SoC)",
-            title_suffix    = "Electricity Supply",
+            title_suffix    = "Electricity Utilization Rate",
             filename_suffix = "saturation_elec",
         )
         df_elec_sat = _round_df(df_elec_sat)
@@ -953,7 +953,7 @@ def postprocessing(**kwargs):
         # 8. Zone saturation plots and data - EV Ports
         df_port_sat = _plot_zone_saturation(
             metric_name     = "EVs Charging",
-            title_suffix    = "Port Availability",
+            title_suffix    = "Port Utilization Rate",
             filename_suffix = "saturation_port",
         )
         df_port_sat = _round_df(df_port_sat)
