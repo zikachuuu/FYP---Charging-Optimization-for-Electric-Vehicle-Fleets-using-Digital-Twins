@@ -10,7 +10,7 @@ CROSS_PROB      : float = 0.7       # Crossover Probability: How much DNA comes 
                                     #   0.7 means 70% of the genes change every step.
                                     #   We want to mix good genes quickly, so set it high.
 VAR_THRESHOLD   : float = 0         # variance threshold for early stopping of DE
-PENALTY_WEIGHT  : float = 0.9       # penalty weight for high price settings in leader fitness function
+PENALTY_WEIGHT  : float = 0.5       # penalty weight for high price settings in leader fitness function
 NUM_ANCHORS     : int   = 6         # number of anchors for DE
 VARS_PER_STEP   : int   = 3         # number of dimensions (variables) per time step (i.e. a_t, b_t, r_t)
 
