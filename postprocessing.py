@@ -776,7 +776,7 @@ def postprocessing(**kwargs):
         for t in plot_indices:
             zone_stats = [] # Tuple (zone_id, saturation_ratio)
 
-            # 1. Calculate saturation for every zone at this time step
+            # 1. Calculate saturation for every zone at this time step (excluding zero-capacity zones)
             for zone in ZONES:
                 usage = 0.0
                 capacity = 0.0
@@ -793,15 +793,19 @@ def postprocessing(**kwargs):
                     usage = sum(x[e_id] for e_id in charge_arcs_it.get((zone, t), set()))
                     capacity = num_ports.get(zone, 0)
 
-                # Avoid div by zero
+                # Skip zones with zero capacity
+                if capacity == 0:
+                    continue
+                
+                # Calculate saturation ratio
                 ratio = (usage / capacity) if capacity > 0 else 0.0
                 zone_stats.append((zone, ratio))
 
-            # 2. Count how many zones pass each threshold
-            total_zones = len(ZONES)
+            # 2. Count how many zones pass each threshold (only considering non-zero capacity zones)
+            total_zones = len(zone_stats)
             for thresh in thresholds:
                 count = sum(1 for z, r in zone_stats if r >= thresh - 0.001) # tolerance
-                pct = (count / total_zones) * 100 if total_zones > 0 else 0
+                pct = (count / total_zones) * 100 if total_zones > 0 else 0.0
                 saturation_counts[thresh].append(pct)
 
             # 3. Sort for Top 3 / Bottom 3

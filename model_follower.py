@@ -804,7 +804,7 @@ def follower_model(
         _PERSISTENT_MODEL, _PERSISTENT_VARS = follower_model_builder (
             **kwargs,   
             # Metadata
-            relaxed = False if stage2 else True,   # Relaxed model for bilevel optimization
+            relaxed = True if stage2 else True,   # Relaxed model for bilevel optimization
         )
     else:
         logger.info ("Using existing persistent model...")
