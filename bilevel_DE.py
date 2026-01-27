@@ -23,7 +23,6 @@ from config_DE import (
 
 def _precompute_interpolation_matrix(
         T               : int                   , 
-        NUM_ANCHORS     : int                   , 
         anchor_indices  : npt.NDArray[np.int_]  ,
     ) -> npt.NDArray[np.float64]:
     """
@@ -77,7 +76,6 @@ def _expand_trajectory (
         candidate_flat  : npt.NDArray[np.float64]   , 
         M               : npt.NDArray[np.float64]   , 
         T               : int                       ,
-        VARS_PER_STEP   : int                       ,
         lower_bounds_a  : npt.NDArray[np.float64]   ,
         lower_bounds_b  : npt.NDArray[np.float64]   ,
         lower_bounds_r  : npt.NDArray[np.float64]   ,
@@ -238,9 +236,6 @@ def _evaluate_candidate(
     lower_bounds_r          : npt.NDArray[np.float64]               = kwargs["lower_bounds_r"]          # lower bounds for r_t
     upper_bounds_r          : npt.NDArray[np.float64]               = kwargs["upper_bounds_r"]          # upper bounds for r_t
     
-    # DE parameters
-    VARS_PER_STEP           : int                                   = kwargs["VARS_PER_STEP"]           # number of variables per time step (3: a_t, b_t, r_t)
-
     # Path Metadata
     timestamp               : str                                   = kwargs["timestamp"]               # timestamp for logging
     file_name               : str                                   = kwargs["file_name"]               # filename for logging
@@ -277,7 +272,6 @@ def _evaluate_candidate(
         candidate_flat  = candidate_flat    ,
         M               = M                 ,
         T               = T                 ,
-        VARS_PER_STEP   = VARS_PER_STEP     ,
         lower_bounds_a  = lower_bounds_a    ,
         lower_bounds_b  = lower_bounds_b    ,
         lower_bounds_r  = lower_bounds_r    ,
@@ -423,7 +417,7 @@ def run_parallel_de(
         # Distribute anchors only within time steps 1 to T-1
         anchor_indices      : npt.NDArray[np.int_]      = np.linspace(1, T-1, NUM_ANCHORS, dtype=int)
         optimization_dims   : int                       = NUM_ANCHORS * VARS_PER_STEP
-        M                   : npt.NDArray[np.float64]   = _precompute_interpolation_matrix(T, NUM_ANCHORS, anchor_indices)
+        M                   : npt.NDArray[np.float64]   = _precompute_interpolation_matrix(T, anchor_indices)
 
         logger.info(f"Interpolation matrix precomputed with shape {M.shape}")
 
@@ -569,7 +563,6 @@ def run_parallel_de(
                     best_vector,
                     M               = M                   ,
                     T               = T                   ,
-                    VARS_PER_STEP   = VARS_PER_STEP       ,
                     lower_bounds_a  = lower_bounds_a      ,
                     lower_bounds_b  = lower_bounds_b      ,
                     lower_bounds_r  = lower_bounds_r      ,
@@ -664,7 +657,6 @@ def run_parallel_de(
                         candidate_flat  = best_vector       ,
                         M               = M                 ,
                         T               = T                 ,
-                        VARS_PER_STEP   = VARS_PER_STEP     ,
                         lower_bounds_a  = lower_bounds_a    ,
                         lower_bounds_b  = lower_bounds_b    ,
                         lower_bounds_r  = lower_bounds_r    ,
@@ -704,7 +696,6 @@ def run_parallel_de(
             candidate_flat  = best_vector       ,
             M               = M                 ,
             T               = T                 ,
-            VARS_PER_STEP   = VARS_PER_STEP     ,
             lower_bounds_a  = lower_bounds_a    ,
             lower_bounds_b  = lower_bounds_b    ,
             lower_bounds_r  = lower_bounds_r    ,

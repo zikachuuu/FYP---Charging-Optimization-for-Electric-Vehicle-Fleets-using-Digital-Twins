@@ -9,7 +9,10 @@ load_dotenv()
 from logger import Logger
 from networkClass import Node, Arc, ArcType, ServiceArc, ChargingArc, RelocationArc, IdleArc, WraparoundArc
 from exceptions import OptimizationError
-from config_DE import RELAX_STAGE_2
+from config_DE import (
+    NUM_THREADS,
+    RELAX_STAGE_2
+)
 
 # ----------------------------
 # Persistent Model
@@ -457,9 +460,6 @@ def follower_model_builder(
     ZONES                   : list[int]                             = kwargs["ZONES"]
     TIMESTEPS               : list[int]                             = kwargs["TIMESTEPS"]
     AGES                    : list[int]                             = kwargs["AGES"]
-
-    # DE parameters
-    NUM_THREADS             : int                                   = kwargs["NUM_THREADS"]  
 
     # Metadata
     relaxed                 : bool                                  = kwargs["relaxed"]                 # whether to relax integrality constraints
