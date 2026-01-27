@@ -3,39 +3,35 @@ import matplotlib.pyplot as plt
 import os
 
 from logger import Logger
-from networkClass import Node, Arc, ArcType
+from networkClass import Arc, ArcType
+
+# Increase default font sizes for all plots
+# plt.rcParams.update({
+#     "font.size": 12,
+#     "axes.titlesize": 14,
+#     "axes.labelsize": 12,
+#     "xtick.labelsize": 11,
+#     "ytick.labelsize": 11,
+#     "legend.fontsize": 11,
+#     "figure.titlesize": 14,
+# })
 
 def postprocessing(**kwargs):
     # Follower model parameters
-    N                       : int                                       = kwargs["N"]                       # number of operation zones (1, ..., N)
     T                       : int                                       = kwargs["T"]                       # termination time of daily operations (0, ..., T)
-    L                       : int                                       = kwargs["L"]                       # max SoC level (all EVs start at this level) (0, ..., L)
-    W                       : int                                       = kwargs["W"]                       # maximum time intervals a passenger will wait for a ride (0, ..., W-1; demand expires at W)
-    travel_demand           : dict[tuple[int, int, int]     , int]      = kwargs["travel_demand"]           # travel demand from zone i to j at starting at time t
-    travel_time             : dict[tuple[int, int, int]     , int]      = kwargs["travel_time"]             # travel time from i to j at starting at time t
-    travel_energy           : dict[tuple[int, int]          , int]      = kwargs["travel_energy"]           # energy consumed for trip from zone i to j
-    order_revenue           : dict[tuple[int, int, int]     , float]    = kwargs["order_revenue"]           # order revenue for each trip served from i to j at time t
-    penalty                 : dict[tuple[int, int, int]     , float]    = kwargs["penalty"]                 # penalty cost for each unserved trip from i to j at time t
-    L_min                   : int                                       = kwargs["L_min"]                   # min SoC level all EV must end with at the end of the daily operations
     num_EVs                 : int                                       = kwargs["num_EVs"]                 # total number of EVs in the fleet 
     num_ports               : dict[int                      , int]      = kwargs["num_ports"]               # number of charging ports in each zone
     elec_supplied           : dict[tuple[int, int]          , int]      = kwargs["elec_supplied"]           # electricity supplied (in SoC levels) at zone i at time t
-    max_charge_speed        : int                                       = kwargs["max_charge_speed"]        # max charging speed (in SoC levels) of one EV in one time step
 
     # Network components
-    V_set                   : set[Node]                                 = kwargs["V_set"]
     all_arcs                : dict[int                      , Arc]      = kwargs["all_arcs"]
     type_arcs               : dict[ArcType                  , set[int]] = kwargs["type_arcs"]
-    in_arcs                 : dict[Node                     , set[int]] = kwargs["in_arcs"]
-    out_arcs                : dict[Node                     , set[int]] = kwargs["out_arcs"]
     service_arcs_ijt        : dict[tuple[int, int, int]     , set[int]] = kwargs["service_arcs_ijt"]
     charge_arcs_it          : dict[tuple[int, int]          , set[int]] = kwargs["charge_arcs_it"]
     charge_arcs_t           : dict[int                      , set[int]] = kwargs["charge_arcs_t"]
     valid_travel_demand     : dict[tuple[int, int, int]     , int]      = kwargs["valid_travel_demand"]
-    invalid_travel_demand   : set[tuple[int, int, int]]                 = kwargs["invalid_travel_demand"]
     ZONES                   : list[int]                                 = kwargs["ZONES"]
     TIMESTEPS               : list[int]                                 = kwargs["TIMESTEPS"]
-    LEVELS                  : list[int]                                 = kwargs["LEVELS"]
     AGES                    : list[int]                                 = kwargs["AGES"]
 
     # Leader model parameters
@@ -52,7 +48,6 @@ def postprocessing(**kwargs):
     s                       : dict[tuple[int, int, int]     , float]    = kwargs["s"]
     u                       : dict[tuple[int, int, int, int], float]    = kwargs["u"]
     e                       : dict[tuple[int, int, int]     , float]    = kwargs["e"]
-    q                       : dict[int                      , float]    = kwargs["q"]
 
     # Calculated information
     service_revenues        : dict[int                      , float]    = kwargs["service_revenues"]
