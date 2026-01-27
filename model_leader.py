@@ -1,9 +1,9 @@
-import os
 import numpy as np
 import numpy.typing as npt
 
 from logger import Logger
-from networkClass import Node, Arc, ArcType
+from networkClass import Arc
+from config_DE import PENALTY_WEIGHT
 
 def leader_model(
         **kwargs
@@ -14,30 +14,30 @@ def leader_model(
     Given EV charging scheduling from the follower, calculate the electrity consumption at each time step,
     the variance of the electricity consumption over the day, and the fitness score.
 
-    Fitness = variance_ratio + penalty_weight * percentage_price_increase
-        where
-            variance_ratio = variance / reference_variance
-            reference_variance = variance when all charging prices are set to minimum levels (a_t = wholesale_elec_price_t, b_t = 0)
+    Fitness = variance_ratio + penalty_weight * percentage_price_increase <br>
+    Where: \n
+        - variance_ratio = variance / reference_variance
+        - reference_variance = variance when all charging prices are set to minimum levels (a_t = wholesale_elec_price_t, b_t = 0)
 
-            percentage_price_increase = 1/(T-2) sum ((a_t + b_t * K_t - wholesale_elec_price_t)/ wholesale_elec_price_t)
-            K_t = 1 - threshold_t / electricity_supplied_t
+        - percentage_price_increase = 1/(T-2) sum ((a_t + b_t * K_t - wholesale_elec_price_t)/ wholesale_elec_price_t)
+        - K_t = 1 - threshold_t / electricity_supplied_t
         
-    variance_ratio measures improvement / deterioration in variance of electricity consumption compared to reference variance
-    A lower variance_ratio (<1) indicates better load balancing performance
-    A higher variance_ratio (>1) indicates worse load balancing performance
+    variance_ratio measures improvement / deterioration in variance of electricity consumption compared to reference variance <br>
+    A lower variance_ratio (<1) indicates better load balancing performance <br>
+    A higher variance_ratio (>1) indicates worse load balancing performance <br>
     Ideally, it should be minimized to 0 (perfectly flat electricity consumption over time)
 
-    percentage_price_increase penalizes high charging prices set by the leader
-    Since setting very high prices (a_t, b_t) may discourage EVs from charging at all, leading to little to no electricity consumption,
-    which results in very low variance, giving a misleadingly good fitness score.
-    Ideally, it should be as low as possible to 0 while ensuring ideal variance.
+    percentage_price_increase penalizes high charging prices set by the leader <br>
+    Since setting very high prices (a_t, b_t) may discourage EVs from charging at all, leading to little to no electricity consumption, <br>
+    which results in very low variance, giving a misleadingly good fitness score. <br>
+    Ideally, it should be as low as possible to 0 while ensuring ideal variance. 
 
-    K_t measures the "probability" of overcharging beyond threshold at time t
-    A lower threshold_t leads to higher K_t value (between 0 and 1), leading to higher weightage on b_t
-    since a_t is base price while b_t is only charged when usage exceeds threshold (on top of a_t)
+    K_t measures the "probability" of overcharging beyond threshold at time t <br>
+    A lower threshold_t leads to higher K_t value (between 0 and 1), leading to higher weightage on b_t <br>
+    since a_t is base price while b_t is only charged when usage exceeds threshold (on top of a_t) <br>
     If no electricity is supplied at time t (electricity_supplied_t = 0), then K_t = 0, so no penalty on b_t in this case
     
-    Returns a dictionary containing:
+    Returns a dictionary containing: \n
         - fitness: float
         - variance: float
         - variance_ratio: float
@@ -58,7 +58,6 @@ def leader_model(
 
     # Leader model parameters
     wholesale_elec_price    : dict[int                      , float]    = kwargs["wholesale_elec_price"]    # wholesale electricity price at time t
-    PENALTY_WEIGHT          : float                                     = kwargs["PENALTY_WEIGHT"]          # penalty weight for high a_t and b_t
     reference_variance      : float                                     = kwargs["reference_variance"]      # reference variance for normalization
 
     # Pricing Variables
@@ -77,21 +76,22 @@ def leader_model(
     # ----------------------------
 
     # Calculate electricity consumption at each time step using vectorized operations
-    electricity_usage: npt.NDArray[np.float64] = np.zeros(T + 1)
+    # Exclude first time step (t=0) as no charging occurs at t=0
+    # Exclude last time step (t=T) as no charging occurs at t=T
+    electricity_usage: npt.NDArray[np.float64] = np.zeros(T - 1) # electricity usage from t=1 to t=T-1
 
-    for t in TIMESTEPS: 
+    for t in TIMESTEPS[1:-1]: 
         # Calculate total electricity used at time t
         for e_id in charge_arcs_t.get(t, set()):
             arc = all_arcs[e_id]
 
             # Electricity used = number of EVs * charge amount
             charge_amount = arc.d.l - arc.o.l  # SoC levels charged
-            electricity_usage[t] += x[e_id] * charge_amount
+            electricity_usage[t - 1] += x[e_id] * charge_amount
 
     # Calculate variance of electricity consumption using numpy
-    usage_vector        : npt.NDArray[np.float64]   = electricity_usage[1:T]  # exclude time 0 and T
-    variance            : float                     = np.var(usage_vector, ddof=0) if len(usage_vector) > 1 else 0.0   # ddof=0 for population variance, =1 for sample variance
-    variance_ratio      : float                     = variance / reference_variance if reference_variance > 0 else 0.0
+    variance                    : float                     = np.var(electricity_usage, ddof=0) if len(electricity_usage) > 1 else 0.0   # ddof=0 for population variance, =1 for sample variance
+    variance_ratio              : float                     = variance / reference_variance if reference_variance > 0 else 0.0
 
     logger.info(f"Leader model variance calculation: Variance = {variance:.4f}, Variance Ratio = {variance_ratio:.4f}")
 

@@ -4,16 +4,22 @@ import time
 import multiprocessing
 import os
 from functools import partial
-import traceback
-import gurobipy as gp
-from gurobipy import GRB
-from typing import Any
 
 from model_leader import leader_model
 from model_follower import follower_model
-from networkClass import Node, Arc, ArcType
+from networkClass import Arc
 from logger import Logger, LogListener
 from exceptions import OptimizationError
+from config_DE import (
+    POP_SIZE        ,
+    NUM_CORES       ,
+    MAX_ITER        ,
+    DIFF_WEIGHT     ,
+    CROSS_PROB      ,
+    VAR_THRESHOLD   ,
+    NUM_ANCHORS     ,
+    VARS_PER_STEP   ,
+)
 
 def _precompute_interpolation_matrix(
         T               : int                   , 
@@ -21,43 +27,48 @@ def _precompute_interpolation_matrix(
         anchor_indices  : npt.NDArray[np.int_]  ,
     ) -> npt.NDArray[np.float64]:
     """
-    PRE-COMPUTE THIS ONCE OUTSIDE THE LOOP
-    Creates a (T+1, num_anchors) matrix M such that: Full_Trajectory = M @ Anchors
+    Creates a (T-1, num_anchors) interpolation matrix M such that: Interior_Trajectory = M @ Anchors <br>
+    Where: \n
+        - Interior_Trajectory: (T-1, 3) matrix of interpolated values for time steps 1 to T-1
+        - Anchors: (num_anchors, 3) matrix of anchor point values
+
+    The rows of M correspond to time steps 1 to T-1, and the columns correspond to anchor points. <br>
+    The values in M are the weights for linear interpolation (each row sums to 1). <br>
+    For example, for T=5 and num_anchors=3 at indices [1, 2, 4]: <br>
+    ```
+        | 1.0   0.0    0.0  |  # t=1 
+        | 0.0   1.0    0.0  |  # t=2 
+        | 0.0   0.5    0.5  |  # t=3 
+        | 0.0   0.0    1.0  |  # t=4 
+    ```
+    Note that we only interpolates time steps 1 to T-1 (excludes time steps 0 and T)
     """
-    # Create interpolation matrix
-    # The rows correspond to time steps (0 to T)
-    # The columns correspond to anchor points
-    # The values are the weights for linear interpolation (each row sums to 1)
-    # eg. for T=5, num_anchors=3 at indices [0, 2, 5]:
-    #       | 1.0   0.0     0.0  |  # t=0
-    #       | 0.5   0.5     0.0  |  # t=1
-    #   M = | 0.0   1.0     0.0  |  # t=2
-    #       | 0.0  0.6667 0.3333 |  # t=3
-    #       | 0.0  0.3333 0.6667 |  # t=4
-    #       | 0.0   0.0     1.0  |  # t=5
-    M: npt.NDArray[np.float64] = np.zeros((T+1, NUM_ANCHORS))
+    M: npt.NDArray[np.float64] = np.zeros((T-1, NUM_ANCHORS))
     
     for i in range(NUM_ANCHORS - 1):
 
-        anchor_start    = anchor_indices[i]         # eg 0
-        anchor_end      = anchor_indices[i+1]       # eg 2
-        segment_len     = anchor_end - anchor_start # eg 2 - 0 = 2
+        anchor_start    = anchor_indices[i]         # eg 1
+        anchor_end      = anchor_indices[i+1]       # eg 3
+        segment_len     = anchor_end - anchor_start # eg 3 - 1 = 2
 
         if segment_len == 0:
-            continue  # avoid division by zero for duplicate anchors
+            raise ValueError("Duplicate anchors detected, segment length is zero")
             
         slope = 1.0 / segment_len
         
         # Fill the matrix rows corresponding to this time segment
+        # Note: rows are indexed from 0 to T-2, representing time steps 1 to T-1
         for t in range(anchor_start, anchor_end + 1): # +1 to include end for continuity
+            if t < 1 or t >= T:  # Skip time steps 0 and T
+                raise ValueError("Time step t out of interpolation range")
             local_x = t - anchor_start
             weight_next = local_x * slope
             weight_prev = 1.0 - weight_next
             
-            # M[t, i] is weight of anchor i
-            # M[t, i+1] is weight of anchor i+1
-            M[t, i] = weight_prev
-            M[t, i+1] = weight_next
+            # M[t-1, i] is weight of anchor i (t-1 because we skip time step 0)
+            # M[t-1, i+1] is weight of anchor i+1
+            M[t-1, i] = weight_prev
+            M[t-1, i+1] = weight_next
             
     return M
 
@@ -65,6 +76,7 @@ def _precompute_interpolation_matrix(
 def _expand_trajectory (
         candidate_flat  : npt.NDArray[np.float64]   , 
         M               : npt.NDArray[np.float64]   , 
+        T               : int                       ,
         VARS_PER_STEP   : int                       ,
         lower_bounds_a  : npt.NDArray[np.float64]   ,
         lower_bounds_b  : npt.NDArray[np.float64]   ,
@@ -72,17 +84,40 @@ def _expand_trajectory (
         upper_bounds_r  : npt.NDArray[np.float64]   ,
         TIMESTEPS       : list[int]                 ,
     ) -> dict[str, dict[int, float]]:
-    # compressed shape: (num_anchors * vars_per_step, )
+    """
+    Expands the compressed candidate solution into full pricing trajectories for a_t, b_t, r_t with bounds enforcement. <br>
+    Input: \n
+        - candidate_flat: (num_anchors * vars_per_step) 1D array flattened of candidate solution
+    Output: \n
+        - Dictionary containing full trajectories for charge_cost_low (a_t), charge_cost_high (b_t), elec_threshold (r_t)
+        - Each trajectory is a dict mapping time step t to its value for all time steps 0 to T
+    Note that the interpolation only applies to time steps 1 to T-1; time steps 0 and T are set to their lower bounds. <br>
+    """
+    # compressed shape: (num_anchors * vars_per_step)
     # reshape to (num_anchors, vars_per_step)
     anchors = candidate_flat.reshape(-1, VARS_PER_STEP)
     
-    # (T+1, num_anchors) @ (num_anchors, 3) -> (T+1, 3)
-    full_trajectory = M @ anchors
+    # (T-1, num_anchors) @ (num_anchors, 3) -> (T-1, 3)
+    # This gives us interpolated values for time steps 1 to T-1
+    interior_trajectory = M @ anchors
 
-    # Enforce lower and upper bounds
-    full_trajectory[:, 0] = np.maximum(full_trajectory[:, 0], lower_bounds_a)  # a_t
-    full_trajectory[:, 1] = np.maximum(full_trajectory[:, 1], lower_bounds_b)  # b_t
-    full_trajectory[:, 2] = np.clip(full_trajectory[:, 2], lower_bounds_r, upper_bounds_r)  # r_t
+    # Build full trajectory with fixed values at time steps 0 and T
+    full_trajectory = np.zeros((T+1, VARS_PER_STEP))
+    
+    # Time step 0: use lower bounds
+    full_trajectory[0, 0] = lower_bounds_a[0]
+    full_trajectory[0, 1] = lower_bounds_b[0]
+    full_trajectory[0, 2] = lower_bounds_r[0]
+    
+    # Time steps 1 to T-1: use interpolated values with bounds enforcement
+    full_trajectory[1:T, 0] = np.maximum(interior_trajectory[:, 0], lower_bounds_a[1:T])  # a_t
+    full_trajectory[1:T, 1] = np.maximum(interior_trajectory[:, 1], lower_bounds_b[1:T])  # b_t
+    full_trajectory[1:T, 2] = np.clip(interior_trajectory[:, 2], lower_bounds_r[1:T], upper_bounds_r[1:T])  # r_t
+    
+    # Time step T: use lower bounds
+    full_trajectory[T, 0] = lower_bounds_a[T]
+    full_trajectory[T, 1] = lower_bounds_b[T]
+    full_trajectory[T, 2] = lower_bounds_r[T]
 
     # charge_cost_low (a_t): first column
     # charge_cost_high (b_t): second column
@@ -236,9 +271,12 @@ def _evaluate_candidate(
         queue       = log_queue_gurobi      ,
     )
 
+    T = kwargs["T"]
+    
     charging_price_parameters = _expand_trajectory(
         candidate_flat  = candidate_flat    ,
         M               = M                 ,
+        T               = T                 ,
         VARS_PER_STEP   = VARS_PER_STEP     ,
         lower_bounds_a  = lower_bounds_a    ,
         lower_bounds_b  = lower_bounds_b    ,
@@ -301,7 +339,7 @@ def run_parallel_de(
     # Follower model parameters
     T                       : int                                   = kwargs["T"]                       # termination time of daily operations (0, ..., T)
     elec_supplied           : dict[tuple[int, int]      , int]      = kwargs["elec_supplied"]           # electricity supplied (in SoC levels) at zone i at time t
-    
+
     # Network components
     ZONES                   : list[int]                             = kwargs["ZONES"]
     TIMESTEPS               : list[int]                             = kwargs["TIMESTEPS"]
@@ -309,16 +347,6 @@ def run_parallel_de(
     # Leader model parameters
     wholesale_elec_price    : dict[int                  , float]    = kwargs["wholesale_elec_price"]    # wholesale electricity price at time t
     
-    # DE parameters
-    POP_SIZE                : int                                   = kwargs["POP_SIZE"]                # population size for DE
-    NUM_CORES               : int                                   = kwargs["NUM_CORES"]               # number of CPU cores to use
-    MAX_ITER                : int                                   = kwargs["MAX_ITER"]                # max iterations for DE
-    DIFF_WEIGHT             : float                                 = kwargs["DIFF_WEIGHT"]             # differential weight
-    CROSS_PROB              : float                                 = kwargs["CROSS_PROB"]              # crossover probability
-    VAR_THRESHOLD           : float                                 = kwargs["VAR_THRESHOLD"]           # variance threshold for stopping criteria
-    NUM_ANCHORS             : int                                   = kwargs["NUM_ANCHORS"]             # number of anchors for DE
-    VARS_PER_STEP           : int                                   = kwargs["VARS_PER_STEP"]           # number of variables per time step (3: a_t, b_t, r_t)
-
     # Path Metadata
     timestamp               : str                                   = kwargs["timestamp"]               # timestamp for logging
     file_name               : str                                   = kwargs["file_name"]               # filename for logging
@@ -361,7 +389,7 @@ def run_parallel_de(
             timestamp   = timestamp     ,       
         )
         logger.save()
-        logger.info("Parameters loaded successfully")
+        logger.info("Parameters loaded successfully!")
 
 
         # ----------------------------
@@ -384,13 +412,18 @@ def run_parallel_de(
         upper_bounds_a_final    : npt.NDArray[np.float64] = wholesale_elec_price_arr * 10.0
         upper_bounds_b_final    : npt.NDArray[np.float64] = wholesale_elec_price_arr * 10.0
 
-        logger.info("Bounds for decision variables set successfully")
+        logger.info("Bounds for decision variables set successfully!")
 
         # anchor indices (dimensionality reduction)
-        # instead of optimizing for all T time steps, we pick num_anchors key points and interpolate the rest
-        anchor_indices          : npt.NDArray[np.int_]   = np.linspace(0, T, NUM_ANCHORS, dtype=int)
-        optimization_dims       : int                    = NUM_ANCHORS * VARS_PER_STEP
-        M                       : npt.NDArray[np.float64]= _precompute_interpolation_matrix(T, NUM_ANCHORS, anchor_indices)
+        # Only optimize time steps 1 to T-1 (exclude 0 and T)
+        # Time steps 0 and T are fixed at their lower bounds
+        if NUM_ANCHORS < 1:
+            raise ValueError("NUM_ANCHORS must be at least 1")
+        
+        # Distribute anchors only within time steps 1 to T-1
+        anchor_indices      : npt.NDArray[np.int_]      = np.linspace(1, T-1, NUM_ANCHORS, dtype=int)
+        optimization_dims   : int                       = NUM_ANCHORS * VARS_PER_STEP
+        M                   : npt.NDArray[np.float64]   = _precompute_interpolation_matrix(T, NUM_ANCHORS, anchor_indices)
 
         logger.info(f"Interpolation matrix precomputed with shape {M.shape}")
 
@@ -535,6 +568,7 @@ def run_parallel_de(
                 return _expand_trajectory(
                     best_vector,
                     M               = M                   ,
+                    T               = T                   ,
                     VARS_PER_STEP   = VARS_PER_STEP       ,
                     lower_bounds_a  = lower_bounds_a      ,
                     lower_bounds_b  = lower_bounds_b      ,
@@ -629,6 +663,7 @@ def run_parallel_de(
                     return _expand_trajectory(
                         candidate_flat  = best_vector       ,
                         M               = M                 ,
+                        T               = T                 ,
                         VARS_PER_STEP   = VARS_PER_STEP     ,
                         lower_bounds_a  = lower_bounds_a    ,
                         lower_bounds_b  = lower_bounds_b    ,
@@ -668,6 +703,7 @@ def run_parallel_de(
         return _expand_trajectory(
             candidate_flat  = best_vector       ,
             M               = M                 ,
+            T               = T                 ,
             VARS_PER_STEP   = VARS_PER_STEP     ,
             lower_bounds_a  = lower_bounds_a    ,
             lower_bounds_b  = lower_bounds_b    ,

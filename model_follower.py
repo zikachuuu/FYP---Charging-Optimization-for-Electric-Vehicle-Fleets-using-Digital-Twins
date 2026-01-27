@@ -3,14 +3,13 @@ import gurobipy as gp
 from gurobipy import GRB
 from dotenv import load_dotenv
 import os
-import multiprocessing
-from typing import Any
 
 load_dotenv()
 
 from logger import Logger
 from networkClass import Node, Arc, ArcType, ServiceArc, ChargingArc, RelocationArc, IdleArc, WraparoundArc
 from exceptions import OptimizationError
+from config_DE import RELAX_STAGE_2
 
 # ----------------------------
 # Persistent Model
@@ -804,7 +803,7 @@ def follower_model(
         _PERSISTENT_MODEL, _PERSISTENT_VARS = follower_model_builder (
             **kwargs,   
             # Metadata
-            relaxed = True if stage2 else True,   # Relaxed model for bilevel optimization
+            relaxed = RELAX_STAGE_2 if stage2 else True,   # Relaxed model for bilevel optimization
         )
     else:
         logger.info ("Using existing persistent model...")

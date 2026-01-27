@@ -4,38 +4,14 @@ import os
 import traceback
 import math
 import multiprocessing
-import gurobipy as gp
 import time
 
 from logger import Logger
-from model_follower import follower_model, follower_graph_builder, follower_model_builder
+from model_follower import follower_model, follower_graph_builder
 from networkClass import Node, Arc, ArcType
 from utility import convert_key_types
 from postprocessing import postprocessing
 from bilevel_DE import run_parallel_de
-
-POP_SIZE        : int   = 32        # population size for DE (should be in multiples of <number of CPU cores> - 1)
-NUM_CORES       : int   = 4         # number of CPU cores used
-NUM_THREADS     : int   = 2         # number of threads used per candidate evaluation
-                                    #   NUM_CORES * NUM_THREADS should be <= total available CPU cores
-MAX_ITER        : int   = 40         # maximum iterations for DE
-DIFF_WEIGHT     : float = 0.7       # Differential Weight / Mutation: Controls jump size
-                                    #   Higher = bigger jumps (exploration); Lower = fine-tuning (exploitation)
-                                    #   Since population size is small, need to aggresively explore to avoid getting stuck.
-CROSS_PROB      : float = 0.7       # Crossover Probability: How much DNA comes from the mutant vs. the parent
-                                    #   0.7 means 70% of the genes change every step.
-                                    #   We want to mix good genes quickly, so set it high.
-VAR_THRESHOLD   : float = 0         # variance threshold for early stopping of DE
-PENALTY_WEIGHT  : float = 0.9       # penalty weight for high price settings in leader fitness function
-NUM_ANCHORS     : int   = 9         # number of anchors for DE
-VARS_PER_STEP   : int   = 3         # number of dimensions (variables) per time step (i.e. a_t, b_t, r_t)
-
-"""
-Notes for setting POP_SIZE and MAX_ITER:
-    - Time to iterate the entire population once = time to evaluate one candidate * ceil (POP_SIZE / NUM_CORES)
-    - MAX_ITER = (desired max runtime) / (time to iterate entire population once)
-    - Check time to evaluate one candidate by running only the follower model (Stage 2) by choosing model_choice = '1' in the main.py
-"""
 
 
 if __name__ == "__main__":
@@ -165,20 +141,7 @@ if __name__ == "__main__":
     }
     leader_model_parameters = {
         "wholesale_elec_price"  : wholesale_elec_price  ,
-        "PENALTY_WEIGHT"        : PENALTY_WEIGHT        ,
-    }
-    DE_parameters = {
-        "POP_SIZE"              : POP_SIZE              ,
-        "NUM_CORES"             : NUM_CORES             ,
-        "NUM_THREADS"           : NUM_THREADS           ,
-        "MAX_ITER"              : MAX_ITER              ,
-        "DIFF_WEIGHT"           : DIFF_WEIGHT           ,
-        "CROSS_PROB"            : CROSS_PROB            ,
-        "VAR_THRESHOLD"         : VAR_THRESHOLD         ,
-        "NUM_ANCHORS"           : NUM_ANCHORS           ,
-        "VARS_PER_STEP"         : VARS_PER_STEP         ,
-    }
-    
+    }    
 
     # -----------------------------------------------------------
     # Build the network for the follower model (reusable)
@@ -235,7 +198,6 @@ if __name__ == "__main__":
                 **follower_model_parameters         ,
                 **leader_model_parameters           ,
                 **network_parameters                ,
-                **DE_parameters                     ,
                 **path_metadata                     ,
             )   
         except Exception as e:

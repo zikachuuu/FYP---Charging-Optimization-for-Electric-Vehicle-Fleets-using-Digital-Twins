@@ -40,7 +40,6 @@ def postprocessing(**kwargs):
 
     # Leader model parameters
     wholesale_elec_price    : dict[int                      , float]    = kwargs["wholesale_elec_price"]    # wholesale electricity price at time t
-    PENALTY_WEIGHT          : float                                     = kwargs["PENALTY_WEIGHT"]          # penalty weight for high a_t and b_t
 
     # Pricing Variables
     charge_cost_low         : dict[int                      , float]    = kwargs["charge_cost_low"]         # a_t
