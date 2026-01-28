@@ -12,7 +12,7 @@ from logger import Logger, LogListener
 from exceptions import OptimizationError
 from config_DE import (
     POP_SIZE        ,
-    NUM_CORES       ,
+    NUM_PROCESSES   ,
     MAX_ITER        ,
     DIFF_WEIGHT     ,
     CROSS_PROB      ,
@@ -522,9 +522,9 @@ def run_parallel_de(
 
         # Initial Evaluation
         # We use a Pool to run all candidates in parallel
-        logger.info(f"Initializing pool with {NUM_CORES} cores...")
+        logger.info(f"Initializing pool with {NUM_PROCESSES} independent processes...")
 
-        with multiprocessing.Pool(processes=NUM_CORES) as pool:
+        with multiprocessing.Pool(processes=NUM_PROCESSES) as pool:
 
             # Calculate initial fitness (Parallel)
             # Runs the evaluate_single_candidate function on each candidate in the population in parallel
@@ -592,11 +592,16 @@ def run_parallel_de(
                 
                 # --- 1. CREATE TRIALS (Vectorized Math) ---
                 # randomly select 3 candidates A, B, C ("children") for each candidate ("parent")
-                # although technically A, B, C should be distinct and not equal to the parent, enforcing this is costly, so we skip this step
-                # the children of all pop_size candidates are selected together in a vectorized manner, so each idxs_* has shape (pop_size,)
-                idxs_a: npt.NDArray[np.int_]    = np.random.randint(low = 0, high = POP_SIZE, size = POP_SIZE)
-                idxs_b: npt.NDArray[np.int_]    = np.random.randint(low = 0, high = POP_SIZE, size = POP_SIZE)
-                idxs_c: npt.NDArray[np.int_]    = np.random.randint(low = 0, high = POP_SIZE, size = POP_SIZE)            
+                idxs_a = np.empty((POP_SIZE,), dtype=np.int_)
+                idxs_b = np.empty((POP_SIZE,), dtype=np.int_)
+                idxs_c = np.empty((POP_SIZE,), dtype=np.int_)
+                for i in range(POP_SIZE):
+                    candidates = list(range(POP_SIZE))
+                    candidates.remove(i)  # ensure A, B, C are not the parent
+                    a, b, c = np.random.choice(candidates, 3, replace=False)
+                    idxs_a[i] = a
+                    idxs_b[i] = b
+                    idxs_c[i] = c
 
                 # V = A + F * (B - C)
                 # (B - C) : calculates the distance vector between B and C

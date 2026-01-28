@@ -474,10 +474,10 @@ def follower_model_builder(
     env.setParam('LogToConsole', 0)  # suppress Gurobi output to console
     model = gp.Model(env=env) 
 
-    model.setParam("Method"     , 2             )   # use barrier method
-    model.setParam('Crossover'  , 0             )   # skip crossover; no dual solution, sensitivity analysis, warm start
-    model.setParam("Threads"    , NUM_THREADS   )   # use two threads per process 
-    model.setParam("Seed"       , 67            )   # set random seed for reproducibility
+    model.setParam("Method"     , 2                             )   # use barrier method
+    model.setParam('Crossover'  , 0                             )   # skip crossover; no dual solution, sensitivity analysis, warm start
+    model.setParam("Threads"    , NUM_THREADS if relaxed else 0 )   # if not relaxed, use all available threads
+    model.setParam("Seed"       , 67                            )   # set random seed for reproducibility
 
 
     # ----------------------------
