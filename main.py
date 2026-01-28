@@ -9,9 +9,22 @@ import time
 from logger import Logger
 from model_follower import follower_model, follower_graph_builder
 from networkClass import Node, Arc, ArcType
-from utility import convert_key_types
+from utility import convert_key_types, print_duration
 from postprocessing import postprocessing
 from bilevel_DE import run_parallel_de
+from config_DE import (
+    POP_SIZE        ,
+    NUM_PROCESSES   ,
+    NUM_THREADS     ,
+    MAX_ITER        ,
+    DIFF_WEIGHT     ,
+    CROSS_PROB      ,
+    VAR_THRESHOLD   ,
+    PENALTY_WEIGHT  ,
+    NUM_ANCHORS     ,
+    VARS_PER_STEP   ,
+    RELAX_STAGE_2
+)
 
 
 if __name__ == "__main__":
@@ -70,20 +83,40 @@ if __name__ == "__main__":
 
     results_name = os.path.join("Results", folder_name, f"results_{file_name}_{timestamp}.xlsx")
 
+    logger.info("Starting the EV Fleet Charging Optimization Model...")
+    logger.info (f"Test case file: {file_name}.json in folder: {directory if directory != '' else 'Testcases/'}")
+    logger.info (f"Results will be saved in: {results_name}")
+
+    logger.info(f"Configurations for Differential Evolution:")
+    logger.info(f"  Population Size (POP_SIZE)                              : {POP_SIZE}")
+    logger.info(f"  Number of Processes (NUM_PROCESSES)                     : {NUM_PROCESSES}")
+    logger.info(f"  Number of Threads per Process (NUM_THREADS)             : {NUM_THREADS}")
+    logger.info(f"  Maximum Iterations (MAX_ITER)                           : {MAX_ITER}")
+    logger.info(f"  Differential Weight (DIFF_WEIGHT)                       : {DIFF_WEIGHT}")
+    logger.info(f"  Crossover Probability (CROSS_PROB)                      : {CROSS_PROB}")
+    logger.info(f"  Variance Threshold for Early Stopping (VAR_THRESHOLD)   : {VAR_THRESHOLD}")
+    logger.info(f"  Penalty Weight for Leader Fitness (PENALTY_WEIGHT)      : {PENALTY_WEIGHT}")
+    logger.info(f"  Number of Anchors (NUM_ANCHORS)                         : {NUM_ANCHORS}")
+    logger.info(f"  Variables per Time Step (VARS_PER_STEP)                 : {VARS_PER_STEP}")
+    logger.info(f"  Relax Follower Model in Stage 2 (RELAX_STAGE_2)         : {RELAX_STAGE_2}")
+
     # Load data from the specified JSON file
     processed_data: dict = None
+    start_time_load_data = time.time()
     try:
         with open(os.path.join ("Testcases", directory, file_name + ".json"), "r") as F:
-            logger.info(f"Loading data from {file_name}.json")
-
+            
+            logger.info(f"Loading data from {file_name}.json...")
             data = json.load(F)
-            # logger.debug(f"Raw data loaded: {data}")
-            logger.info ("Converting keys in data to appropriate types...")
 
+            # logger.debug(f"Raw data loaded: {data}")
+            logger.info ("Raw data loaded. Converting keys in data to appropriate types...")
             processed_data = convert_key_types(data)  # Convert keys to tuples of integers
             # logger.debug(f"Processed data: {processed_data}")
 
-            logger.info ("Data loaded successfully.")
+            end_time_load_data = time.time()
+            duration_load_data = end_time_load_data - start_time_load_data
+            logger.info (f"Data loaded successfully in {print_duration(duration_load_data)} ({duration_load_data:.2f} seconds).")
 
     except FileNotFoundError as e:
         logger.error(f"File {file_name}.json not found. Please ensure it exists in the Testcases folder with json extension.")
@@ -152,7 +185,8 @@ if __name__ == "__main__":
         **path_metadata             ,
     )
     end_time_build_network = time.time()
-
+    duration_build_network = end_time_build_network - start_time_build_network
+    
     # Extract reusable network components
     V_set                  : set[Node]                              = network_parameters["V_set"]
     all_arcs               : dict[int                   , Arc]      = network_parameters["all_arcs"]
@@ -169,13 +203,13 @@ if __name__ == "__main__":
     LEVELS                 : list[int]                              = network_parameters["LEVELS"]
     AGES                   : list[int]                              = network_parameters["AGES"]
 
-    logger.info(f"Network built in {end_time_build_network - start_time_build_network:.2f} seconds.")
-
+    logger.info(f"Network built in {print_duration(duration_build_network)} ({duration_build_network:.2f} seconds).")
+    
     # -----------------------------------------------------------
     # Stage 1: Run the bilevel optimization on relaxed model
     # -----------------------------------------------------------
     if model_choice == "1":
-        logger.info("Stage 1 skipped as per user choice. Running only the follower model (Stage 2).")
+        logger.info("Stage 1 skipped as per user choice. Running only the follower model (Stage 2)...")
         try:
             charge_cost_low     : dict[int, float]                  = processed_data["charge_cost_low"]       # a_t
             charge_cost_high    : dict[int, float]                  = processed_data["charge_cost_high"]      # b_t
@@ -204,8 +238,10 @@ if __name__ == "__main__":
             logger.error(f"Failure in Stage 1: {e}")
             logger.error(traceback.format_exc())
             exit(1)
-        
-        logger.info(f"Stage 1 completed in {time.time() - start_time_stage1:.2f} seconds.")
+
+        end_time_stage1 = time.time()
+        duration_stage1 = end_time_stage1 - start_time_stage1
+        logger.info(f"Stage 1 completed in {print_duration(duration_stage1)} ({duration_stage1:.2f} seconds).")
 
         charge_cost_low     : dict[int, float]                  = charge_price_parameters["charge_cost_low"]       # a_t
         charge_cost_high    : dict[int, float]                  = charge_price_parameters["charge_cost_high"]      # b_t
@@ -232,7 +268,9 @@ if __name__ == "__main__":
         logger.error(traceback.format_exc())
         exit(1)
         
-    logger.info(f"Stage 2 completed in {time.time() - start_time_stage2:.2f} seconds.")
+    end_time_stage2 = time.time()
+    duration_stage2 = end_time_stage2 - start_time_stage2
+    logger.info(f"Stage 2 completed in {print_duration(duration_stage2)} ({duration_stage2:.2f} seconds).")
 
 
     # Extract variables and sets from the output

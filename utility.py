@@ -41,3 +41,17 @@ def convert_key_types(data: dict) -> dict:
     
     # Process the entire data structure
     return convert_dict_keys(data)
+
+def print_duration (time_in_seconds: float) -> str:
+    """Convert time duration in seconds to a human-readable string format."""
+    minutes, seconds = divmod(time_in_seconds, 60)
+    hours, minutes = divmod(minutes, 60)
+    
+    duration_parts = []
+    if hours > 0:
+        duration_parts.append(f"{int(hours)} hours")
+    if minutes > 0:
+        duration_parts.append(f"{int(minutes)} minutes")
+    duration_parts.append(f"{seconds:.2f} seconds")
+    
+    return ', '.join(duration_parts)

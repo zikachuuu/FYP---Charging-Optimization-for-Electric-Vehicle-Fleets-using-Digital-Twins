@@ -10,6 +10,7 @@ from model_follower import follower_model
 from networkClass import Arc
 from logger import Logger, LogListener
 from exceptions import OptimizationError
+from utility import print_duration
 from config_DE import (
     POP_SIZE        ,
     NUM_PROCESSES   ,
@@ -482,7 +483,8 @@ def run_parallel_de(
             raise e
 
         end_time_ref = time.time()
-        logger.info(f"Reference variance obtained: {reference_variance:.5f} in {end_time_ref - start_time_ref:.2f} seconds")
+        duration_ref = end_time_ref - start_time_ref
+        logger.info(f"Reference variance obtained: {reference_variance:.5f} in {print_duration(duration_ref)} ({duration_ref:.2f} seconds)")
 
         if reference_variance < VAR_THRESHOLD:
             logger.info(f"Reference variance ({reference_variance:.5f}) is already below the variance threshold ({VAR_THRESHOLD:.5f}). No optimization needed.")
@@ -518,7 +520,7 @@ def run_parallel_de(
         # ----------------------------
         # DE Main Loop
         # ----------------------------
-        start_time = time.time()
+        start_time_DE = time.time()
 
         # Initial Evaluation
         # We use a Pool to run all candidates in parallel
@@ -557,7 +559,7 @@ def run_parallel_de(
                     f"Var Ratio =  {variance_ratios[best_idx_within_qualified]:.5f}, " \
                     f"Percentage Price Increase = {percentage_price_increases[best_idx_within_qualified]:.5f}%"
                 )
-                logger.info(f"  Time taken: {init_end_time - start_time:.1f}s")
+                logger.info(f"  Time taken: {init_end_time - start_time_DE:.1f}s")
 
                 return _expand_trajectory(
                     best_vector,
@@ -574,22 +576,23 @@ def run_parallel_de(
             best_var_idx        : int   = np.argmin(variances)
             best_fitness_idx    : int   = np.argmin(fitnesses)
 
-            logger.info(f"Initial candidate with best variance: Var = {variances[best_var_idx]:.5f}, " \
+            logger.info("Initial population")
+            logger.info(f"  Initial candidate with best variance: Var = {variances[best_var_idx]:.5f}, " \
                 f"Fitness = {fitnesses[best_var_idx]:.5f}, " \
                 f"Var Ratio = {variance_ratios[best_var_idx]:.5f}, " \
                 f"Percentage Price Increase = {percentage_price_increases[best_var_idx]:.5f}%"
             )
-            logger.info(f"Initial candidate with best fitness: Var = {variances[best_fitness_idx]:.5f}, " \
+            logger.info(f"  Initial candidate with best fitness: Var = {variances[best_fitness_idx]:.5f}, " \
                 f"Fitness = {fitnesses[best_fitness_idx]:.5f}, " \
                 f"Var Ratio = {variance_ratios[best_fitness_idx]:.5f}, " \
                 f"Percentage Price Increase = {percentage_price_increases[best_fitness_idx]:.5f}%"
             )
-            logger.info(f"  Time taken: {init_end_time - start_time:.1f}s")
+            duration_init = init_end_time - start_time_DE
+            logger.info(f"  Time taken: {print_duration(duration_init)} ({duration_init:.1f}s)")
 
             # Main DE Loop
             for gen in range(MAX_ITER):
                 gen_start_time = time.time()
-                
                 # --- 1. CREATE TRIALS (Vectorized Math) ---
                 # randomly select 3 candidates A, B, C ("children") for each candidate ("parent")
                 idxs_a = np.empty((POP_SIZE,), dtype=np.int_)
@@ -656,7 +659,8 @@ def run_parallel_de(
                         f"Var Ratio = {variance_ratios[best_idx_within_qualified]:.5f}, " \
                         f"Percentage Price Increase = {percentage_price_increases[best_idx_within_qualified]:.5f}%"
                     )
-                    logger.info(f"  Time taken: {time.time() - start_time:.1f}s")
+                    end_time_DE = time.time()
+                    logger.info(f"DE completed in {print_duration(end_time_DE - start_time_DE)} ({end_time_DE - start_time_DE:.1f}s).")
 
                     return _expand_trajectory(
                         candidate_flat  = best_vector       ,
@@ -688,11 +692,11 @@ def run_parallel_de(
                     f"Var Ratio = {variance_ratios[best_fitness_idx]:.5f}, " \
                     f"Percentage Price Increase = {percentage_price_increases[best_fitness_idx]:.5f}%"
                 )
-                logger.info(f"  Generation time: {gen_duration:.1f}s | Estimated remaining time: {est_remaining_time:.1f}s")
+                logger.info(f"  Generation time: {print_duration(gen_duration)} ({gen_duration:.1f}s) | Estimated remaining time: {print_duration(est_remaining_time)} ({est_remaining_time:.1f}s)")
 
 
-        end_time = time.time()
-        logger.info(f"DE completed in {end_time - start_time:.1f}s.")
+        end_time_DE = time.time()
+        logger.info(f"DE completed in {print_duration(end_time_DE - start_time_DE)} ({end_time_DE - start_time_DE:.1f}s).")
         logger.info(f"Picking candidate with best fitness...")
 
         best_vector : npt.NDArray[np.float64] = population[best_fitness_idx].copy()
