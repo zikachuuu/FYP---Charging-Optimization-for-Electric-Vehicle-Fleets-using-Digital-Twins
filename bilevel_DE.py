@@ -525,6 +525,7 @@ def run_parallel_de(
         # Initial Evaluation
         # We use a Pool to run all candidates in parallel
         logger.info(f"Initializing pool with {NUM_PROCESSES} independent processes...")
+        multiprocessing.set_start_method('spawn', force=True)  # 'spawn' is more stable than 'fork' for complex objects
 
         with multiprocessing.Pool(processes=NUM_PROCESSES) as pool:
 
