@@ -5,6 +5,7 @@ import traceback
 import math
 import multiprocessing
 import time
+import argparse
 
 from logger import Logger
 from model_follower import follower_model, follower_graph_builder
@@ -28,6 +29,33 @@ from config_DE import (
 
 
 if __name__ == "__main__":
+    # Set up argument parser for command-line parameters
+    parser = argparse.ArgumentParser(
+        description="EV Fleet Charging Optimization Model",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Interactive mode (prompts for all inputs)
+  python main.py
+  
+  # Non-interactive mode with all parameters specified
+  python main.py --choice 2 --folder "" --testcase scenario1 --folder-name myrun
+  
+  # Partial specification (will prompt for missing parameters)
+  python main.py --choice 1 --testcase manhattan_jan2_ports
+        """
+    )
+    parser.add_argument('--choice', type=str, choices=['1', '2'], 
+                        help="Enter '1' for follower model only, '2' for bilevel optimization")
+    parser.add_argument('--folder', type=str, 
+                        help="Folder in Testcases directory (use empty string for root Testcases folder)")
+    parser.add_argument('--testcase', type=str, 
+                        help="Test case file name (without .json extension)")
+    parser.add_argument('--folder-name', type=str, 
+                        help="Unique name for this run (default: <testcase>_<timestamp>)")
+    
+    args = parser.parse_args()
+
     print ()
     print ("-------------------------------------------------------")
     print ("| Welcome to the EV Fleet Charging Optimization Model |")
@@ -43,15 +71,43 @@ if __name__ == "__main__":
     print ()
     print ("------------------------------------------------------")
     print ()
-    model_choice = input ("Enter '1' to run only the follower model (stage 2), or press '2' to run the bilevel optimization model (stage 1 and 2); default is '2': \n").strip()
-    print ()
-    directory = input ("Enter the specific folder in the Testcases folder (or press Enter if the file is directly in the Testcases folder): \n").strip()
-    print ()
-    file_name = input ("Enter the JSON test case file name, without the .json extension. It should be located in the specified folder: \n").strip()
-    print ()
-    print ("Give a unique name for this run, to be used as folder name for the log files and results.")
-    folder_name = input ("If empty, default name of <testcase file name>_<timestamp> will be used: \n").strip()
-    print ()
+    
+    # Get model choice from command line or prompt
+    if args.choice is not None:
+        model_choice = args.choice
+        print (f"Model choice: {model_choice} (from command line)")
+        print ()
+    else:
+        model_choice = input ("Enter '1' to run only the follower model (stage 2), or press '2' to run the bilevel optimization model (stage 1 and 2); default is '2': \n").strip()
+        print ()
+    
+    # Get directory from command line or prompt
+    if args.folder is not None:
+        directory = args.folder
+        print (f"Test case folder: '{directory}' (from command line)")
+        print ()
+    else:
+        directory = input ("Enter the specific folder in the Testcases folder (or press Enter if the file is directly in the Testcases folder): \n").strip()
+        print ()
+    
+    # Get test case file name from command line or prompt
+    if args.testcase is not None:
+        file_name = args.testcase
+        print (f"Test case file: {file_name}.json (from command line)")
+        print ()
+    else:
+        file_name = input ("Enter the JSON test case file name, without the .json extension. It should be located in the specified folder: \n").strip()
+        print ()
+    
+    # Get folder name from command line or prompt
+    if args.folder_name is not None:
+        folder_name = args.folder_name
+        print (f"Run folder name: {folder_name} (from command line)")
+        print ()
+    else:
+        print ("Give a unique name for this run, to be used as folder name for the log files and results.")
+        folder_name = input ("If empty, default name of <testcase file name>_<timestamp> will be used: \n").strip()
+        print ()
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M")
 
