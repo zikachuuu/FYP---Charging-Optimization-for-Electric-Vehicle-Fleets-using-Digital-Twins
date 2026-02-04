@@ -1,0 +1,12 @@
+#!/bin/bash
+#PBS -q normal
+#PBS -N serial_job
+#PBS -l select=1:ncpus=128:mem=512gb
+#PBS -l walltime=05:00:00
+#PBS -j oe
+#PBS -P personal-le0003hi
+
+cd /home/users/ntu/le0003hi/FYP---Charging-Optimization-for-Electric-Vehicle-Fleets-using-Digital-Twins
+conda activate myenv
+python main.py --choice 2 --folder "" --testcase manhattan_jan2_ports --folder-name ""
+
