@@ -65,8 +65,8 @@ Examples:
     print ("    - Output results will be saved in the Results folder.")
     print ("    - Log files for debugging will be saved in the Logs folder.")
     print ()
-    print ("You can choose to run only the follower model (Stage 2), or run the full bilevel optimization model (Stage 1 + Stage 2).")
-    print ("If you choose to run only the follower model, you need to provide the pricing and threshold values in the input JSON file.")
+    print ("You can choose to run only Stage 1 (Bilevel Optimization to find optimal price), only Stage 2 (Follower Model), or run both stages.")
+    print ("If you choose to run only the Stage 2 (Follower Model), you need to provide the pricing and threshold values in the input JSON file.")
     print ("Specfically, provide 'charge_cost_low', 'charge_cost_high', and 'elec_threshold' values for each time step (0 to T inclusive).")
     print ()
     print ("------------------------------------------------------")
@@ -78,7 +78,7 @@ Examples:
         print (f"Model choice: {model_choice} (from command line)")
         print ()
     else:
-        model_choice = input ("Enter '1' to run only the follower model (stage 2), or press '2' to run the bilevel optimization model (stage 1 and 2); default is '2': \n").strip()
+        model_choice = input ("Enter '1' to run only Stage 1 (Bilevel Optimization to find optimal price), '2' to run only Stage 2 (Follower Model), '0' to run both stages (default): \n").strip()
         print ()
     
     # Get directory from command line or prompt
@@ -157,6 +157,7 @@ Examples:
     logger.info(f"  Relax Follower Model in Stage 2 (RELAX_STAGE_2)         : {RELAX_STAGE_2}")
 
     # Load data from the specified JSON file
+    data: dict = None
     processed_data: dict = None
     start_time_load_data = time.time()
     try:
@@ -264,7 +265,7 @@ Examples:
     # -----------------------------------------------------------
     # Stage 1: Run the bilevel optimization on relaxed model
     # -----------------------------------------------------------
-    if model_choice == "1":
+    if model_choice == '2':
         logger.info("Stage 1 skipped as per user choice. Running only the follower model (Stage 2)...")
         try:
             charge_cost_low     : dict[int, float]                  = processed_data["charge_cost_low"]       # a_t
@@ -303,199 +304,219 @@ Examples:
         charge_cost_high    : dict[int, float]                  = charge_price_parameters["charge_cost_high"]      # b_t
         elec_threshold      : dict[int, int]                    = charge_price_parameters["elec_threshold"]        # r_t
 
+        # Save the obtained pricing and threshold to a JSON file for reference
+        # Saved JSON file is the cloned input Testcase file with pricing and threshold appended at the end (replace if already present)
+        try:
+            data["charge_cost_low"]    = charge_cost_low
+            data["charge_cost_high"]   = charge_cost_high
+            data["elec_threshold"]     = elec_threshold
+
+            output_file_path = os.path.join("Results", folder_name, f"updated_{file_name}_{timestamp}.json")
+            with open(output_file_path, "w") as out_F:
+                json.dump(data, out_F, indent=4)
+            logger.info(f"Bilevel optimization results saved to {output_file_path}")
+        except Exception as e:
+            logger.error(f"Failed to save bilevel optimization results: {e}")
+
 
     # ----------------------------------------------------------------------------------
     # Stage 2: Run the original follower model with the obtained pricing and threshold
     # ----------------------------------------------------------------------------------
-    logger.info("Stage 2: Running follower model with obtained pricing and threshold...")
-    start_time_stage2 = time.time()
 
-    try:
-        solutions_stage2 = follower_model(
+    if model_choice == '1':
+        logger.info("Stage 2 skipped as per user choice. Bilevel optimization only (Stage 1) was run.")
+        logger.info("Exiting program.")
+        exit(0)
+    else:
+        logger.info("Stage 2: Running follower model with obtained pricing and threshold...")
+        start_time_stage2 = time.time()
+
+        try:
+            solutions_stage2 = follower_model(
+                **follower_model_parameters                     ,
+                **network_parameters                            ,
+                **charge_price_parameters                       ,
+                **path_metadata                                 ,
+                # Metadata
+                NUM_THREADS = multiprocessing.cpu_count() - 1   ,   # use all available cores minus one for the final run
+            )
+        except Exception as e:
+            logger.error(f"Failure in Stage 2: {e}")
+            logger.error(traceback.format_exc())
+            exit(1)
+            
+        end_time_stage2 = time.time()
+        duration_stage2 = end_time_stage2 - start_time_stage2
+        logger.info(f"Stage 2 completed in {print_duration(duration_stage2)} ({duration_stage2:.2f} seconds).")
+
+
+        # Extract variables and sets from the output
+        obj             : float                                     = solutions_stage2["obj"]
+        x               : dict[int, float]                          = solutions_stage2["x"]
+        s               : dict[tuple[int, int, int]     , float]    = solutions_stage2["s"]
+        u               : dict[tuple[int, int, int, int], float]    = solutions_stage2["u"]
+        e               : dict[tuple[int, int, int]     , float]    = solutions_stage2["e"]
+        q               : dict[int                      , float]    = solutions_stage2["q"]
+
+
+        # ----------------------------
+        # Arcs Information
+        # ----------------------------    
+        logger_arcs = Logger(
+            name        = "arcs"        , 
+            level       = "DEBUG"       , 
+            to_console  = False         , 
+            folder_name = folder_name   , 
+            file_name   = file_name     , 
+            timestamp   = timestamp     ,
+        )
+        logger_arcs.save()  # Will overwrite the previous arcs log by model_follower.py
+
+        logger_arcs.debug("Arcs information:")
+        for id, arc in all_arcs.items():
+            logger_arcs.debug (f"  Arc {id}: type {arc.type} from node ({arc.o.i}, {arc.o.t}, {arc.o.l}) to ({arc.d.i}, {arc.d.t}, {arc.d.l}); flow: {x[id]}")
+        
+
+        # ----------------------------
+        # EV flow in each arcs
+        # ----------------------------
+        logger_arcs.info("EV flow in arcs:")
+        curr_time = -1
+        for arc_id, arc in sorted(
+            all_arcs.items(),
+            key = lambda item: (item[1].o.t, item[1].o.i, item[1].d.i)
+        ):
+            if x.get(arc_id, 0) <= 0:
+                # we skip this arc if the arc has no flow and no unserved demand
+                continue
+
+            if curr_time != arc.o.t:
+                curr_time = arc.o.t
+                logger_arcs.info (f"  Time {curr_time}:")
+
+            logger_arcs.info(f"    Arc {arc_id} ({arc.type.name}): ")
+            logger_arcs.info(f"      From (start zone {arc.o.i}, start time {arc.o.t}, start charge {arc.o.l}) to (end zone {arc.d.i}, end time {arc.d.t}, end charge {arc.d.l})")
+            logger_arcs.info(f"      Flow: {x.get(arc_id, 0)}")
+            if arc.type == ArcType.SERVICE:
+                logger_arcs.info(f"      Unserved Demand: {s.get((arc.o.i, arc.d.i, arc.o.t), 0)}")
+
+        
+        # ----------------------------
+        # Summarised Information
+        # ----------------------------
+        service_revenues        : dict[int, float] = {
+            t: sum (x[e_id] * all_arcs[e_id].revenue
+                for i in ZONES
+                for j in ZONES
+                for e_id in service_arcs_ijt.get((i, j, t), set())
+            )
+            for t in TIMESTEPS
+        }
+        penalty_costs           : dict[int, float] = {
+            t: sum (e[(i, j, t)] * penalty.get((i, j, t), 0)
+                for i in ZONES
+                for j in ZONES
+            ) + (sum (s[(i, j, t)] * penalty.get((i, j, t), 0)
+                for i in ZONES
+                for j in ZONES
+                ) if t == T else 0
+            )
+            for t in TIMESTEPS
+        }
+        charge_costs            : dict[int, float] = {
+            t: sum (x[e_id] * all_arcs[e_id].charge_speed
+                for e_id in charge_arcs_t.get(t, set())
+            ) * charge_cost_low.get(t, 0) \
+            + q[t] * charge_cost_high.get(t, 0)
+            for t in TIMESTEPS
+        }
+        total_service_revenue   : float = sum(service_revenues.values())
+        total_penalty_cost      : float = sum(penalty_costs.values())
+        total_charge_cost       : float = sum(charge_costs.values())
+
+        logger.info("Model results:")
+        logger.info(f"  Objective value: {obj:.2f}")
+        logger.info(f"  Total service revenue: {total_service_revenue:.2f}")
+        logger.info(f"  Total penalty cost: {total_penalty_cost:.2f}")
+        logger.info(f"  Total charge cost: {total_charge_cost:.2f}")    
+
+        if not math.isclose(obj, total_service_revenue - total_penalty_cost - total_charge_cost):
+            logger.warning (f"  Objective value ({obj:.2f}) does not match total service revenue - total penalty cost - total charge cost ({total_service_revenue - total_penalty_cost - total_charge_cost:.2f}).")
+        
+
+        # ----------------------------
+        # Calculated information
+        # ----------------------------
+        # total number of valid trips
+        total_trips: int = sum (
+            valid_travel_demand.values()
+        )
+        # total number of valid trips served
+        total_trips_served: int = sum(
+            x.get(arc_id, 0) 
+            for arc_id in type_arcs[ArcType.SERVICE]
+        )
+        # total number of valid trips unserved (carried over from all intervals)
+        total_trips_unserved: int = sum (
+                e[(i, j, t)]
+                for i in ZONES
+                for j in ZONES
+                for t in TIMESTEPS
+            ) + sum (
+                s[(i, j, T)]
+                for i in ZONES
+                for j in ZONES
+        )
+        # total number of time intervals spent on service (sum of all EVs)
+        total_service_time: int = sum (
+            x[e] * (all_arcs[e].d.t - all_arcs[e].o.t)
+            for e in type_arcs[ArcType.SERVICE]
+        )
+        # total number of time intervals spent on charging (sum of all EVs)
+        total_charge_time: int = sum (
+            x[e] * (all_arcs[e].d.t - all_arcs[e].o.t)
+            for e in type_arcs[ArcType.CHARGE]    
+        )
+        # total number of time intervals spent on relocation (sum of all EVs)
+        total_relocation_time: int = sum (
+            x[e] * (all_arcs[e].d.t - all_arcs[e].o.t)
+            for e in type_arcs[ArcType.RELOCATION]    
+        )
+        # total number of time intervals spent on idle (sum of all EVs)
+        total_idle_time: int = sum (
+            x[e] * (all_arcs[e].d.t - all_arcs[e].o.t)
+            for e in type_arcs[ArcType.IDLE]    
+        )
+
+        if not math.isclose(total_trips, total_trips_served + total_trips_unserved):
+            logger.warning (f"  Total trips requested ({total_trips}) does not match total trips served ({total_trips_served}) + unserved ({total_trips_unserved}).")
+
+        if not math.isclose(total_service_time + total_charge_time + total_relocation_time + total_idle_time, T * num_EVs):
+            logger.warning (f"  Total time does not sum up! Total time: {T * num_EVs}, Service time: {total_service_time}, Charge time: {total_charge_time}, Relocation time: {total_relocation_time}, Idle time: {total_idle_time}")
+
+
+        # ---------------------------------
+        # Postprocessing and save results
+        # ---------------------------------
+        postprocessing(
             **follower_model_parameters                     ,
+            **leader_model_parameters                       ,
             **network_parameters                            ,
             **charge_price_parameters                       ,
+            **solutions_stage2                              ,
             **path_metadata                                 ,
+
+            # Calculated information
+            service_revenues        = service_revenues      ,
+            penalty_costs           = penalty_costs         ,
+            charge_costs            = charge_costs          ,
+            total_service_revenue   = total_service_revenue ,
+            total_penalty_cost      = total_penalty_cost    ,
+            total_charge_cost       = total_charge_cost     ,
+
             # Metadata
-            NUM_THREADS = multiprocessing.cpu_count() - 1   ,   # use all available cores minus one for the final run
+            results_name            = results_name          ,
         )
-    except Exception as e:
-        logger.error(f"Failure in Stage 2: {e}")
-        logger.error(traceback.format_exc())
-        exit(1)
-        
-    end_time_stage2 = time.time()
-    duration_stage2 = end_time_stage2 - start_time_stage2
-    logger.info(f"Stage 2 completed in {print_duration(duration_stage2)} ({duration_stage2:.2f} seconds).")
-
-
-    # Extract variables and sets from the output
-    obj             : float                                     = solutions_stage2["obj"]
-    x               : dict[int, float]                          = solutions_stage2["x"]
-    s               : dict[tuple[int, int, int]     , float]    = solutions_stage2["s"]
-    u               : dict[tuple[int, int, int, int], float]    = solutions_stage2["u"]
-    e               : dict[tuple[int, int, int]     , float]    = solutions_stage2["e"]
-    q               : dict[int                      , float]    = solutions_stage2["q"]
-
-
-    # ----------------------------
-    # Arcs Information
-    # ----------------------------    
-    logger_arcs = Logger(
-        name        = "arcs"        , 
-        level       = "DEBUG"       , 
-        to_console  = False         , 
-        folder_name = folder_name   , 
-        file_name   = file_name     , 
-        timestamp   = timestamp     ,
-    )
-    logger_arcs.save()  # Will overwrite the previous arcs log by model_follower.py
-
-    logger_arcs.debug("Arcs information:")
-    for id, arc in all_arcs.items():
-        logger_arcs.debug (f"  Arc {id}: type {arc.type} from node ({arc.o.i}, {arc.o.t}, {arc.o.l}) to ({arc.d.i}, {arc.d.t}, {arc.d.l}); flow: {x[id]}")
-    
-
-    # ----------------------------
-    # EV flow in each arcs
-    # ----------------------------
-    logger_arcs.info("EV flow in arcs:")
-    curr_time = -1
-    for arc_id, arc in sorted(
-        all_arcs.items(),
-        key = lambda item: (item[1].o.t, item[1].o.i, item[1].d.i)
-    ):
-        if x.get(arc_id, 0) <= 0:
-            # we skip this arc if the arc has no flow and no unserved demand
-            continue
-
-        if curr_time != arc.o.t:
-            curr_time = arc.o.t
-            logger_arcs.info (f"  Time {curr_time}:")
-
-        logger_arcs.info(f"    Arc {arc_id} ({arc.type.name}): ")
-        logger_arcs.info(f"      From (start zone {arc.o.i}, start time {arc.o.t}, start charge {arc.o.l}) to (end zone {arc.d.i}, end time {arc.d.t}, end charge {arc.d.l})")
-        logger_arcs.info(f"      Flow: {x.get(arc_id, 0)}")
-        if arc.type == ArcType.SERVICE:
-            logger_arcs.info(f"      Unserved Demand: {s.get((arc.o.i, arc.d.i, arc.o.t), 0)}")
-
-    
-    # ----------------------------
-    # Summarised Information
-    # ----------------------------
-    service_revenues        : dict[int, float] = {
-        t: sum (x[e_id] * all_arcs[e_id].revenue
-            for i in ZONES
-            for j in ZONES
-            for e_id in service_arcs_ijt.get((i, j, t), set())
-        )
-        for t in TIMESTEPS
-    }
-    penalty_costs           : dict[int, float] = {
-        t: sum (e[(i, j, t)] * penalty.get((i, j, t), 0)
-            for i in ZONES
-            for j in ZONES
-        ) + (sum (s[(i, j, t)] * penalty.get((i, j, t), 0)
-            for i in ZONES
-            for j in ZONES
-            ) if t == T else 0
-        )
-        for t in TIMESTEPS
-    }
-    charge_costs            : dict[int, float] = {
-        t: sum (x[e_id] * all_arcs[e_id].charge_speed
-            for e_id in charge_arcs_t.get(t, set())
-        ) * charge_cost_low.get(t, 0) \
-        + q[t] * charge_cost_high.get(t, 0)
-        for t in TIMESTEPS
-    }
-    total_service_revenue   : float = sum(service_revenues.values())
-    total_penalty_cost      : float = sum(penalty_costs.values())
-    total_charge_cost       : float = sum(charge_costs.values())
-
-    logger.info("Model results:")
-    logger.info(f"  Objective value: {obj:.2f}")
-    logger.info(f"  Total service revenue: {total_service_revenue:.2f}")
-    logger.info(f"  Total penalty cost: {total_penalty_cost:.2f}")
-    logger.info(f"  Total charge cost: {total_charge_cost:.2f}")    
-
-    if not math.isclose(obj, total_service_revenue - total_penalty_cost - total_charge_cost):
-        logger.warning (f"  Objective value ({obj:.2f}) does not match total service revenue - total penalty cost - total charge cost ({total_service_revenue - total_penalty_cost - total_charge_cost:.2f}).")
-    
-
-    # ----------------------------
-    # Calculated information
-    # ----------------------------
-    # total number of valid trips
-    total_trips: int = sum (
-        valid_travel_demand.values()
-    )
-    # total number of valid trips served
-    total_trips_served: int = sum(
-        x.get(arc_id, 0) 
-        for arc_id in type_arcs[ArcType.SERVICE]
-    )
-    # total number of valid trips unserved (carried over from all intervals)
-    total_trips_unserved: int = sum (
-            e[(i, j, t)]
-            for i in ZONES
-            for j in ZONES
-            for t in TIMESTEPS
-        ) + sum (
-            s[(i, j, T)]
-            for i in ZONES
-            for j in ZONES
-    )
-    # total number of time intervals spent on service (sum of all EVs)
-    total_service_time: int = sum (
-        x[e] * (all_arcs[e].d.t - all_arcs[e].o.t)
-        for e in type_arcs[ArcType.SERVICE]
-    )
-    # total number of time intervals spent on charging (sum of all EVs)
-    total_charge_time: int = sum (
-        x[e] * (all_arcs[e].d.t - all_arcs[e].o.t)
-        for e in type_arcs[ArcType.CHARGE]    
-    )
-    # total number of time intervals spent on relocation (sum of all EVs)
-    total_relocation_time: int = sum (
-        x[e] * (all_arcs[e].d.t - all_arcs[e].o.t)
-        for e in type_arcs[ArcType.RELOCATION]    
-    )
-    # total number of time intervals spent on idle (sum of all EVs)
-    total_idle_time: int = sum (
-        x[e] * (all_arcs[e].d.t - all_arcs[e].o.t)
-        for e in type_arcs[ArcType.IDLE]    
-    )
-
-    if not math.isclose(total_trips, total_trips_served + total_trips_unserved):
-        logger.warning (f"  Total trips requested ({total_trips}) does not match total trips served ({total_trips_served}) + unserved ({total_trips_unserved}).")
-
-    if not math.isclose(total_service_time + total_charge_time + total_relocation_time + total_idle_time, T * num_EVs):
-        logger.warning (f"  Total time does not sum up! Total time: {T * num_EVs}, Service time: {total_service_time}, Charge time: {total_charge_time}, Relocation time: {total_relocation_time}, Idle time: {total_idle_time}")
-
-
-    # ---------------------------------
-    # Postprocessing and save results
-    # ---------------------------------
-    postprocessing(
-        **follower_model_parameters                     ,
-        **leader_model_parameters                       ,
-        **network_parameters                            ,
-        **charge_price_parameters                       ,
-        **solutions_stage2                              ,
-        **path_metadata                                 ,
-
-        # Calculated information
-        service_revenues        = service_revenues      ,
-        penalty_costs           = penalty_costs         ,
-        charge_costs            = charge_costs          ,
-        total_service_revenue   = total_service_revenue ,
-        total_penalty_cost      = total_penalty_cost    ,
-        total_charge_cost       = total_charge_cost     ,
-
-        # Metadata
-        results_name            = results_name          ,
-    )
 
 
         

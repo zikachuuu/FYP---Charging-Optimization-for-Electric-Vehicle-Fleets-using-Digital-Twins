@@ -43,9 +43,10 @@ def _precompute_interpolation_matrix(
     ```
     Note that we only interpolates time steps 1 to T-1 (excludes time steps 0 and T)
     """
-    M: npt.NDArray[np.float64] = np.zeros((T-1, NUM_ANCHORS))
+    num_anchors = len(anchor_indices)
+    M: npt.NDArray[np.float64] = np.zeros((T-1, num_anchors))
     
-    for i in range(NUM_ANCHORS - 1):
+    for i in range(num_anchors - 1):
 
         anchor_start    = anchor_indices[i]         # eg 1
         anchor_end      = anchor_indices[i+1]       # eg 3
@@ -347,6 +348,8 @@ def run_parallel_de(
     file_name               : str                                   = kwargs["file_name"]               # filename for logging
     folder_name             : str                                   = kwargs["folder_name"]             # folder name for logging
 
+    global NUM_ANCHORS
+    
     # ----------------------------
     # Logger Setup
     # ----------------------------
@@ -414,6 +417,10 @@ def run_parallel_de(
         # Time steps 0 and T are fixed at their lower bounds
         if NUM_ANCHORS < 1:
             raise ValueError("NUM_ANCHORS must be at least 1")
+        
+        if NUM_ANCHORS > T - 1:
+            logger.warning(f"NUM_ANCHORS ({NUM_ANCHORS}) exceeds maximum possible anchors (T-1 = {T-1}). Setting NUM_ANCHORS to {T-1}.")
+            NUM_ANCHORS = T - 1
         
         # Distribute anchors only within time steps 1 to T-1
         anchor_indices      : npt.NDArray[np.int_]      = np.linspace(1, T-1, NUM_ANCHORS, dtype=int)
