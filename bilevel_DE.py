@@ -3,6 +3,7 @@ import numpy.typing as npt
 import time
 import multiprocessing
 import os
+import matplotlib.pyplot as plt
 from functools import partial
 
 from model_leader import leader_model
@@ -349,7 +350,7 @@ def run_parallel_de(
     folder_name             : str                                   = kwargs["folder_name"]             # folder name for logging
 
     global NUM_ANCHORS
-    
+
     # ----------------------------
     # Logger Setup
     # ----------------------------
@@ -527,6 +528,13 @@ def run_parallel_de(
         # ----------------------------
         # DE Main Loop
         # ----------------------------
+        # To track fitness and variance of candidate with best fitness
+        best_fitness_can_fitnesses: npt.NDArray[np.float64] = np.zeros(MAX_ITER + 1)
+        best_fitness_can_variances: npt.NDArray[np.float64] = np.zeros(MAX_ITER + 1)
+        # To track fitness and variance of candidate with best variance
+        best_variance_can_fitnesses: npt.NDArray[np.float64] = np.zeros(MAX_ITER + 1)
+        best_variance_can_variances: npt.NDArray[np.float64] = np.zeros(MAX_ITER + 1)
+
         start_time_DE = time.time()
 
         # Initial Evaluation
@@ -567,7 +575,7 @@ def run_parallel_de(
                     f"Var Ratio =  {variance_ratios[best_idx_within_qualified]:.5f}, " \
                     f"Percentage Price Increase = {percentage_price_increases[best_idx_within_qualified]:.5f}%"
                 )
-                logger.info(f"  Time taken: {init_end_time - start_time_DE:.1f}s")
+                logger.info(f"DE completed in {print_duration(init_end_time - start_time_DE)} ({init_end_time - start_time_DE:.1f}s)")
 
                 return _expand_trajectory(
                     best_vector,
@@ -590,11 +598,17 @@ def run_parallel_de(
                 f"Var Ratio = {variance_ratios[best_var_idx]:.5f}, " \
                 f"Percentage Price Increase = {percentage_price_increases[best_var_idx]:.5f}%"
             )
+            best_variance_can_fitnesses[0] = fitnesses[best_var_idx]
+            best_variance_can_variances[0] = variances[best_var_idx]
+
             logger.info(f"  Initial candidate with best fitness: Var = {variances[best_fitness_idx]:.5f}, " \
                 f"Fitness = {fitnesses[best_fitness_idx]:.5f}, " \
                 f"Var Ratio = {variance_ratios[best_fitness_idx]:.5f}, " \
                 f"Percentage Price Increase = {percentage_price_increases[best_fitness_idx]:.5f}%"
             )
+            best_fitness_can_fitnesses[0] = fitnesses[best_fitness_idx]
+            best_fitness_can_variances[0] = variances[best_fitness_idx]
+
             duration_init = init_end_time - start_time_DE
             logger.info(f"  Time taken: {print_duration(duration_init)} ({duration_init:.1f}s)")
 
@@ -670,16 +684,7 @@ def run_parallel_de(
                     end_time_DE = time.time()
                     logger.info(f"DE completed in {print_duration(end_time_DE - start_time_DE)} ({end_time_DE - start_time_DE:.1f}s).")
 
-                    return _expand_trajectory(
-                        candidate_flat  = best_vector       ,
-                        M               = M                 ,
-                        T               = T                 ,
-                        lower_bounds_a  = lower_bounds_a    ,
-                        lower_bounds_b  = lower_bounds_b    ,
-                        lower_bounds_r  = lower_bounds_r    ,
-                        upper_bounds_r  = upper_bounds_r    ,
-                        TIMESTEPS       = TIMESTEPS       ,
-                    )   
+                    break  # exit the generation loop
                 
                 # --- 5. Update Best Trackers ---
                 best_var_idx        = np.argmin(variances)
@@ -695,19 +700,60 @@ def run_parallel_de(
                     f"Var Ratio = {variance_ratios[best_var_idx]:.5f}, " \
                     f"Percentage Price Increase = {percentage_price_increases[best_var_idx]:.5f}%"
                 )
+                best_variance_can_fitnesses[gen+1] = fitnesses[best_var_idx]
+                best_variance_can_variances[gen+1] = variances[best_var_idx]
+
                 logger.info(f"  Current candidate with best fitness: Var = {variances[best_fitness_idx]:.5f}, " \
                     f"Fitness = {fitnesses[best_fitness_idx]:.5f}, " \
                     f"Var Ratio = {variance_ratios[best_fitness_idx]:.5f}, " \
                     f"Percentage Price Increase = {percentage_price_increases[best_fitness_idx]:.5f}%"
                 )
+                best_fitness_can_fitnesses[gen+1] = fitnesses[best_fitness_idx]
+                best_fitness_can_variances[gen+1] = variances[best_fitness_idx]
+
                 logger.info(f"  Generation time: {print_duration(gen_duration)} ({gen_duration:.1f}s) | Estimated remaining time: {print_duration(est_remaining_time)} ({est_remaining_time:.1f}s)")
 
+            else:
+                logger.info("Maximum iterations reached without meeting variance threshold.")
+                logger.info(f"Picking candidate with best fitness...")
+                best_vector : npt.NDArray[np.float64] = population[best_fitness_idx].copy()
+                
+                end_time_DE = time.time()
+                logger.info(f"DE completed in {print_duration(end_time_DE - start_time_DE)} ({end_time_DE - start_time_DE:.1f}s).")
 
-        end_time_DE = time.time()
-        logger.info(f"DE completed in {print_duration(end_time_DE - start_time_DE)} ({end_time_DE - start_time_DE:.1f}s).")
-        logger.info(f"Picking candidate with best fitness...")
+        # Plot the 2 graphs for fitness and variance progression
+        gens = np.arange(len(best_fitness_can_fitnesses))
 
-        best_vector : npt.NDArray[np.float64] = population[best_fitness_idx].copy()
+        # Fitness progression plot
+        fig_fitness = plt.figure(figsize=(6, 4), dpi=120)
+        plt.plot(gens, best_fitness_can_fitnesses, label="Best Fitness", color="tab:blue")
+        plt.plot(gens, best_variance_can_fitnesses, label="Best-Variance Fitness", color="tab:orange", linestyle="--")
+        plt.title("Fitness Progression")
+        plt.xlabel("Generation")
+        plt.ylabel("Fitness")
+        plt.grid(True, alpha=0.3)
+        plt.legend()
+        plt.tight_layout()
+        fitness_plot_path = os.path.join("Results", folder_name, f"DE_fitness_progress_{file_name}_{timestamp}.png")
+        fig_fitness.savefig(fitness_plot_path)
+        plt.close(fig_fitness)
+        logger.info(f"Saved fitness progression plot to: {fitness_plot_path}")
+
+        # Variance progression plot
+        fig_variance = plt.figure(figsize=(6, 4), dpi=120)
+        plt.plot(gens, best_fitness_can_variances, label="Best-Fitness Variance", color="tab:green")
+        plt.plot(gens, best_variance_can_variances, label="Best Variance", color="tab:red", linestyle="--")
+        plt.title("Variance Progression")
+        plt.xlabel("Generation")
+        plt.ylabel("Variance")
+        plt.grid(True, alpha=0.3)
+        plt.legend()
+        plt.tight_layout()
+        variance_plot_path = os.path.join("Results", folder_name, f"DE_variance_progress_{file_name}_{timestamp}.png")
+        fig_variance.savefig(variance_plot_path)
+        plt.close(fig_variance)
+        logger.info(f"Saved variance progression plot to: {variance_plot_path}")
+
 
         return _expand_trajectory(
             candidate_flat  = best_vector       ,
