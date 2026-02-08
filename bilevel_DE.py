@@ -330,6 +330,9 @@ def run_parallel_de(
     """
     Runs Differential Evolution in parallel using multiprocessing.
     """
+    # Set random seed for reproducibility
+    np.random.seed(42)
+    
     # ----------------------------
     # Parameters
     # ----------------------------
