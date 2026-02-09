@@ -331,7 +331,7 @@ def run_parallel_de(
     Runs Differential Evolution in parallel using multiprocessing.
     """
     # Set random seed for reproducibility
-    np.random.seed(42)
+    np.random.seed(67)
     
     # ----------------------------
     # Parameters
@@ -728,14 +728,14 @@ def run_parallel_de(
         gens = np.arange(len(best_fitness_can_fitnesses))
 
         # Fitness progression plot
-        fig_fitness = plt.figure(figsize=(6, 4), dpi=120)
+        fig_fitness = plt.figure(figsize=(12, 8))
         plt.plot(gens, best_fitness_can_fitnesses, label="Best Fitness", color="tab:blue")
         plt.plot(gens, best_variance_can_fitnesses, label="Best-Variance Fitness", color="tab:orange", linestyle="--")
         plt.title("Fitness Progression")
         plt.xlabel("Generation")
         plt.ylabel("Fitness")
         plt.grid(True, alpha=0.3)
-        plt.legend()
+        plt.legend(loc='upper center', bbox_to_anchor=(0.5, -0.1), ncol=2, frameon=True)
         plt.tight_layout()
         fitness_plot_path = os.path.join("Results", folder_name, f"DE_fitness_progress_{file_name}_{timestamp}.png")
         fig_fitness.savefig(fitness_plot_path)
@@ -743,14 +743,14 @@ def run_parallel_de(
         logger.info(f"Saved fitness progression plot to: {fitness_plot_path}")
 
         # Variance progression plot
-        fig_variance = plt.figure(figsize=(6, 4), dpi=120)
+        fig_variance = plt.figure(figsize=(12, 8))
         plt.plot(gens, best_fitness_can_variances, label="Best-Fitness Variance", color="tab:green")
         plt.plot(gens, best_variance_can_variances, label="Best Variance", color="tab:red", linestyle="--")
         plt.title("Variance Progression")
         plt.xlabel("Generation")
         plt.ylabel("Variance")
         plt.grid(True, alpha=0.3)
-        plt.legend()
+        plt.legend(loc='upper center', bbox_to_anchor=(0.5, -0.1), ncol=2, frameon=True)
         plt.tight_layout()
         variance_plot_path = os.path.join("Results", folder_name, f"DE_variance_progress_{file_name}_{timestamp}.png")
         fig_variance.savefig(variance_plot_path)

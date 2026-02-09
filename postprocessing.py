@@ -6,15 +6,15 @@ from logger import Logger
 from networkClass import Arc, ArcType
 
 # Increase default font sizes for all plots
-# plt.rcParams.update({
-#     "font.size": 12,
-#     "axes.titlesize": 14,
-#     "axes.labelsize": 12,
-#     "xtick.labelsize": 11,
-#     "ytick.labelsize": 11,
-#     "legend.fontsize": 11,
-#     "figure.titlesize": 14,
-# })
+plt.rcParams.update({
+    "font.size": 16,
+    "axes.titlesize": 18,
+    "axes.labelsize": 16,
+    "xtick.labelsize": 15,
+    "ytick.labelsize": 15,
+    "legend.fontsize": 15,
+    "figure.titlesize": 18,
+})
 
 def postprocessing(**kwargs):
     # Follower model parameters
@@ -108,7 +108,7 @@ def postprocessing(**kwargs):
 
         # Create plot (excluding total row)
         df_plot = df_profit.iloc[:-1] # exclude total row for plotting
-        plt.figure(figsize=(10, 5))
+        plt.figure(figsize=(12, 8))
 
         # Plot each metric
         plt.plot(
@@ -148,7 +148,7 @@ def postprocessing(**kwargs):
         plt.ylabel  ('Money ($)')
         plt.title   ('Fleet Operator Profit Breakdown Over Time')
         plt.grid    (True, alpha=0.3)
-        plt.legend  (loc='best', frameon=False)
+        plt.legend  (loc='upper center', bbox_to_anchor=(0.5, -0.1), ncol=4, frameon=True)
 
         plt.tight_layout()
         
@@ -199,7 +199,7 @@ def postprocessing(**kwargs):
         ]
 
         # Plot
-        plt.figure(figsize=(10, 5))
+        plt.figure(figsize=(12, 8))
         type_colors = {
             "SERVICE"   : 'tab:blue'   ,
             "CHARGE"    : 'tab:orange' ,
@@ -223,7 +223,7 @@ def postprocessing(**kwargs):
         plt.ylabel  ("% of EVs")
         plt.title   ("SAEV Operations by Activities over Time")
         plt.grid    (True, alpha=0.3)
-        plt.legend  (title="Activity", loc="best", frameon=False)
+        plt.legend  (title="Activity", loc="upper center", bbox_to_anchor=(0.5, -0.1), ncol=4, frameon=True)
         plt.tight_layout()
 
         outfile = os.path.join ("Results", folder_name, f"ev_operations_{file_name}_{timestamp}.png")
@@ -454,7 +454,7 @@ def postprocessing(**kwargs):
         df_combined.index.name = "Time Interval"
         
         # Create dual-axis plot
-        fig, ax1 = plt.subplots(figsize=(12, 6))
+        fig, ax1 = plt.subplots(figsize=(12, 8))
         
         # Left axis - SAEV Service percentage
         color = 'tab:blue'
@@ -516,7 +516,7 @@ def postprocessing(**kwargs):
         # Combined legend
         lines = line1 + line2 + line3 + line4 + line5
         labels = [l.get_label() for l in lines]
-        ax1.legend(lines, labels, loc='best', frameon=False)
+        ax1.legend(lines, labels, loc='upper center', bbox_to_anchor=(0.5, -0.1), ncol=2, frameon=True)
         
         plt.title('SAEV Service Operations vs Demand Metrics')
         plt.tight_layout()
@@ -574,7 +574,7 @@ def postprocessing(**kwargs):
         df_electricity.index.name = "Time Interval"
         
         # Create dual-axis plot
-        fig, ax1 = plt.subplots(figsize=(12, 6))
+        fig, ax1 = plt.subplots(figsize=(12, 8))
         
         # Left axis - SoC levels
         ax1.set_xlabel('Time Intervals')
@@ -643,7 +643,7 @@ def postprocessing(**kwargs):
         # Combined legend
         lines = line1 + line2 + line3 + line4 + line5 + line6
         labels = [l.get_label() for l in lines]
-        ax1.legend(lines, labels, loc='best', frameon=False)
+        ax1.legend(lines, labels, loc='upper center', bbox_to_anchor=(0.5, -0.1), ncol=3, frameon=True)
         
         plt.title('Electricity Usage and Pricing Over Time')
         plt.tight_layout()
@@ -830,7 +830,7 @@ def postprocessing(**kwargs):
         # -----------------------------
         # PLOTTING
         # -----------------------------
-        fig, ax = plt.subplots(figsize=(10, 6))
+        fig, ax = plt.subplots(figsize=(12, 8))
         
         # Reverse order for plotting (Largest area first = 10% threshold)
         check_thresholds = list(reversed(thresholds)) 
@@ -864,7 +864,7 @@ def postprocessing(**kwargs):
         ax.grid(True, alpha=0.3)
         
         handles, leg_labels = ax.get_legend_handles_labels()
-        ax.legend(reversed(handles), reversed(leg_labels), loc='center left', bbox_to_anchor=(1, 0.5), title=title_suffix)
+        ax.legend(reversed(handles), reversed(leg_labels), loc='upper center', bbox_to_anchor=(0.5, -0.1), ncol=5, title=title_suffix)
         
         plt.tight_layout()
         outfile = os.path.join("Results", folder_name, f"{filename_suffix}_{file_name}_{timestamp}.png")
