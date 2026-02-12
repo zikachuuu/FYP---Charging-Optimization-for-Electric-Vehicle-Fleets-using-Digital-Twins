@@ -14,6 +14,7 @@ VAR_THRESHOLD   : float = 0         # variance threshold for early stopping of D
 PENALTY_WEIGHT  : float = 0.5       # penalty weight for high price settings in leader fitness function
 NUM_ANCHORS     : int   = 12        # number of anchors for DE (max is T-2)
 VARS_PER_STEP   : int   = 3         # number of dimensions (variables) per time step (i.e. a_t, b_t, r_t)
+FITNESS_IMPROVEMENT_THRESHOLD: float = 0.1 # Minimum Threshold for num_anchors to increase
 
 RELAX_STAGE_2   : bool  = False      # whether to relax integrality constraints in follower model (Stage 2) during DE evaluations (for debugging)
 
