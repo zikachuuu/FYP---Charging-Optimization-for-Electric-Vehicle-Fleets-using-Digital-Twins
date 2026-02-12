@@ -833,8 +833,8 @@ def run_parallel_de(
                 gen_duration = time.time() - gen_start_time
                 est_remaining_time = gen_duration * (MAX_ITER - gen - 1)
 
-                logger.info(f"\nResults:")
-                logger.info(f"  Best Variance Candidate: Var = {variances[best_var_idx]:.5f}, " \
+                logger.info(f"  Results:")
+                logger.info(f"      Best Variance Candidate: Var = {variances[best_var_idx]:.5f}, " \
                     f"Fitness = {fitnesses[best_var_idx]:.5f}, " \
                     f"Var Ratio = {variance_ratios[best_var_idx]:.5f}, " \
                     f"Price Increase = {percentage_price_increases[best_var_idx]:.5f}%"
@@ -842,7 +842,7 @@ def run_parallel_de(
                 best_variance_can_fitnesses[gen+1] = fitnesses[best_var_idx]
                 best_variance_can_variances[gen+1] = variances[best_var_idx]
 
-                logger.info(f"  Best Fitness Candidate: Var = {variances[best_fitness_idx]:.5f}, " \
+                logger.info(f"      Best Fitness Candidate: Var = {variances[best_fitness_idx]:.5f}, " \
                     f"Fitness = {fitnesses[best_fitness_idx]:.5f}, " \
                     f"Var Ratio = {variance_ratios[best_fitness_idx]:.5f}, " \
                     f"Price Increase = {percentage_price_increases[best_fitness_idx]:.5f}%"
@@ -850,9 +850,9 @@ def run_parallel_de(
                 best_fitness_can_fitnesses[gen+1] = fitnesses[best_fitness_idx]
                 best_fitness_can_variances[gen+1] = variances[best_fitness_idx]
 
-                logger.info(f"  Fitness Improvement: {fitness_improvement:.5f}")
-                logger.info(f"  Generation Time: {print_duration(gen_duration)} ({gen_duration:.1f}s)")
-                logger.info(f"  Est. Remaining Time: {print_duration(est_remaining_time)} ({est_remaining_time:.1f}s)")
+                logger.info(f"      Fitness Improvement: {fitness_improvement:.5f}")
+                logger.info(f"      Generation Time: {print_duration(gen_duration)} ({gen_duration:.1f}s)")
+                logger.info(f"      Est. Remaining Time: {print_duration(est_remaining_time)} ({est_remaining_time:.1f}s)")
 
             else:
                 logger.info("Maximum iterations reached without meeting variance threshold.")
