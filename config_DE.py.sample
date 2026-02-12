@@ -6,6 +6,7 @@ MAX_ITER        : int   = 22        # maximum iterations for DE
 DIFF_WEIGHT     : float = 0.7       # Differential Weight / Mutation: Controls jump size
                                     #   Higher = bigger jumps (exploration); Lower = fine-tuning (exploitation)
                                     #   Since population size is small, need to aggresively explore to avoid getting stuck.
+DIFF_WEIGHT_VARY: bool = False      # If False, use fixed DIFF_WEIGHT, else, uniformly choose a random value from [DIFF_WEIGHT, 1]
 CROSS_PROB      : float = 0.7       # Crossover Probability: How much DNA comes from the mutant vs. the parent
                                     #   0.7 means 70% of the genes change every step.
                                     #   We want to mix good genes quickly, so set it high.

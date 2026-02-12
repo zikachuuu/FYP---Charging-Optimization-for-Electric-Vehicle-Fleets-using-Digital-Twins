@@ -19,6 +19,7 @@ from config_DE import (
     NUM_THREADS     ,
     MAX_ITER        ,
     DIFF_WEIGHT     ,
+    DIFF_WEIGHT_VARY ,
     CROSS_PROB      ,
     VAR_THRESHOLD   ,
     PENALTY_WEIGHT  ,
@@ -149,6 +150,7 @@ Examples:
     logger.info(f"  Number of Threads per Process (NUM_THREADS)             : {NUM_THREADS}")
     logger.info(f"  Maximum Iterations (MAX_ITER)                           : {MAX_ITER}")
     logger.info(f"  Differential Weight (DIFF_WEIGHT)                       : {DIFF_WEIGHT}")
+    logger.info(f"  Vary Differential Weight (DIFF_WEIGHT_VARY)             : {DIFF_WEIGHT_VARY}")
     logger.info(f"  Crossover Probability (CROSS_PROB)                      : {CROSS_PROB}")
     logger.info(f"  Variance Threshold for Early Stopping (VAR_THRESHOLD)   : {VAR_THRESHOLD}")
     logger.info(f"  Penalty Weight for Leader Fitness (PENALTY_WEIGHT)      : {PENALTY_WEIGHT}")

@@ -21,6 +21,7 @@ from config_DE import (
     VAR_THRESHOLD   ,
     NUM_ANCHORS     ,
     VARS_PER_STEP   ,
+    DIFF_WEIGHT_VARY ,
 )
 
 def _precompute_interpolation_matrix(
@@ -636,7 +637,8 @@ def run_parallel_de(
                 # F       : scales the distance vector (differential weight)
                 # A + ... : shifts the scaled vector to start from A (the base vector)
                 # mutant has shape (pop_size, optimization_dims)
-                mutant: npt.NDArray[np.float64]  = population[idxs_a] + DIFF_WEIGHT * (population[idxs_b] - population[idxs_c])
+                diff_weight: float = DIFF_WEIGHT if not DIFF_WEIGHT_VARY else np.random.uniform(DIFF_WEIGHT, 1.0)
+                mutant: npt.NDArray[np.float64]  = population[idxs_a] + diff_weight * (population[idxs_b] - population[idxs_c])
 
                 # enforce bounds
                 mutant: npt.NDArray[np.float64]  = np.maximum(mutant, lower_bounds)
