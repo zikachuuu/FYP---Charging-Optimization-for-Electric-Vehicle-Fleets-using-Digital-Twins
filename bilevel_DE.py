@@ -771,7 +771,7 @@ def run_parallel_de(
                     new_num_anchors = min(current_num_anchors + anchor_increase, MAX_ANCHORS)
                     
                     logger.info(f"  Fitness improvement ({fitness_improvement:.5f}) below threshold ({FITNESS_IMPROVEMENT_THRESHOLD:.5f})")
-                    logger.info(f"  Increasing anchors from {current_num_anchors} to {new_num_anchors}")
+                    logger.info(f"  Increasing anchors from {current_num_anchors} to {new_num_anchors} next iteration")
                     
                     # Recalculate anchor indices and interpolation matrix
                     old_M = M.copy()
@@ -792,7 +792,7 @@ def run_parallel_de(
                     )[anchor_indices].flatten()
                     
                     # Resample population to new dimensionality
-                    logger.info(f"  Resampling population from {population.shape[1]} to {new_num_anchors * VARS_PER_STEP} dimensions")
+                    logger.info(f"  Resampling population from {population.shape[1]} to {new_num_anchors * VARS_PER_STEP} dimensions for next iteration")
                     population = _resample_population_for_new_anchors(
                         population          = population        ,
                         old_M               = old_M             ,
@@ -824,7 +824,7 @@ def run_parallel_de(
                         log_queue_gurobi        = log_queue_gurobi      ,
                     )
                     
-                    logger.info(f"  Anchor increase complete. New interpolation matrix shape: {M.shape}")
+                    logger.info(f"  Anchor increase complete. New interpolation matrix shape for next iteration: {M.shape}")
                 
                 # Update tracking
                 prev_best_fitness = current_best_fitness
