@@ -1,23 +1,23 @@
 POP_SIZE                        : int   = 32        # population size for DE (should be in multiples of <number of CPU cores> - 1)
 NUM_PROCESSES                   : int   = 8         # number of independent processes for parallel DE evaluations
-                                    #   Should be <= total available CPU cores
+                                                    #   Should be <= total available CPU cores
 NUM_THREADS                     : int   = 1         # number of threads used per process during DE evaluations
-                                    #   NUM_PROCESSES * NUM_THREADS should be <= total available CPU cores
+                                                    #   NUM_PROCESSES * NUM_THREADS should be <= total available CPU cores
 MAX_ITER                        : int   = 40        # maximum iterations for DE
 DIFF_WEIGHT                     : float = 0.7       # Differential Weight / Mutation: Controls jump size
-                                    #   Higher = bigger jumps (exploration); Lower = fine-tuning (exploitation)
-                                    #   Since population size is small, need to aggresively explore to avoid getting stuck.
-DIFF_WEIGHT_VARY                : bool = True      # If False, use fixed DIFF_WEIGHT, else, uniformly choose a random value from [DIFF_WEIGHT, 1]
+                                                    #   Higher = bigger jumps (exploration); Lower = fine-tuning (exploitation)
+                                                    #   Since population size is small, need to aggresively explore to avoid getting stuck.
+DIFF_WEIGHT_VARY                : bool  = True      # If False, use fixed DIFF_WEIGHT, else, uniformly choose a random value from [DIFF_WEIGHT, 1]
 CROSS_PROB                      : float = 0.7       # Crossover Probability: How much DNA comes from the mutant vs. the parent
-                                    #   0.7 means 70% of the genes change every step.
-                                    #   We want to mix good genes quickly, so set it high.
+                                                    #   0.7 means 70% of the genes change every step.
+                                                    #   We want to mix good genes quickly, so set it high.
 VAR_THRESHOLD                   : float = 0         # variance threshold for early stopping of DE
 PENALTY_WEIGHT                  : float = 0.5       # penalty weight for high price settings in leader fitness function
 NUM_ANCHORS                     : int   = 4         # number of anchors for DE (max is T-1)
 VARS_PER_STEP                   : int   = 3         # number of dimensions (variables) per time step (i.e. a_t, b_t, r_t)
-FITNESS_IMPROVEMENT_THRESHOLD   : float = 0.1 # Minimum Threshold for num_anchors to increase
-INITIAL_UPPER_BOUND_MULTIPLICITY: float = 5   # Initial upper bound for DE search space of a and b as a multiple of wholesale electricity price
-FINAL_UPPER_BOUND_MULTIPLICITY  : float = 10   # Final upper bound for DE search space of a and b as a multiple of wholesale electricity price
+FITNESS_IMPROVEMENT_THRESHOLD   : float = 0.1       # Minimum Threshold for num_anchors to increase
+INITIAL_UPPER_BOUND_MULTIPLICITY: float = 5         # Initial upper bound for DE search space of a and b as a multiple of wholesale electricity price
+FINAL_UPPER_BOUND_MULTIPLICITY  : float = 10        # Final upper bound for DE search space of a and b as a multiple of wholesale electricity price
 
 RELAX_STAGE_2   : bool  = True      # whether to relax integrality constraints in follower model (Stage 2) during DE evaluations (for debugging)
 
