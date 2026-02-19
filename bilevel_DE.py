@@ -24,6 +24,8 @@ from config_DE import (
     VARS_PER_STEP           ,
     DIFF_WEIGHT_VARY        ,
     FITNESS_IMPROVEMENT_THRESHOLD,
+    INITIAL_UPPER_BOUND_MULTIPLICITY,
+    FINAL_UPPER_BOUND_MULTIPLICITY,
 )
 
 # Threshold for fitness improvement to trigger anchor increase
@@ -462,13 +464,13 @@ def run_parallel_de(
         lower_bounds_r          : npt.NDArray[np.float64] = np.zeros(T + 1)                          # r_t >= 0
 
         # Upper bounds
-        upper_bounds_a_init     : npt.NDArray[np.float64] = wholesale_elec_price_arr * 2.0                                                  # a_t <= 2 * wholesale price (initial, can be exceeded during evolution)
-        upper_bounds_b_init     : npt.NDArray[np.float64] = wholesale_elec_price_arr * 1.0                                                  # b_t <= wholesale price (initial, can be exceeded during evolution)
+        upper_bounds_a_init     : npt.NDArray[np.float64] = wholesale_elec_price_arr * INITIAL_UPPER_BOUND_MULTIPLICITY                     # a_t <= 2 * wholesale price (initial, can be exceeded during evolution)
+        upper_bounds_b_init     : npt.NDArray[np.float64] = wholesale_elec_price_arr * INITIAL_UPPER_BOUND_MULTIPLICITY                     # b_t <= wholesale price (initial, can be exceeded during evolution)
         upper_bounds_r          : npt.NDArray[np.float64] = np.array([sum(elec_supplied.get((i,t), 0) for i in ZONES) for t in TIMESTEPS])  # r_t <= total electricity supplied at time t (hard limit)
 
         # a_t and b_t can be unbounded in theory, but we set a very high upper bound for numerical stability
-        upper_bounds_a_final    : npt.NDArray[np.float64] = wholesale_elec_price_arr * 10.0
-        upper_bounds_b_final    : npt.NDArray[np.float64] = wholesale_elec_price_arr * 10.0
+        upper_bounds_a_final    : npt.NDArray[np.float64] = wholesale_elec_price_arr * FINAL_UPPER_BOUND_MULTIPLICITY
+        upper_bounds_b_final    : npt.NDArray[np.float64] = wholesale_elec_price_arr * FINAL_UPPER_BOUND_MULTIPLICITY
 
         logger.info("Bounds for decision variables set successfully!")
 
