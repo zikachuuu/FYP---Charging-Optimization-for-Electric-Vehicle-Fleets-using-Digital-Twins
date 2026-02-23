@@ -14,20 +14,21 @@ from logger import Logger, LogListener
 from exceptions import OptimizationError
 from utility import print_duration
 from config_DE import (
-    POP_SIZE                ,
-    NUM_PROCESSES           ,
-    MAX_ITER                ,
-    DIFF_WEIGHT             ,
-    CROSS_PROB              ,
-    VAR_THRESHOLD           ,
-    NUM_ANCHORS             ,
-    VARS_PER_STEP           ,
-    DIFF_WEIGHT_VARY        ,
-    FITNESS_IMPROVEMENT_THRESHOLD,
-    INITIAL_UPPER_BOUND_MULTIPLICITY_A,
-    INITIAL_UPPER_BOUND_MULTIPLICITY_B,
-    FINAL_UPPER_BOUND_MULTIPLICITY_A,
-    FINAL_UPPER_BOUND_MULTIPLICITY_B,
+    POP_SIZE                            ,
+    NUM_PROCESSES                       ,
+    MAX_ITER                            ,
+    DIFF_WEIGHT                         ,
+    CROSS_PROB                          ,
+    VAR_THRESHOLD                       ,
+    NUM_ANCHORS                         ,
+    VARS_PER_STEP                       ,
+    DIFF_WEIGHT_VARY                    ,
+    FITNESS_IMPROVEMENT_THRESHOLD       ,
+    INITIAL_UPPER_BOUND_MULTIPLICITY_A  ,
+    INITIAL_UPPER_BOUND_MULTIPLICITY_B  ,
+    FINAL_UPPER_BOUND_MULTIPLICITY_A    ,
+    FINAL_UPPER_BOUND_MULTIPLICITY_B    ,
+    RANDOM_SEED                         ,
 )
 
 # Threshold for fitness improvement to trigger anchor increase
@@ -401,7 +402,7 @@ def run_parallel_de(
     Runs Differential Evolution in parallel using multiprocessing.
     """
     # Set random seed for reproducibility
-    np.random.seed(67)
+    np.random.seed(RANDOM_SEED)
     
     # ----------------------------
     # Parameters

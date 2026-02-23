@@ -25,7 +25,7 @@ FINAL_UPPER_BOUND_MULTIPLICITY_A    : float = 10.0  # Final upper bound for a_t 
 FINAL_UPPER_BOUND_MULTIPLICITY_B    : float = 10.0  # Final upper bound for b_t as a multiple of wholesale electricity price
 
 RELAX_STAGE_2                       : bool  = True  # whether to relax integrality constraints in follower model (Stage 2) during DE evaluations (for debugging)
-
+RANDOM_SEED                         : int   = 67    # random seed for reproducibility (numpy, Gurobi)
 """
 Notes for setting POP_SIZE and MAX_ITER:
     - Time to iterate the entire population once = time to evaluate one candidate * ceil (POP_SIZE / NUM_PROCESSES)

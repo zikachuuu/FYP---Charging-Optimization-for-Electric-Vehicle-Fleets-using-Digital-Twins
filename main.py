@@ -14,23 +14,24 @@ from utility import convert_key_types, print_duration
 from postprocessing import postprocessing
 from bilevel_DE import run_parallel_de
 from config_DE import (
-    POP_SIZE                        ,
-    NUM_PROCESSES                   ,
-    NUM_THREADS                     ,
-    MAX_ITER                        ,
-    DIFF_WEIGHT                     ,
-    DIFF_WEIGHT_VARY                ,
-    CROSS_PROB                      ,
-    VAR_THRESHOLD                   ,
-    PENALTY_WEIGHT                  ,
-    NUM_ANCHORS                     ,
-    VARS_PER_STEP                   ,
-    FITNESS_IMPROVEMENT_THRESHOLD   ,
-    INITIAL_UPPER_BOUND_MULTIPLICITY_A,
-    INITIAL_UPPER_BOUND_MULTIPLICITY_B,
-    FINAL_UPPER_BOUND_MULTIPLICITY_A,
-    FINAL_UPPER_BOUND_MULTIPLICITY_B,
-    RELAX_STAGE_2
+    POP_SIZE                            ,
+    NUM_PROCESSES                       ,
+    NUM_THREADS                         ,
+    MAX_ITER                            ,
+    DIFF_WEIGHT                         ,
+    DIFF_WEIGHT_VARY                    ,
+    CROSS_PROB                          ,
+    VAR_THRESHOLD                       ,
+    PENALTY_WEIGHT                      ,
+    NUM_ANCHORS                         ,
+    VARS_PER_STEP                       ,
+    FITNESS_IMPROVEMENT_THRESHOLD       ,
+    INITIAL_UPPER_BOUND_MULTIPLICITY_A  ,
+    INITIAL_UPPER_BOUND_MULTIPLICITY_B  ,
+    FINAL_UPPER_BOUND_MULTIPLICITY_A    ,
+    FINAL_UPPER_BOUND_MULTIPLICITY_B    ,
+    RELAX_STAGE_2                       ,
+    RANDOM_SEED                         ,
 )
 
 
@@ -167,6 +168,7 @@ Examples:
     logger.info(f"  Final Upper Bound Multiplicity for a_t (FINAL_UPPER_BOUND_MULTIPLICITY_A)      : {FINAL_UPPER_BOUND_MULTIPLICITY_A}")
     logger.info(f"  Final Upper Bound Multiplicity for b_t (FINAL_UPPER_BOUND_MULTIPLICITY_B)      : {FINAL_UPPER_BOUND_MULTIPLICITY_B}")
     logger.info(f"  Relax Follower Model in Stage 2 (RELAX_STAGE_2)                                : {RELAX_STAGE_2}")
+    logger.info(f"  Random Seed (RANDOM_SEED)                                                       : {RANDOM_SEED}")
 
     # Load data from the specified JSON file
     data: dict = None

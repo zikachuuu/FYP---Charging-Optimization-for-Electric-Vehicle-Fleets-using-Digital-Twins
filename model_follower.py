@@ -10,8 +10,9 @@ from logger import Logger
 from networkClass import Node, Arc, ArcType, ServiceArc, ChargingArc, RelocationArc, IdleArc, WraparoundArc
 from exceptions import OptimizationError
 from config_DE import (
-    NUM_THREADS,
-    RELAX_STAGE_2
+    NUM_THREADS     ,
+    RELAX_STAGE_2   ,
+    RANDOM_SEED
 )
 
 # ----------------------------
@@ -477,7 +478,7 @@ def follower_model_builder(
     model.setParam("Method"     , 2                             )   # use barrier method
     model.setParam('Crossover'  , 0                             )   # skip crossover; no dual solution, sensitivity analysis, warm start
     model.setParam("Threads"    , NUM_THREADS if relaxed else 0 )   # if not relaxed, use all available threads
-    model.setParam("Seed"       , 67                            )   # set random seed for reproducibility
+    model.setParam("Seed"       , RANDOM_SEED                   )   # set random seed for reproducibility
 
 
     # ----------------------------
