@@ -24,8 +24,10 @@ from config_DE import (
     VARS_PER_STEP           ,
     DIFF_WEIGHT_VARY        ,
     FITNESS_IMPROVEMENT_THRESHOLD,
-    INITIAL_UPPER_BOUND_MULTIPLICITY,
-    FINAL_UPPER_BOUND_MULTIPLICITY,
+    INITIAL_UPPER_BOUND_MULTIPLICITY_A,
+    INITIAL_UPPER_BOUND_MULTIPLICITY_B,
+    FINAL_UPPER_BOUND_MULTIPLICITY_A,
+    FINAL_UPPER_BOUND_MULTIPLICITY_B,
 )
 
 # Threshold for fitness improvement to trigger anchor increase
@@ -91,6 +93,8 @@ def _resample_population_for_new_anchors(
         lower_bounds_a      : npt.NDArray[np.float64]   ,
         lower_bounds_b      : npt.NDArray[np.float64]   ,
         lower_bounds_r      : npt.NDArray[np.float64]   ,
+        upper_bounds_a      : npt.NDArray[np.float64]   ,
+        upper_bounds_b      : npt.NDArray[np.float64]   ,
         upper_bounds_r      : npt.NDArray[np.float64]   ,
     ) -> npt.NDArray[np.float64]:
     """
@@ -113,6 +117,8 @@ def _resample_population_for_new_anchors(
             lower_bounds_a  = lower_bounds_a    ,
             lower_bounds_b  = lower_bounds_b    ,
             lower_bounds_r  = lower_bounds_r    ,
+            upper_bounds_a  = upper_bounds_a    ,
+            upper_bounds_b  = upper_bounds_b    ,
             upper_bounds_r  = upper_bounds_r    ,
             TIMESTEPS       = TIMESTEPS         ,
         )
@@ -140,6 +146,8 @@ def _expand_trajectory (
         lower_bounds_a  : npt.NDArray[np.float64]   ,
         lower_bounds_b  : npt.NDArray[np.float64]   ,
         lower_bounds_r  : npt.NDArray[np.float64]   ,
+        upper_bounds_a  : npt.NDArray[np.float64]   ,
+        upper_bounds_b  : npt.NDArray[np.float64]   ,
         upper_bounds_r  : npt.NDArray[np.float64]   ,
         TIMESTEPS       : list[int]                 ,
     ) -> dict[str, dict[int, float]]:
@@ -169,8 +177,8 @@ def _expand_trajectory (
     full_trajectory[0, 2] = lower_bounds_r[0]
     
     # Time steps 1 to T-1: use interpolated values with bounds enforcement
-    full_trajectory[1:T, 0] = np.maximum(interior_trajectory[:, 0], lower_bounds_a[1:T])  # a_t
-    full_trajectory[1:T, 1] = np.maximum(interior_trajectory[:, 1], lower_bounds_b[1:T])  # b_t
+    full_trajectory[1:T, 0] = np.clip(interior_trajectory[:, 0], lower_bounds_a[1:T], upper_bounds_a[1:T])  # a_t
+    full_trajectory[1:T, 1] = np.clip(interior_trajectory[:, 1], lower_bounds_b[1:T], upper_bounds_b[1:T])  # b_t
     full_trajectory[1:T, 2] = np.clip(interior_trajectory[:, 2], lower_bounds_r[1:T], upper_bounds_r[1:T])  # r_t
     
     # Time step T: use lower bounds
@@ -295,6 +303,8 @@ def _evaluate_candidate(
     lower_bounds_a          : npt.NDArray[np.float64]               = kwargs["lower_bounds_a"]          # lower bounds for a_t
     lower_bounds_b          : npt.NDArray[np.float64]               = kwargs["lower_bounds_b"]          # lower bounds for b_t
     lower_bounds_r          : npt.NDArray[np.float64]               = kwargs["lower_bounds_r"]          # lower bounds for r_t
+    upper_bounds_a          : npt.NDArray[np.float64]               = kwargs["upper_bounds_a"]          # upper bounds for a_t
+    upper_bounds_b          : npt.NDArray[np.float64]               = kwargs["upper_bounds_b"]          # upper bounds for b_t
     upper_bounds_r          : npt.NDArray[np.float64]               = kwargs["upper_bounds_r"]          # upper bounds for r_t
     
     # Path Metadata
@@ -336,6 +346,8 @@ def _evaluate_candidate(
         lower_bounds_a  = lower_bounds_a    ,
         lower_bounds_b  = lower_bounds_b    ,
         lower_bounds_r  = lower_bounds_r    ,
+        upper_bounds_a  = upper_bounds_a    ,
+        upper_bounds_b  = upper_bounds_b    ,
         upper_bounds_r  = upper_bounds_r    ,   
         TIMESTEPS       = TIMESTEPS         ,
     )
@@ -354,7 +366,7 @@ def _evaluate_candidate(
             logger_gurobi   = logger_worker_gurobi  ,
         )
     except OptimizationError as e:
-        raise OptimizationError("Failed to solve follower problem for candidate.", details=e) from e
+        raise OptimizationError("Failed to solve follower problem for candidate.", status=e.status, details=str(e)) from e
     except Exception as e:
         raise Exception("Unexpected error when solving follower problem for candidate.") from e
 
@@ -464,13 +476,13 @@ def run_parallel_de(
         lower_bounds_r          : npt.NDArray[np.float64] = np.zeros(T + 1)                          # r_t >= 0
 
         # Upper bounds
-        upper_bounds_a_init     : npt.NDArray[np.float64] = wholesale_elec_price_arr * INITIAL_UPPER_BOUND_MULTIPLICITY                     # a_t <= 2 * wholesale price (initial, can be exceeded during evolution)
-        upper_bounds_b_init     : npt.NDArray[np.float64] = wholesale_elec_price_arr * INITIAL_UPPER_BOUND_MULTIPLICITY                     # b_t <= wholesale price (initial, can be exceeded during evolution)
+        upper_bounds_a_init     : npt.NDArray[np.float64] = wholesale_elec_price_arr * INITIAL_UPPER_BOUND_MULTIPLICITY_A     # a_t initial upper bound
+        upper_bounds_b_init     : npt.NDArray[np.float64] = wholesale_elec_price_arr * INITIAL_UPPER_BOUND_MULTIPLICITY_B     # b_t initial upper bound
         upper_bounds_r          : npt.NDArray[np.float64] = np.array([sum(elec_supplied.get((i,t), 0) for i in ZONES) for t in TIMESTEPS])  # r_t <= total electricity supplied at time t (hard limit)
 
         # a_t and b_t can be unbounded in theory, but we set a very high upper bound for numerical stability
-        upper_bounds_a_final    : npt.NDArray[np.float64] = wholesale_elec_price_arr * FINAL_UPPER_BOUND_MULTIPLICITY
-        upper_bounds_b_final    : npt.NDArray[np.float64] = wholesale_elec_price_arr * FINAL_UPPER_BOUND_MULTIPLICITY
+        upper_bounds_a_final    : npt.NDArray[np.float64] = wholesale_elec_price_arr * FINAL_UPPER_BOUND_MULTIPLICITY_A
+        upper_bounds_b_final    : npt.NDArray[np.float64] = wholesale_elec_price_arr * FINAL_UPPER_BOUND_MULTIPLICITY_B
 
         logger.info("Bounds for decision variables set successfully!")
 
@@ -581,6 +593,8 @@ def run_parallel_de(
             lower_bounds_a          = lower_bounds_a        ,
             lower_bounds_b          = lower_bounds_b        ,
             lower_bounds_r          = lower_bounds_r        ,
+            upper_bounds_a          = upper_bounds_a_final  ,
+            upper_bounds_b          = upper_bounds_b_final  ,
             upper_bounds_r          = upper_bounds_r        ,
 
             # Metadata
@@ -650,6 +664,8 @@ def run_parallel_de(
                     lower_bounds_a  = lower_bounds_a      ,
                     lower_bounds_b  = lower_bounds_b      ,
                     lower_bounds_r  = lower_bounds_r      ,
+                    upper_bounds_a  = upper_bounds_a_final,
+                    upper_bounds_b  = upper_bounds_b_final,
                     upper_bounds_r  = upper_bounds_r      ,
                     TIMESTEPS       = TIMESTEPS           ,
                 )
@@ -804,6 +820,8 @@ def run_parallel_de(
                         lower_bounds_a      = lower_bounds_a    ,
                         lower_bounds_b      = lower_bounds_b    ,
                         lower_bounds_r      = lower_bounds_r    ,
+                        upper_bounds_a      = upper_bounds_a_final,
+                        upper_bounds_b      = upper_bounds_b_final,
                         upper_bounds_r      = upper_bounds_r    ,
                     )
                     
@@ -818,6 +836,8 @@ def run_parallel_de(
                         lower_bounds_a          = lower_bounds_a        ,
                         lower_bounds_b          = lower_bounds_b        ,
                         lower_bounds_r          = lower_bounds_r        ,
+                        upper_bounds_a          = upper_bounds_a_final  ,
+                        upper_bounds_b          = upper_bounds_b_final  ,
                         upper_bounds_r          = upper_bounds_r        ,
                         # Metadata
                         M                       = M                     ,
@@ -905,6 +925,8 @@ def run_parallel_de(
             lower_bounds_a  = lower_bounds_a    ,
             lower_bounds_b  = lower_bounds_b    ,
             lower_bounds_r  = lower_bounds_r    ,
+            upper_bounds_a  = upper_bounds_a_final,
+            upper_bounds_b  = upper_bounds_b_final,
             upper_bounds_r  = upper_bounds_r    ,
             TIMESTEPS       = TIMESTEPS         ,
         )

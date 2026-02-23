@@ -14,17 +14,22 @@ from utility import convert_key_types, print_duration
 from postprocessing import postprocessing
 from bilevel_DE import run_parallel_de
 from config_DE import (
-    POP_SIZE        ,
-    NUM_PROCESSES   ,
-    NUM_THREADS     ,
-    MAX_ITER        ,
-    DIFF_WEIGHT     ,
-    DIFF_WEIGHT_VARY ,
-    CROSS_PROB      ,
-    VAR_THRESHOLD   ,
-    PENALTY_WEIGHT  ,
-    NUM_ANCHORS     ,
-    VARS_PER_STEP   ,
+    POP_SIZE                        ,
+    NUM_PROCESSES                   ,
+    NUM_THREADS                     ,
+    MAX_ITER                        ,
+    DIFF_WEIGHT                     ,
+    DIFF_WEIGHT_VARY                ,
+    CROSS_PROB                      ,
+    VAR_THRESHOLD                   ,
+    PENALTY_WEIGHT                  ,
+    NUM_ANCHORS                     ,
+    VARS_PER_STEP                   ,
+    FITNESS_IMPROVEMENT_THRESHOLD   ,
+    INITIAL_UPPER_BOUND_MULTIPLICITY_A,
+    INITIAL_UPPER_BOUND_MULTIPLICITY_B,
+    FINAL_UPPER_BOUND_MULTIPLICITY_A,
+    FINAL_UPPER_BOUND_MULTIPLICITY_B,
     RELAX_STAGE_2
 )
 
@@ -145,18 +150,23 @@ Examples:
     logger.info (f"Results will be saved in: {results_name}")
 
     logger.info(f"Configurations for Differential Evolution:")
-    logger.info(f"  Population Size (POP_SIZE)                              : {POP_SIZE}")
-    logger.info(f"  Number of Processes (NUM_PROCESSES)                     : {NUM_PROCESSES}")
-    logger.info(f"  Number of Threads per Process (NUM_THREADS)             : {NUM_THREADS}")
-    logger.info(f"  Maximum Iterations (MAX_ITER)                           : {MAX_ITER}")
-    logger.info(f"  Differential Weight (DIFF_WEIGHT)                       : {DIFF_WEIGHT}")
-    logger.info(f"  Vary Differential Weight (DIFF_WEIGHT_VARY)             : {DIFF_WEIGHT_VARY}")
-    logger.info(f"  Crossover Probability (CROSS_PROB)                      : {CROSS_PROB}")
-    logger.info(f"  Variance Threshold for Early Stopping (VAR_THRESHOLD)   : {VAR_THRESHOLD}")
-    logger.info(f"  Penalty Weight for Leader Fitness (PENALTY_WEIGHT)      : {PENALTY_WEIGHT}")
-    logger.info(f"  Number of Anchors (NUM_ANCHORS)                         : {NUM_ANCHORS}")
-    logger.info(f"  Variables per Time Step (VARS_PER_STEP)                 : {VARS_PER_STEP}")
-    logger.info(f"  Relax Follower Model in Stage 2 (RELAX_STAGE_2)         : {RELAX_STAGE_2}")
+    logger.info(f"  Population Size (POP_SIZE)                                                      : {POP_SIZE}")
+    logger.info(f"  Number of Processes (NUM_PROCESSES)                                             : {NUM_PROCESSES}")
+    logger.info(f"  Number of Threads per Process (NUM_THREADS)                                     : {NUM_THREADS}")
+    logger.info(f"  Maximum Iterations (MAX_ITER)                                                   : {MAX_ITER}")
+    logger.info(f"  Differential Weight (DIFF_WEIGHT)                                               : {DIFF_WEIGHT}")
+    logger.info(f"  Vary Differential Weight (DIFF_WEIGHT_VARY)                                     : {DIFF_WEIGHT_VARY}")
+    logger.info(f"  Crossover Probability (CROSS_PROB)                                              : {CROSS_PROB}")
+    logger.info(f"  Variance Threshold for Early Stopping (VAR_THRESHOLD)                           : {VAR_THRESHOLD}")
+    logger.info(f"  Penalty Weight for Leader Fitness (PENALTY_WEIGHT)                              : {PENALTY_WEIGHT}")
+    logger.info(f"  Number of Anchors (NUM_ANCHORS)                                                 : {NUM_ANCHORS}")
+    logger.info(f"  Variables per Time Step (VARS_PER_STEP)                                         : {VARS_PER_STEP}")
+    logger.info(f"  Fitness Improvement Threshold for Early Stopping (FITNESS_IMPROVEMENT_THRESHOLD): {FITNESS_IMPROVEMENT_THRESHOLD}")
+    logger.info(f"  Initial Upper Bound Multiplicity for a_t (INITIAL_UPPER_BOUND_MULTIPLICITY_A)  : {INITIAL_UPPER_BOUND_MULTIPLICITY_A}")
+    logger.info(f"  Initial Upper Bound Multiplicity for b_t (INITIAL_UPPER_BOUND_MULTIPLICITY_B)  : {INITIAL_UPPER_BOUND_MULTIPLICITY_B}")
+    logger.info(f"  Final Upper Bound Multiplicity for a_t (FINAL_UPPER_BOUND_MULTIPLICITY_A)      : {FINAL_UPPER_BOUND_MULTIPLICITY_A}")
+    logger.info(f"  Final Upper Bound Multiplicity for b_t (FINAL_UPPER_BOUND_MULTIPLICITY_B)      : {FINAL_UPPER_BOUND_MULTIPLICITY_B}")
+    logger.info(f"  Relax Follower Model in Stage 2 (RELAX_STAGE_2)                                : {RELAX_STAGE_2}")
 
     # Load data from the specified JSON file
     data: dict = None
