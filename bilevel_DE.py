@@ -201,6 +201,40 @@ def _expand_trajectory (
     }
 
 
+def _log_population_stats(
+        logger          : Logger                        ,
+        population      : npt.NDArray[np.float64]        ,
+        label           : str                           ,
+    ) -> None:
+    """
+    Log distribution stats of the population based on per-candidate means.
+    """
+    if population.size == 0:
+        logger.info(f"  {label} Population Stats: empty population")
+        return
+
+    if population.shape[1] % VARS_PER_STEP != 0:
+        logger.info(f"  {label} Population Stats: unexpected dimensions {population.shape}")
+        return
+
+    per_candidate = population.reshape(population.shape[0], -1, VARS_PER_STEP)
+    mean_a = per_candidate[:, :, 0].mean(axis=1)
+    mean_b = per_candidate[:, :, 1].mean(axis=1)
+    mean_r = per_candidate[:, :, 2].mean(axis=1)
+
+    def _format_stats(values: npt.NDArray[np.float64]) -> str:
+        return (
+            f"mean={float(values.mean()):.6f}, "
+            f"var={float(values.var(ddof=0)):.6f}, "
+            f"min={float(values.min()):.6f}, "
+            f"max={float(values.max()):.6f}"
+        )
+
+    logger.info(f"  {label} Population Stats (candidate means) - a_t: {_format_stats(mean_a)}")
+    logger.info(f"  {label} Population Stats (candidate means) - b_t: {_format_stats(mean_b)}")
+    logger.info(f"  {label} Population Stats (candidate means) - r_t: {_format_stats(mean_r)}")
+
+
 def _reference_candidate(
         **kwargs
     ):
@@ -533,6 +567,7 @@ def run_parallel_de(
             size    = (POP_SIZE, optimization_dims)
         )
         logger.info(f"DE population initialized with size {population.shape}")
+        _log_population_stats(logger, population, "Initial")
 
         # Ensure that population contain one candidate with all variables at lower bounds
         # This ensures that setting minimum prices is always considered
@@ -701,7 +736,8 @@ def run_parallel_de(
                 gen_start_time = time.time()
                 
                 # Log current anchor configuration
-                logger.info(f"Generation {gen+1}/{MAX_ITER} - Using {current_num_anchors} anchors (max: {MAX_ANCHORS})")
+                logger.info(f"Generation {gen+1}/{MAX_ITER} - Using {current_num_anchors} anchors (max: {MAX_ANCHORS}): [{', '.join(map(str, anchor_indices))}]")
+                _log_population_stats(logger, population, f"Generation {gen+1}")
                 
                 # --- 1. CREATE TRIALS (Vectorized Math) ---
                 # randomly select 3 candidates A, B, C ("children") for each candidate ("parent")
@@ -734,6 +770,7 @@ def run_parallel_de(
                 rand_mask       : npt.NDArray[np.float64] = np.random.rand(POP_SIZE, optimization_dims)
                 trial_population: npt.NDArray[np.float64] = np.where(rand_mask < CROSS_PROB, mutant, population)
                 
+                logger.info(f"  Trial population created")
 
                 # --- 2. EVALUATE TRIALS (PARALLEL BOTTLENECK) ---
                 trial_results   : npt.NDArray[np.float64] = np.array(pool.map(evaluate_single_candidate_worker, trial_population))
@@ -743,6 +780,7 @@ def run_parallel_de(
                 trial_variance_ratios           : npt.NDArray[np.float64] = trial_results[:,2]
                 trial_percentage_price_increases: npt.NDArray[np.float64] = trial_results[:,3]
 
+                logger.info(f"  Trial population evaluated")
 
                 # --- 3. SELECTION ---
                 # Replace parents with trials if trials are better
@@ -754,6 +792,7 @@ def run_parallel_de(
                 variance_ratios[winners]            = trial_variance_ratios[winners]
                 percentage_price_increases[winners] = trial_percentage_price_increases[winners]
                 
+                logger.info(f"  Selection completed - {winners.sum()} candidates replaced by better trials")
 
                 # --- 4. Early Stopping ---
                 # Check if any candidate meets variance threshold
