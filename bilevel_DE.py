@@ -566,13 +566,13 @@ def run_parallel_de(
             high    = upper_bounds_init, 
             size    = (POP_SIZE, optimization_dims)
         )
-        logger.info(f"DE population initialized with size {population.shape}")
-        _log_population_stats(logger, population, "Initial")
 
         # Ensure that population contain one candidate with all variables at lower bounds
         # This ensures that setting minimum prices is always considered
         population[0,:] = lower_bounds.copy()
-
+        
+        logger.info(f"DE population initialized with size {population.shape}")
+        _log_population_stats(logger, population, "Initial")
 
         # ----------------------------
         # DE Setup
