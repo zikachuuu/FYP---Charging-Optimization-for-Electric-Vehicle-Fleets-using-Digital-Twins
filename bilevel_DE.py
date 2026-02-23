@@ -250,7 +250,7 @@ def _reference_candidate(
             logger_gurobi           = logger_gurobi         ,
         )
     except OptimizationError as e:
-        raise OptimizationError("Failed to solve follower problem for reference candidate.", details=e) from e
+        raise OptimizationError("Failed to solve follower problem for reference candidate.", status=e.status, details=str(e)) from e
     except Exception as e:
         raise Exception("Unexpected error when solving follower problem for reference candidate.") from e
 
