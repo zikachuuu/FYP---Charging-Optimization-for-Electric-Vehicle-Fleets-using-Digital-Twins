@@ -163,11 +163,11 @@ Examples:
     logger.info(f"  Number of Anchors (NUM_ANCHORS)                                                 : {NUM_ANCHORS}")
     logger.info(f"  Variables per Time Step (VARS_PER_STEP)                                         : {VARS_PER_STEP}")
     logger.info(f"  Fitness Improvement Threshold for Early Stopping (FITNESS_IMPROVEMENT_THRESHOLD): {FITNESS_IMPROVEMENT_THRESHOLD}")
-    logger.info(f"  Initial Upper Bound Multiplicity for a_t (INITIAL_UPPER_BOUND_MULTIPLICITY_A)  : {INITIAL_UPPER_BOUND_MULTIPLICITY_A}")
-    logger.info(f"  Initial Upper Bound Multiplicity for b_t (INITIAL_UPPER_BOUND_MULTIPLICITY_B)  : {INITIAL_UPPER_BOUND_MULTIPLICITY_B}")
-    logger.info(f"  Final Upper Bound Multiplicity for a_t (FINAL_UPPER_BOUND_MULTIPLICITY_A)      : {FINAL_UPPER_BOUND_MULTIPLICITY_A}")
-    logger.info(f"  Final Upper Bound Multiplicity for b_t (FINAL_UPPER_BOUND_MULTIPLICITY_B)      : {FINAL_UPPER_BOUND_MULTIPLICITY_B}")
-    logger.info(f"  Relax Follower Model in Stage 2 (RELAX_STAGE_2)                                : {RELAX_STAGE_2}")
+    logger.info(f"  Initial Upper Bound Multiplicity for a_t (INITIAL_UPPER_BOUND_MULTIPLICITY_A)   : {INITIAL_UPPER_BOUND_MULTIPLICITY_A}")
+    logger.info(f"  Initial Upper Bound Multiplicity for b_t (INITIAL_UPPER_BOUND_MULTIPLICITY_B)   : {INITIAL_UPPER_BOUND_MULTIPLICITY_B}")
+    logger.info(f"  Final Upper Bound Multiplicity for a_t (FINAL_UPPER_BOUND_MULTIPLICITY_A)       : {FINAL_UPPER_BOUND_MULTIPLICITY_A}")
+    logger.info(f"  Final Upper Bound Multiplicity for b_t (FINAL_UPPER_BOUND_MULTIPLICITY_B)       : {FINAL_UPPER_BOUND_MULTIPLICITY_B}")
+    logger.info(f"  Relax Follower Model in Stage 2 (RELAX_STAGE_2)                                 : {RELAX_STAGE_2}")
     logger.info(f"  Random Seed (RANDOM_SEED)                                                       : {RANDOM_SEED}")
 
     # Load data from the specified JSON file
