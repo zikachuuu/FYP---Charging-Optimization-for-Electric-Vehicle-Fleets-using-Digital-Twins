@@ -24,6 +24,7 @@ from config_DE import (
     VARS_PER_STEP                       ,
     DIFF_WEIGHT_VARY                    ,
     FITNESS_IMPROVEMENT_THRESHOLD       ,
+    ENABLE_ANCHOR_INCREASE              ,
     INITIAL_UPPER_BOUND_MULTIPLICITY_A  ,
     INITIAL_UPPER_BOUND_MULTIPLICITY_B  ,
     FINAL_UPPER_BOUND_MULTIPLICITY_A    ,
@@ -823,7 +824,7 @@ def run_parallel_de(
                 # Check if fitness improvement is below threshold
                 fitness_improvement = prev_best_fitness - current_best_fitness
                 
-                if fitness_improvement < FITNESS_IMPROVEMENT_THRESHOLD and current_num_anchors < MAX_ANCHORS:
+                if ENABLE_ANCHOR_INCREASE and fitness_improvement < FITNESS_IMPROVEMENT_THRESHOLD and current_num_anchors < MAX_ANCHORS:
                     # Calculate new number of anchors (converge to max)
                     anchor_increase = math.ceil ((MAX_ANCHORS - current_num_anchors) / 2)
                     new_num_anchors = min(current_num_anchors + anchor_increase, MAX_ANCHORS)

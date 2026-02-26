@@ -26,6 +26,7 @@ from config_DE import (
     NUM_ANCHORS                         ,
     VARS_PER_STEP                       ,
     FITNESS_IMPROVEMENT_THRESHOLD       ,
+    ENABLE_ANCHOR_INCREASE              ,
     INITIAL_UPPER_BOUND_MULTIPLICITY_A  ,
     INITIAL_UPPER_BOUND_MULTIPLICITY_B  ,
     FINAL_UPPER_BOUND_MULTIPLICITY_A    ,
@@ -64,19 +65,24 @@ Examples:
     args = parser.parse_args()
 
     print ()
-    print ("-------------------------------------------------------")
-    print ("| Welcome to the EV Fleet Charging Optimization Model |")
-    print ("-------------------------------------------------------")    
+    print ("============================================================")
+    print ("||                                                        ||")
+    print ("||  Welcome to the EV Fleet Charging Optimization Model!  ||")
+    print ("||                                                        ||")
+    print ("============================================================")
     print ()
-    print ("    - Find input test case files in the Testcases folder.")
-    print ("    - Output results will be saved in the Results folder.")
-    print ("    - Log files for debugging will be saved in the Logs folder.")
+    print ("Find input test case files in the Testcases folder.")
+    print ("Output results will be saved in the Results folder.")
+    print ("Log files for debugging will be saved in the Logs folder.")
     print ()
-    print ("You can choose to run only Stage 1 (Bilevel Optimization to find optimal price), only Stage 2 (Follower Model), or run both stages.")
-    print ("If you choose to run only the Stage 2 (Follower Model), you need to provide the pricing and threshold values in the input JSON file.")
-    print ("Specfically, provide 'charge_cost_low', 'charge_cost_high', and 'elec_threshold' values for each time step (0 to T inclusive).")
+    print ("Choose to run only Stage 1 (Bilevel Optimization to find optimal price),")
+    print ("    only Stage 2 (Follower Model),")
+    print ("    or run both stages.")
+    print ("If you choose to run only the Stage 2 (Follower Model),")
+    print ("    you need to provide the pricing and threshold values in the input JSON file.")
+    print ("    i.e. 'charge_cost_low', 'charge_cost_high', and 'elec_threshold' values for each time step (0 to T inclusive).")
     print ()
-    print ("------------------------------------------------------")
+    print ("===========================================================")
     print ()
     
     # Get model choice from command line or prompt
@@ -113,7 +119,8 @@ Examples:
         print ()
     else:
         print ("Give a unique name for this run, to be used as folder name for the log files and results.")
-        folder_name = input ("If empty, default name of <testcase file name>_<timestamp> will be used: \n").strip()
+        print ("    If given, the folder will be created inside the Results and Logs folders with the name format <folder_name>_<testcase file name>_<timestamp>.")
+        folder_name = input ("  If empty, default name of <testcase file name>_<timestamp> will be used: \n").strip()
         print ()
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M")
@@ -147,28 +154,43 @@ Examples:
     results_name = os.path.join("Results", folder_name, f"results_{file_name}_{timestamp}.xlsx")
 
     logger.info("Starting the EV Fleet Charging Optimization Model...")
-    logger.info (f"Test case file: {file_name}.json in folder: {directory if directory != '' else 'Testcases/'}")
-    logger.info (f"Results will be saved in: {results_name}")
+    if model_choice == '1':
+        logger.info("   Model choice: Running only Stage 1 (Bilevel Optimization to find optimal price)")
+    elif model_choice == '2':
+        logger.info("   Model choice: Running only Stage 2 (Follower Model)")
+    else:
+        logger.info(    "Model choice: Running both Stage 1 (Bilevel Optimization) and Stage 2 (Follower Model)")
+    logger.info(f"  Test case file: {file_name}.json in folder: {directory if directory != '' else 'Testcases/'}")
+    logger.info(f"  Results will be saved in: {results_name}")
 
     logger.info(f"Configurations for Differential Evolution:")
-    logger.info(f"  Population Size (POP_SIZE)                                                      : {POP_SIZE}")
-    logger.info(f"  Number of Processes (NUM_PROCESSES)                                             : {NUM_PROCESSES}")
-    logger.info(f"  Number of Threads per Process (NUM_THREADS)                                     : {NUM_THREADS}")
-    logger.info(f"  Maximum Iterations (MAX_ITER)                                                   : {MAX_ITER}")
-    logger.info(f"  Differential Weight (DIFF_WEIGHT)                                               : {DIFF_WEIGHT}")
-    logger.info(f"  Vary Differential Weight (DIFF_WEIGHT_VARY)                                     : {DIFF_WEIGHT_VARY}")
-    logger.info(f"  Crossover Probability (CROSS_PROB)                                              : {CROSS_PROB}")
-    logger.info(f"  Variance Threshold for Early Stopping (VAR_THRESHOLD)                           : {VAR_THRESHOLD}")
-    logger.info(f"  Penalty Weight for Leader Fitness (PENALTY_WEIGHT)                              : {PENALTY_WEIGHT}")
-    logger.info(f"  Number of Anchors (NUM_ANCHORS)                                                 : {NUM_ANCHORS}")
-    logger.info(f"  Variables per Time Step (VARS_PER_STEP)                                         : {VARS_PER_STEP}")
-    logger.info(f"  Fitness Improvement Threshold for Early Stopping (FITNESS_IMPROVEMENT_THRESHOLD): {FITNESS_IMPROVEMENT_THRESHOLD}")
-    logger.info(f"  Initial Upper Bound Multiplicity for a_t (INITIAL_UPPER_BOUND_MULTIPLICITY_A)   : {INITIAL_UPPER_BOUND_MULTIPLICITY_A}")
-    logger.info(f"  Initial Upper Bound Multiplicity for b_t (INITIAL_UPPER_BOUND_MULTIPLICITY_B)   : {INITIAL_UPPER_BOUND_MULTIPLICITY_B}")
-    logger.info(f"  Final Upper Bound Multiplicity for a_t (FINAL_UPPER_BOUND_MULTIPLICITY_A)       : {FINAL_UPPER_BOUND_MULTIPLICITY_A}")
-    logger.info(f"  Final Upper Bound Multiplicity for b_t (FINAL_UPPER_BOUND_MULTIPLICITY_B)       : {FINAL_UPPER_BOUND_MULTIPLICITY_B}")
-    logger.info(f"  Relax Follower Model in Stage 2 (RELAX_STAGE_2)                                 : {RELAX_STAGE_2}")
-    logger.info(f"  Random Seed (RANDOM_SEED)                                                       : {RANDOM_SEED}")
+    logger.info(f"  ├── Population size related parameters:")
+    logger.info(f"  │   ├── Population Size (POP_SIZE)                                                      : {POP_SIZE}")
+    logger.info(f"  │   ├── Number of Processes (NUM_PROCESSES)                                             : {NUM_PROCESSES}")
+    logger.info(f"  │   ├── Number of Threads per Process (NUM_THREADS)                                     : {NUM_THREADS}")
+    logger.info(f"  │   ├── Maximum Iterations (MAX_ITER)                                                   : {MAX_ITER}")
+    logger.info(f"  │   └── Variance Threshold for Early Stopping (VAR_THRESHOLD)                           : {VAR_THRESHOLD}")
+    logger.info(f"  │   ")
+    logger.info(f"  ├── DR Randomness parameters:")
+    logger.info(f"  │   ├── Penalty Weight for Leader Fitness (PENALTY_WEIGHT)                              : {PENALTY_WEIGHT}")
+    logger.info(f"  │   ├── Differential Weight (DIFF_WEIGHT)                                               : {DIFF_WEIGHT}")
+    logger.info(f"  │   ├── Vary Differential Weight (DIFF_WEIGHT_VARY)                                     : {DIFF_WEIGHT_VARY}")
+    logger.info(f"  │   ├── Crossover Probability (CROSS_PROB)                                              : {CROSS_PROB}")
+    logger.info(f"  │   ├── Number of Anchors (NUM_ANCHORS)                                                 : {NUM_ANCHORS}")
+    logger.info(f"  │   ├── Enable Adaptive Anchor Increase (ENABLE_ANCHOR_INCREASE)                        : {ENABLE_ANCHOR_INCREASE}")
+    logger.info(f"  │   └── Fitness Improvement Threshold to Increase Anchor (FITNESS_IMPROVEMENT_THRESHOLD): {FITNESS_IMPROVEMENT_THRESHOLD}")
+    logger.info(f"  │   ")    
+    logger.info(f"  ├── Bounds for decision variables:")
+    logger.info(f"  │   ├── Initial Upper Bound Multiplicity for a_t (INITIAL_UPPER_BOUND_MULTIPLICITY_A)   : {INITIAL_UPPER_BOUND_MULTIPLICITY_A}")
+    logger.info(f"  │   ├── Initial Upper Bound Multiplicity for b_t (INITIAL_UPPER_BOUND_MULTIPLICITY_B)   : {INITIAL_UPPER_BOUND_MULTIPLICITY_B}")
+    logger.info(f"  │   ├── Final Upper Bound Multiplicity for a_t (FINAL_UPPER_BOUND_MULTIPLICITY_A)       : {FINAL_UPPER_BOUND_MULTIPLICITY_A}")
+    logger.info(f"  │   ├── Final Upper Bound Multiplicity for b_t (FINAL_UPPER_BOUND_MULTIPLICITY_B)       : {FINAL_UPPER_BOUND_MULTIPLICITY_B}")
+    logger.info(f"  │   ")
+    logger.info(f"  └── Miscellaneous parameters:")
+    logger.info(f"      ├── Relax Follower Model in Stage 2 (RELAX_STAGE_2)                                 : {RELAX_STAGE_2}")
+    logger.info(f"      ├── Random Seed (RANDOM_SEED)                                                       : {RANDOM_SEED}")
+    logger.info(f"      └── Variables per Time Step (VARS_PER_STEP)                                         : {VARS_PER_STEP}")
+
 
     # Load data from the specified JSON file
     data: dict = None
