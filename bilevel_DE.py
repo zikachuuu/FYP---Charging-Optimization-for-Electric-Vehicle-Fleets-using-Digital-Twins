@@ -5,6 +5,7 @@ import multiprocessing
 import os
 import matplotlib.pyplot as plt
 from functools import partial
+import math
 
 from model_leader import leader_model
 from model_follower import follower_model
@@ -13,16 +14,25 @@ from logger import Logger, LogListener
 from exceptions import OptimizationError
 from utility import print_duration
 from config_DE import (
-    POP_SIZE        ,
-    NUM_PROCESSES   ,
-    MAX_ITER        ,
-    DIFF_WEIGHT     ,
-    CROSS_PROB      ,
-    VAR_THRESHOLD   ,
-    NUM_ANCHORS     ,
-    VARS_PER_STEP   ,
-    DIFF_WEIGHT_VARY ,
+    POP_SIZE                            ,
+    NUM_PROCESSES                       ,
+    MAX_ITER                            ,
+    DIFF_WEIGHT                         ,
+    CROSS_PROB                          ,
+    VAR_THRESHOLD                       ,
+    NUM_ANCHORS                         ,
+    VARS_PER_STEP                       ,
+    DIFF_WEIGHT_VARY                    ,
+    FITNESS_IMPROVEMENT_THRESHOLD       ,
+    ENABLE_ANCHOR_INCREASE              ,
+    INITIAL_UPPER_BOUND_MULTIPLICITY_A  ,
+    INITIAL_UPPER_BOUND_MULTIPLICITY_B  ,
+    FINAL_UPPER_BOUND_MULTIPLICITY_A    ,
+    FINAL_UPPER_BOUND_MULTIPLICITY_B    ,
+    RANDOM_SEED                         ,
 )
+
+# Threshold for fitness improvement to trigger anchor increase
 
 def _precompute_interpolation_matrix(
         T               : int                   , 
@@ -76,6 +86,61 @@ def _precompute_interpolation_matrix(
     return M
 
 
+def _resample_population_for_new_anchors(
+        population          : npt.NDArray[np.float64]   ,
+        old_M               : npt.NDArray[np.float64]   ,
+        new_anchor_indices  : npt.NDArray[np.int_]      ,
+        T                   : int                       ,
+        TIMESTEPS           : list[int]                 ,
+        lower_bounds_a      : npt.NDArray[np.float64]   ,
+        lower_bounds_b      : npt.NDArray[np.float64]   ,
+        lower_bounds_r      : npt.NDArray[np.float64]   ,
+        upper_bounds_a      : npt.NDArray[np.float64]   ,
+        upper_bounds_b      : npt.NDArray[np.float64]   ,
+        upper_bounds_r      : npt.NDArray[np.float64]   ,
+    ) -> npt.NDArray[np.float64]:
+    """
+    Resample the population when the number of anchors changes.
+    Steps:
+        1. Expand each candidate to full trajectory using old M
+        2. Sample the full trajectory at new anchor points
+        3. Return new population with new dimensionality
+    """
+    pop_size = population.shape[0]
+    num_new_anchors = len(new_anchor_indices)
+    new_pop = np.zeros((pop_size, num_new_anchors * VARS_PER_STEP))
+    
+    for i in range(pop_size):
+        # Expand to full trajectory
+        trajectory = _expand_trajectory(
+            candidate_flat  = population[i]     ,
+            M               = old_M             ,
+            T               = T                 ,
+            lower_bounds_a  = lower_bounds_a    ,
+            lower_bounds_b  = lower_bounds_b    ,
+            lower_bounds_r  = lower_bounds_r    ,
+            upper_bounds_a  = upper_bounds_a    ,
+            upper_bounds_b  = upper_bounds_b    ,
+            upper_bounds_r  = upper_bounds_r    ,
+            TIMESTEPS       = TIMESTEPS         ,
+        )
+        
+        # Extract full arrays
+        a_full = np.array([trajectory["charge_cost_low"][t] for t in TIMESTEPS])
+        b_full = np.array([trajectory["charge_cost_high"][t] for t in TIMESTEPS])
+        r_full = np.array([trajectory["elec_threshold"][t] for t in TIMESTEPS])
+        
+        # Sample at new anchor indices
+        a_anchors = a_full[new_anchor_indices]
+        b_anchors = b_full[new_anchor_indices]
+        r_anchors = r_full[new_anchor_indices]
+        
+        # Flatten in the same order as population initialization
+        new_pop[i] = np.column_stack((a_anchors, b_anchors, r_anchors)).flatten()
+    
+    return new_pop
+
+
 def _expand_trajectory (
         candidate_flat  : npt.NDArray[np.float64]   , 
         M               : npt.NDArray[np.float64]   , 
@@ -83,6 +148,8 @@ def _expand_trajectory (
         lower_bounds_a  : npt.NDArray[np.float64]   ,
         lower_bounds_b  : npt.NDArray[np.float64]   ,
         lower_bounds_r  : npt.NDArray[np.float64]   ,
+        upper_bounds_a  : npt.NDArray[np.float64]   ,
+        upper_bounds_b  : npt.NDArray[np.float64]   ,
         upper_bounds_r  : npt.NDArray[np.float64]   ,
         TIMESTEPS       : list[int]                 ,
     ) -> dict[str, dict[int, float]]:
@@ -112,8 +179,8 @@ def _expand_trajectory (
     full_trajectory[0, 2] = lower_bounds_r[0]
     
     # Time steps 1 to T-1: use interpolated values with bounds enforcement
-    full_trajectory[1:T, 0] = np.maximum(interior_trajectory[:, 0], lower_bounds_a[1:T])  # a_t
-    full_trajectory[1:T, 1] = np.maximum(interior_trajectory[:, 1], lower_bounds_b[1:T])  # b_t
+    full_trajectory[1:T, 0] = np.clip(interior_trajectory[:, 0], lower_bounds_a[1:T], upper_bounds_a[1:T])  # a_t
+    full_trajectory[1:T, 1] = np.clip(interior_trajectory[:, 1], lower_bounds_b[1:T], upper_bounds_b[1:T])  # b_t
     full_trajectory[1:T, 2] = np.clip(interior_trajectory[:, 2], lower_bounds_r[1:T], upper_bounds_r[1:T])  # r_t
     
     # Time step T: use lower bounds
@@ -133,6 +200,40 @@ def _expand_trajectory (
         "charge_cost_high"   : charge_cost_high       ,
         "elec_threshold"     : elec_threshold         ,
     }
+
+
+def _log_population_stats(
+        logger          : Logger                        ,
+        population      : npt.NDArray[np.float64]        ,
+        label           : str                           ,
+    ) -> None:
+    """
+    Log distribution stats of the population based on per-candidate means.
+    """
+    if population.size == 0:
+        logger.info(f"  {label} Population Stats: empty population")
+        return
+
+    if population.shape[1] % VARS_PER_STEP != 0:
+        logger.info(f"  {label} Population Stats: unexpected dimensions {population.shape}")
+        return
+
+    per_candidate = population.reshape(population.shape[0], -1, VARS_PER_STEP)
+    mean_a = per_candidate[:, :, 0].mean(axis=1)
+    mean_b = per_candidate[:, :, 1].mean(axis=1)
+    mean_r = per_candidate[:, :, 2].mean(axis=1)
+
+    def _format_stats(values: npt.NDArray[np.float64]) -> str:
+        return (
+            f"mean={float(values.mean()):.6f}, "
+            f"var={float(values.var(ddof=0)):.6f}, "
+            f"min={float(values.min()):.6f}, "
+            f"max={float(values.max()):.6f}"
+        )
+
+    logger.info(f"  {label} Population Stats (candidate means) - a_t: {_format_stats(mean_a)}")
+    logger.info(f"  {label} Population Stats (candidate means) - b_t: {_format_stats(mean_b)}")
+    logger.info(f"  {label} Population Stats (candidate means) - r_t: {_format_stats(mean_r)}")
 
 
 def _reference_candidate(
@@ -193,7 +294,7 @@ def _reference_candidate(
             logger_gurobi           = logger_gurobi         ,
         )
     except OptimizationError as e:
-        raise OptimizationError("Failed to solve follower problem for reference candidate.", details=e) from e
+        raise OptimizationError("Failed to solve follower problem for reference candidate.", status=e.status, details=str(e)) from e
     except Exception as e:
         raise Exception("Unexpected error when solving follower problem for reference candidate.") from e
 
@@ -238,6 +339,8 @@ def _evaluate_candidate(
     lower_bounds_a          : npt.NDArray[np.float64]               = kwargs["lower_bounds_a"]          # lower bounds for a_t
     lower_bounds_b          : npt.NDArray[np.float64]               = kwargs["lower_bounds_b"]          # lower bounds for b_t
     lower_bounds_r          : npt.NDArray[np.float64]               = kwargs["lower_bounds_r"]          # lower bounds for r_t
+    upper_bounds_a          : npt.NDArray[np.float64]               = kwargs["upper_bounds_a"]          # upper bounds for a_t
+    upper_bounds_b          : npt.NDArray[np.float64]               = kwargs["upper_bounds_b"]          # upper bounds for b_t
     upper_bounds_r          : npt.NDArray[np.float64]               = kwargs["upper_bounds_r"]          # upper bounds for r_t
     
     # Path Metadata
@@ -279,6 +382,8 @@ def _evaluate_candidate(
         lower_bounds_a  = lower_bounds_a    ,
         lower_bounds_b  = lower_bounds_b    ,
         lower_bounds_r  = lower_bounds_r    ,
+        upper_bounds_a  = upper_bounds_a    ,
+        upper_bounds_b  = upper_bounds_b    ,
         upper_bounds_r  = upper_bounds_r    ,   
         TIMESTEPS       = TIMESTEPS         ,
     )
@@ -297,7 +402,7 @@ def _evaluate_candidate(
             logger_gurobi   = logger_worker_gurobi  ,
         )
     except OptimizationError as e:
-        raise OptimizationError("Failed to solve follower problem for candidate.", details=e) from e
+        raise OptimizationError("Failed to solve follower problem for candidate.", status=e.status, details=str(e)) from e
     except Exception as e:
         raise Exception("Unexpected error when solving follower problem for candidate.") from e
 
@@ -332,7 +437,7 @@ def run_parallel_de(
     Runs Differential Evolution in parallel using multiprocessing.
     """
     # Set random seed for reproducibility
-    np.random.seed(67)
+    np.random.seed(RANDOM_SEED)
     
     # ----------------------------
     # Parameters
@@ -407,31 +512,36 @@ def run_parallel_de(
         lower_bounds_r          : npt.NDArray[np.float64] = np.zeros(T + 1)                          # r_t >= 0
 
         # Upper bounds
-        upper_bounds_a_init     : npt.NDArray[np.float64] = wholesale_elec_price_arr * 2.0                                                  # a_t <= 2 * wholesale price (initial, can be exceeded during evolution)
-        upper_bounds_b_init     : npt.NDArray[np.float64] = wholesale_elec_price_arr * 1.0                                                  # b_t <= wholesale price (initial, can be exceeded during evolution)
+        upper_bounds_a_init     : npt.NDArray[np.float64] = wholesale_elec_price_arr * INITIAL_UPPER_BOUND_MULTIPLICITY_A     # a_t initial upper bound
+        upper_bounds_b_init     : npt.NDArray[np.float64] = wholesale_elec_price_arr * INITIAL_UPPER_BOUND_MULTIPLICITY_B     # b_t initial upper bound
         upper_bounds_r          : npt.NDArray[np.float64] = np.array([sum(elec_supplied.get((i,t), 0) for i in ZONES) for t in TIMESTEPS])  # r_t <= total electricity supplied at time t (hard limit)
 
         # a_t and b_t can be unbounded in theory, but we set a very high upper bound for numerical stability
-        upper_bounds_a_final    : npt.NDArray[np.float64] = wholesale_elec_price_arr * 10.0
-        upper_bounds_b_final    : npt.NDArray[np.float64] = wholesale_elec_price_arr * 10.0
+        upper_bounds_a_final    : npt.NDArray[np.float64] = wholesale_elec_price_arr * FINAL_UPPER_BOUND_MULTIPLICITY_A
+        upper_bounds_b_final    : npt.NDArray[np.float64] = wholesale_elec_price_arr * FINAL_UPPER_BOUND_MULTIPLICITY_B
 
         logger.info("Bounds for decision variables set successfully!")
 
         # anchor indices (dimensionality reduction)
         # Only optimize time steps 1 to T-1 (exclude 0 and T)
         # Time steps 0 and T are fixed at their lower bounds
+        MAX_ANCHORS         : int                       = T - 1
+
         if NUM_ANCHORS < 1:
             raise ValueError("NUM_ANCHORS must be at least 1")
         
-        if NUM_ANCHORS > T - 1:
-            logger.warning(f"NUM_ANCHORS ({NUM_ANCHORS}) exceeds maximum possible anchors (T-1 = {T-1}). Setting NUM_ANCHORS to {T-1}.")
-            NUM_ANCHORS = T - 1
+        if NUM_ANCHORS > MAX_ANCHORS:
+            logger.warning(f"NUM_ANCHORS ({NUM_ANCHORS}) exceeds maximum possible anchors ({MAX_ANCHORS}). Setting NUM_ANCHORS to {MAX_ANCHORS}.")
+            NUM_ANCHORS = MAX_ANCHORS
         
         # Distribute anchors only within time steps 1 to T-1
-        anchor_indices      : npt.NDArray[np.int_]      = np.linspace(1, T-1, NUM_ANCHORS, dtype=int)
-        optimization_dims   : int                       = NUM_ANCHORS * VARS_PER_STEP
+        # Start with specified NUM_ANCHORS, but may increase adaptively during optimization
+        current_num_anchors : int                       = NUM_ANCHORS
+        anchor_indices      : npt.NDArray[np.int_]      = np.linspace(1, T-1, current_num_anchors, dtype=int)
+        optimization_dims   : int                       = current_num_anchors * VARS_PER_STEP
         M                   : npt.NDArray[np.float64]   = _precompute_interpolation_matrix(T, anchor_indices)
 
+        logger.info(f"Starting with {current_num_anchors} anchors (max: {MAX_ANCHORS})")
         logger.info(f"Interpolation matrix precomputed with shape {M.shape}")
 
         # array of bounds for anchored variables only
@@ -457,12 +567,13 @@ def run_parallel_de(
             high    = upper_bounds_init, 
             size    = (POP_SIZE, optimization_dims)
         )
-        logger.info(f"DE population initialized with size {population.shape}")
 
         # Ensure that population contain one candidate with all variables at lower bounds
         # This ensures that setting minimum prices is always considered
         population[0,:] = lower_bounds.copy()
-
+        
+        logger.info(f"DE population initialized with size {population.shape}")
+        _log_population_stats(logger, population, "Initial")
 
         # ----------------------------
         # DE Setup
@@ -519,6 +630,8 @@ def run_parallel_de(
             lower_bounds_a          = lower_bounds_a        ,
             lower_bounds_b          = lower_bounds_b        ,
             lower_bounds_r          = lower_bounds_r        ,
+            upper_bounds_a          = upper_bounds_a_final  ,
+            upper_bounds_b          = upper_bounds_b_final  ,
             upper_bounds_r          = upper_bounds_r        ,
 
             # Metadata
@@ -588,6 +701,8 @@ def run_parallel_de(
                     lower_bounds_a  = lower_bounds_a      ,
                     lower_bounds_b  = lower_bounds_b      ,
                     lower_bounds_r  = lower_bounds_r      ,
+                    upper_bounds_a  = upper_bounds_a_final,
+                    upper_bounds_b  = upper_bounds_b_final,
                     upper_bounds_r  = upper_bounds_r      ,
                     TIMESTEPS       = TIMESTEPS           ,
                 )
@@ -595,6 +710,7 @@ def run_parallel_de(
             # Track both the candidate with best variance (and its fitness), and the candidate with best fitness (and its variance)
             best_var_idx        : int   = np.argmin(variances)
             best_fitness_idx    : int   = np.argmin(fitnesses)
+            prev_best_fitness   : float = fitnesses[best_fitness_idx]  # Track for anchor adaptation
 
             logger.info("Initial population")
             logger.info(f"  Initial candidate with best variance: Var = {variances[best_var_idx]:.5f}, " \
@@ -619,6 +735,11 @@ def run_parallel_de(
             # Main DE Loop
             for gen in range(MAX_ITER):
                 gen_start_time = time.time()
+                
+                # Log current anchor configuration
+                logger.info(f"Generation {gen+1}/{MAX_ITER} - Using {current_num_anchors} anchors (max: {MAX_ANCHORS}): [{', '.join(map(str, anchor_indices))}]")
+                _log_population_stats(logger, population, f"Generation {gen+1}")
+                
                 # --- 1. CREATE TRIALS (Vectorized Math) ---
                 # randomly select 3 candidates A, B, C ("children") for each candidate ("parent")
                 idxs_a = np.empty((POP_SIZE,), dtype=np.int_)
@@ -650,6 +771,7 @@ def run_parallel_de(
                 rand_mask       : npt.NDArray[np.float64] = np.random.rand(POP_SIZE, optimization_dims)
                 trial_population: npt.NDArray[np.float64] = np.where(rand_mask < CROSS_PROB, mutant, population)
                 
+                logger.info(f"  Trial population created")
 
                 # --- 2. EVALUATE TRIALS (PARALLEL BOTTLENECK) ---
                 trial_results   : npt.NDArray[np.float64] = np.array(pool.map(evaluate_single_candidate_worker, trial_population))
@@ -659,6 +781,7 @@ def run_parallel_de(
                 trial_variance_ratios           : npt.NDArray[np.float64] = trial_results[:,2]
                 trial_percentage_price_increases: npt.NDArray[np.float64] = trial_results[:,3]
 
+                logger.info(f"  Trial population evaluated")
 
                 # --- 3. SELECTION ---
                 # Replace parents with trials if trials are better
@@ -670,6 +793,7 @@ def run_parallel_de(
                 variance_ratios[winners]            = trial_variance_ratios[winners]
                 percentage_price_increases[winners] = trial_percentage_price_increases[winners]
                 
+                logger.info(f"  Selection completed - {winners.sum()} candidates replaced by better trials")
 
                 # --- 4. Early Stopping ---
                 # Check if any candidate meets variance threshold
@@ -694,29 +818,104 @@ def run_parallel_de(
                 # --- 5. Update Best Trackers ---
                 best_var_idx        = np.argmin(variances)
                 best_fitness_idx    = np.argmin(fitnesses)
+                current_best_fitness = fitnesses[best_fitness_idx]
+
+                # --- 6. Adaptive Anchor Sizing ---
+                # Check if fitness improvement is below threshold
+                fitness_improvement = prev_best_fitness - current_best_fitness
+                
+                if ENABLE_ANCHOR_INCREASE and fitness_improvement < FITNESS_IMPROVEMENT_THRESHOLD and current_num_anchors < MAX_ANCHORS:
+                    # Calculate new number of anchors (converge to max)
+                    anchor_increase = math.ceil ((MAX_ANCHORS - current_num_anchors) / 2)
+                    new_num_anchors = min(current_num_anchors + anchor_increase, MAX_ANCHORS)
+                    
+                    logger.info(f"  Fitness improvement ({fitness_improvement:.5f}) below threshold ({FITNESS_IMPROVEMENT_THRESHOLD:.5f})")
+                    logger.info(f"  Increasing anchors from {current_num_anchors} to {new_num_anchors} next iteration")
+                    
+                    # Recalculate anchor indices and interpolation matrix
+                    old_M = M.copy()
+                    anchor_indices = np.linspace(1, T-1, new_num_anchors, dtype=int)
+                    M = _precompute_interpolation_matrix(T, anchor_indices)
+                    
+                    # Recalculate bounds for new anchors
+                    lower_bounds = np.column_stack(
+                        (lower_bounds_a, lower_bounds_b, lower_bounds_r)
+                    )[anchor_indices].flatten()
+                    
+                    upper_bounds_init = np.column_stack(
+                        (upper_bounds_a_init, upper_bounds_b_init, upper_bounds_r)
+                    )[anchor_indices].flatten()
+                    
+                    upper_bounds_final = np.column_stack(
+                        (upper_bounds_a_final, upper_bounds_b_final, upper_bounds_r)
+                    )[anchor_indices].flatten()
+                    
+                    # Resample population to new dimensionality
+                    logger.info(f"  Resampling population from {population.shape[1]} to {new_num_anchors * VARS_PER_STEP} dimensions for next iteration")
+                    population = _resample_population_for_new_anchors(
+                        population          = population        ,
+                        old_M               = old_M             ,
+                        new_anchor_indices  = anchor_indices    ,
+                        T                   = T                 ,
+                        TIMESTEPS           = TIMESTEPS         ,
+                        lower_bounds_a      = lower_bounds_a    ,
+                        lower_bounds_b      = lower_bounds_b    ,
+                        lower_bounds_r      = lower_bounds_r    ,
+                        upper_bounds_a      = upper_bounds_a_final,
+                        upper_bounds_b      = upper_bounds_b_final,
+                        upper_bounds_r      = upper_bounds_r    ,
+                    )
+                    
+                    # Update dimensions and recreate partial function
+                    current_num_anchors = new_num_anchors
+                    optimization_dims = current_num_anchors * VARS_PER_STEP
+                    
+                    evaluate_single_candidate_worker = partial(
+                        _evaluate_candidate,
+                        **kwargs,
+                        # Pricing Variable bounds
+                        lower_bounds_a          = lower_bounds_a        ,
+                        lower_bounds_b          = lower_bounds_b        ,
+                        lower_bounds_r          = lower_bounds_r        ,
+                        upper_bounds_a          = upper_bounds_a_final  ,
+                        upper_bounds_b          = upper_bounds_b_final  ,
+                        upper_bounds_r          = upper_bounds_r        ,
+                        # Metadata
+                        M                       = M                     ,
+                        reference_variance      = reference_variance    ,
+                        log_queue               = log_queue             ,
+                        log_queue_gurobi        = log_queue_gurobi      ,
+                    )
+                    
+                    logger.info(f"  Anchor increase complete. New interpolation matrix shape for next iteration: {M.shape}")
+                
+                # Update tracking
+                prev_best_fitness = current_best_fitness
 
                 # Estimate remaining time
                 gen_duration = time.time() - gen_start_time
                 est_remaining_time = gen_duration * (MAX_ITER - gen - 1)
 
-                logger.info(f"Gen {gen+1}/{MAX_ITER}")
-                logger.info(f"  Current candidate with best variance: Var = {variances[best_var_idx]:.5f}, " \
+                logger.info(f"  Results:")
+                logger.info(f"      Best Variance Candidate: Var = {variances[best_var_idx]:.5f}, " \
                     f"Fitness = {fitnesses[best_var_idx]:.5f}, " \
                     f"Var Ratio = {variance_ratios[best_var_idx]:.5f}, " \
-                    f"Percentage Price Increase = {percentage_price_increases[best_var_idx]:.5f}%"
+                    f"Price Increase = {percentage_price_increases[best_var_idx]:.5f}%"
                 )
                 best_variance_can_fitnesses[gen+1] = fitnesses[best_var_idx]
                 best_variance_can_variances[gen+1] = variances[best_var_idx]
 
-                logger.info(f"  Current candidate with best fitness: Var = {variances[best_fitness_idx]:.5f}, " \
+                logger.info(f"      Best Fitness Candidate: Var = {variances[best_fitness_idx]:.5f}, " \
                     f"Fitness = {fitnesses[best_fitness_idx]:.5f}, " \
                     f"Var Ratio = {variance_ratios[best_fitness_idx]:.5f}, " \
-                    f"Percentage Price Increase = {percentage_price_increases[best_fitness_idx]:.5f}%"
+                    f"Price Increase = {percentage_price_increases[best_fitness_idx]:.5f}%"
                 )
                 best_fitness_can_fitnesses[gen+1] = fitnesses[best_fitness_idx]
                 best_fitness_can_variances[gen+1] = variances[best_fitness_idx]
 
-                logger.info(f"  Generation time: {print_duration(gen_duration)} ({gen_duration:.1f}s) | Estimated remaining time: {print_duration(est_remaining_time)} ({est_remaining_time:.1f}s)")
+                logger.info(f"      Fitness Improvement: {fitness_improvement:.5f}")
+                logger.info(f"      Generation Time: {print_duration(gen_duration)} ({gen_duration:.1f}s)")
+                logger.info(f"      Est. Remaining Time: {print_duration(est_remaining_time)} ({est_remaining_time:.1f}s)")
 
             else:
                 logger.info("Maximum iterations reached without meeting variance threshold.")
@@ -767,6 +966,8 @@ def run_parallel_de(
             lower_bounds_a  = lower_bounds_a    ,
             lower_bounds_b  = lower_bounds_b    ,
             lower_bounds_r  = lower_bounds_r    ,
+            upper_bounds_a  = upper_bounds_a_final,
+            upper_bounds_b  = upper_bounds_b_final,
             upper_bounds_r  = upper_bounds_r    ,
             TIMESTEPS       = TIMESTEPS         ,
         )

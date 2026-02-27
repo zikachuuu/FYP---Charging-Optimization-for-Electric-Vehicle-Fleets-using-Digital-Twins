@@ -40,6 +40,9 @@ class OptimizationError(Exception):
 
     def __str__(self) -> str:
         base = super().__str__()
-        if self.details is None:
-            return base
-        return f"{base} | details: {self.details}"
+        parts = [base]
+        if self.status is not None:
+            parts.append(f"status: {self.status}")
+        if self.details is not None:
+            parts.append(f"details: {self.details}")
+        return " | ".join(parts)

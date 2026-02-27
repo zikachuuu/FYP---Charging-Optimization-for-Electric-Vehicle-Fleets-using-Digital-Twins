@@ -10,8 +10,9 @@ from logger import Logger
 from networkClass import Node, Arc, ArcType, ServiceArc, ChargingArc, RelocationArc, IdleArc, WraparoundArc
 from exceptions import OptimizationError
 from config_DE import (
-    NUM_THREADS,
-    RELAX_STAGE_2
+    NUM_THREADS     ,
+    RELAX_STAGE_2   ,
+    RANDOM_SEED
 )
 
 # ----------------------------
@@ -477,7 +478,7 @@ def follower_model_builder(
     model.setParam("Method"     , 2                             )   # use barrier method
     model.setParam('Crossover'  , 0                             )   # skip crossover; no dual solution, sensitivity analysis, warm start
     model.setParam("Threads"    , NUM_THREADS if relaxed else 0 )   # if not relaxed, use all available threads
-    model.setParam("Seed"       , 67                            )   # set random seed for reproducibility
+    model.setParam("Seed"       , RANDOM_SEED                   )   # set random seed for reproducibility
 
 
     # ----------------------------
@@ -904,14 +905,33 @@ def follower_model(
     logger.info(f"3: Optimization completed with status {model.Status}")
     
     if model.Status != GRB.OPTIMAL:
-        logger.error(f"Optimization was not successful. Status: {model.Status}")
+        # Map status code to name for better error messages
+        status_names = {
+            GRB.LOADED: "LOADED",
+            GRB.OPTIMAL: "OPTIMAL",
+            GRB.INFEASIBLE: "INFEASIBLE",
+            GRB.INF_OR_UNBD: "INF_OR_UNBD",
+            GRB.UNBOUNDED: "UNBOUNDED",
+            GRB.CUTOFF: "CUTOFF",
+            GRB.ITERATION_LIMIT: "ITERATION_LIMIT",
+            GRB.NODE_LIMIT: "NODE_LIMIT",
+            GRB.TIME_LIMIT: "TIME_LIMIT",
+            GRB.SOLUTION_LIMIT: "SOLUTION_LIMIT",
+            GRB.INTERRUPTED: "INTERRUPTED",
+            GRB.NUMERIC: "NUMERIC",
+            GRB.SUBOPTIMAL: "SUBOPTIMAL",
+            GRB.INPROGRESS: "INPROGRESS",
+            GRB.USER_OBJ_LIMIT: "USER_OBJ_LIMIT",
+        }
+        status_name = status_names.get(model.Status, f"UNKNOWN({model.Status})")
+        logger.error(f"Optimization was not successful. Status: {model.Status} ({status_name})")
 
         if stage2 and model.Status == GRB.INFEASIBLE:
             model.computeIIS()
             model.write (os.path.join ("Logs", folder_name, f"gurobi_model_infeasible_{file_name}_{timestamp}.ilp"))
             logger.error("Model is infeasible. IIS written to file.")
 
-        raise OptimizationError ("Optimization was not successful.", status=model.Status)
+        raise OptimizationError(f"Optimization was not successful. Status: {status_name}", status=model.Status)
 
     logger.info (f"4: Optimization successful. Runtime: {model.Runtime:.4f} seconds. Objective value: {model.ObjVal:.4f}")
 
