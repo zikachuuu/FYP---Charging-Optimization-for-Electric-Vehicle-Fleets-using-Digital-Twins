@@ -4,14 +4,15 @@ import numpy as np
 import os
 
 plt.rcParams.update({
-    "font.size": 16,
-    "axes.titlesize": 18,
-    "axes.labelsize": 16,
-    "xtick.labelsize": 15,
-    "ytick.labelsize": 15,
-    "legend.fontsize": 15,
-    "figure.titlesize": 18,
+    "font.size": 17,
+    # "axes.titlesize": 22,
+    "axes.labelsize": 17,
+    "xtick.labelsize": 16,
+    "ytick.labelsize": 16,
+    "legend.fontsize": 17,
+    "figure.titlesize": 22,
 })
+
 # Load test case
 base_dir = os.path.dirname(os.path.abspath(__file__))
 testcase_path = os.path.normpath(os.path.join(base_dir, "..", "Testcases", "manhattan_jan2.json"))
@@ -78,7 +79,7 @@ bars = plt.bar(zones, ports, color=colors, edgecolor='black', linewidth=0.5)
 # Add horizontal line for average
 plt.axhline(y=avg_ports, color='red', linestyle='--', linewidth=2, label=f'Average: {avg_ports:.2f} ports')
 
-plt.xlabel('Zone ID')
+plt.xlabel('Zone')
 plt.ylabel('Number of Charging Ports')
 plt.title(f'Charging Ports Distribution Across Zones', 
           pad=20)

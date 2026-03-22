@@ -55,3 +55,46 @@ def print_duration (time_in_seconds: float) -> str:
     duration_parts.append(f"{seconds:.2f} seconds")
     
     return ', '.join(duration_parts)
+
+
+def round_df(df):
+    """
+    Round numeric values in a DataFrame to 3 decimal places.
+    Returns a new DataFrame with numeric columns rounded.
+    """
+    try:
+        return df.round(3)
+    except Exception:
+        # Fallback: round numeric columns in-place
+        numeric_cols = df.select_dtypes(include=["number"]).columns
+        for col in numeric_cols:
+            df[col] = df[col].round(3)
+        return df
+
+def weighted_quantile(values, weights, quantile):
+    """
+    Compute weighted quantile for discrete values.
+
+    Args:
+        values: list of numeric values
+        weights: list of non-negative weights
+        quantile: float in [0, 1]
+
+    Returns:
+        float: weighted quantile value
+    """
+    if not values or not weights:
+        return float("nan")
+
+    pairs = sorted(zip(values, weights), key=lambda x: x[0])
+    total_weight = sum(w for _, w in pairs)
+    if total_weight <= 0:
+        return float("nan")
+
+    target = quantile * total_weight
+    cumulative = 0.0
+    for v, w in pairs:
+        cumulative += w
+        if cumulative >= target:
+            return float(v)
+    return float(pairs[-1][0])

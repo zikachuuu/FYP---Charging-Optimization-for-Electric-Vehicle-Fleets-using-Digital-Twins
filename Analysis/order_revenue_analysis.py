@@ -4,13 +4,13 @@ import numpy as np
 import os
 
 plt.rcParams.update({
-    "font.size": 16,
-    "axes.titlesize": 18,
-    "axes.labelsize": 16,
-    "xtick.labelsize": 15,
-    "ytick.labelsize": 15,
-    "legend.fontsize": 15,
-    "figure.titlesize": 18,
+    "font.size": 17,
+    # "axes.titlesize": 22,
+    "axes.labelsize": 17,
+    "xtick.labelsize": 16,
+    "ytick.labelsize": 16,
+    "legend.fontsize": 17,
+    "figure.titlesize": 22,
 })
 
 
@@ -125,7 +125,7 @@ ax2.tick_params(axis='y', labelcolor=color)
 
 # Combined title and legend
 plt.title(
-    f'Average Revenue per Ride Throughout the Day',
+    f'Average Revenue per Ride and Travel Demand over Time',
     pad=20
 )
 

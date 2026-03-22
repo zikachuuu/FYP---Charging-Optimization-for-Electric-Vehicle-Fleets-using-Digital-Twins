@@ -4,13 +4,13 @@ import numpy as np
 import os
 
 plt.rcParams.update({
-    "font.size": 16,
-    "axes.titlesize": 18,
-    "axes.labelsize": 16,
-    "xtick.labelsize": 15,
-    "ytick.labelsize": 15,
-    "legend.fontsize": 15,
-    "figure.titlesize": 18,
+    "font.size": 17,
+    # "axes.titlesize": 22,
+    "axes.labelsize": 17,
+    "xtick.labelsize": 16,
+    "ytick.labelsize": 16,
+    "legend.fontsize": 17,
+    "figure.titlesize": 22,
 })
 
 
@@ -73,8 +73,8 @@ plt.fill_between(
 )
 
 plt.xlabel('Time Step')
-plt.ylabel('Travel Demand (number of rides)')
-plt.title(f'Travel Demand Throughout Time Steps')
+plt.ylabel('Travel Demand (rides)')
+plt.title(f'Travel Demand over Time')
 plt.grid(True, alpha=0.3)
 plt.legend(loc='upper center', bbox_to_anchor=(0.5, -0.1), ncol=1, frameon=True)
 plt.tight_layout()

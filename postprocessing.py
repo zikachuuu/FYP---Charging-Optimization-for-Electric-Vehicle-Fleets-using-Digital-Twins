@@ -4,16 +4,17 @@ import os
 
 from logger import Logger
 from networkClass import Arc, ArcType
+from utility import round_df, weighted_quantile
 
 # Increase default font sizes for all plots
 plt.rcParams.update({
-    "font.size": 16,
-    "axes.titlesize": 18,
-    "axes.labelsize": 16,
-    "xtick.labelsize": 15,
-    "ytick.labelsize": 15,
-    "legend.fontsize": 15,
-    "figure.titlesize": 18,
+    "font.size": 17,
+    # "axes.titlesize": 22,
+    "axes.labelsize": 17,
+    "xtick.labelsize": 16,
+    "ytick.labelsize": 16,
+    "legend.fontsize": 17,
+    "figure.titlesize": 22,
 })
 
 def postprocessing(**kwargs):
@@ -144,7 +145,7 @@ def postprocessing(**kwargs):
             label       = 'Charging Cost'   ,
         )
         
-        plt.xlabel  ('Time Intervals')
+        plt.xlabel  ('Time Step')
         plt.ylabel  ('Money ($)')
         plt.title   ('Fleet Operator Profit Breakdown Over Time')
         plt.grid    (True, alpha=0.3)
@@ -219,8 +220,8 @@ def postprocessing(**kwargs):
                 color       = type_colors.get(label, None),
             )
 
-        plt.xlabel  ("Time Intervals")
-        plt.ylabel  ("% of EVs")
+        plt.xlabel  ("Time Step")
+        plt.ylabel  ("% of SAEVs")
         plt.title   ("SAEV Operations by Activities over Time")
         plt.grid    (True, alpha=0.3)
         plt.legend  (title="Activity", loc="upper center", bbox_to_anchor=(0.5, -0.1), ncol=4, frameon=True)
@@ -458,7 +459,7 @@ def postprocessing(**kwargs):
         
         # Left axis - SAEV Service percentage
         color = 'tab:blue'
-        ax1.set_xlabel('Time Intervals')
+        ax1.set_xlabel('Time Step')
         ax1.set_ylabel('% of SAEVs in Service', color=color)
         line1 = ax1.plot(
             df_combined.index           , 
@@ -518,7 +519,7 @@ def postprocessing(**kwargs):
         labels = [l.get_label() for l in lines]
         ax1.legend(lines, labels, loc='upper center', bbox_to_anchor=(0.5, -0.1), ncol=2, frameon=True)
         
-        plt.title('SAEV Service Operations vs Demand Metrics')
+        plt.title('SAEV Service Rate vs Ride Fulfillment Over Time')
         plt.tight_layout()
         
         outfile = os.path.join ("Results", folder_name, f"service_demand_comparison_{file_name}_{timestamp}.png")
@@ -577,15 +578,15 @@ def postprocessing(**kwargs):
         fig, ax1 = plt.subplots(figsize=(12, 8))
         
         # Left axis - SoC levels
-        ax1.set_xlabel('Time Intervals')
-        ax1.set_ylabel('SoC Levels', color='tab:blue')
+        ax1.set_xlabel('Time Step')
+        ax1.set_ylabel('Amount of Electricity (SoC Level)', color='tab:blue')
         line1 = ax1.plot(
             df_electricity.index                        , 
             df_electricity["Electricity Usage (SoC)"]   , 
             color       = 'tab:blue'                    , 
             linewidth   = 2                             , 
             marker      = markers[0]                    ,
-            label       = 'Electricity Usage (left y-axis)' ,
+            label       = 'Grid Electricity Consumption (left y-axis)' ,
         )
         line2 = ax1.plot(
             df_electricity.index                , 
@@ -593,7 +594,7 @@ def postprocessing(**kwargs):
             color       = 'tab:red'             , 
             linewidth   = 2                     , 
             marker      = markers[1]            ,            
-            label       = 'Max Supply (left y-axis)'          , 
+            label       = 'Grid Supply (left y-axis)'          , 
             linestyle   = '--'                  ,
         )
         line3 = ax1.plot(
@@ -617,7 +618,7 @@ def postprocessing(**kwargs):
             color       = 'xkcd:light red'      ,        
             linewidth   = 2                     , 
             marker      = markers[3]            ,
-            label       = 'Price High (right y-axis)'          , 
+            label       = 'Base Price (right y-axis)'          , 
             linestyle   = ':'                   ,
         )
         line5 = ax2.plot(
@@ -626,7 +627,7 @@ def postprocessing(**kwargs):
             color       = 'xkcd:light green'    ,     
             linewidth   = 2                     , 
             marker      = markers[4]            ,
-            label       = 'Price Low (right y-axis)'           , 
+            label       = 'Additional Price (right y-axis)'           , 
             linestyle   = ':'                   ,
         )
         line6 = ax2.plot(
@@ -643,9 +644,9 @@ def postprocessing(**kwargs):
         # Combined legend
         lines = line1 + line2 + line3 + line4 + line5 + line6
         labels = [l.get_label() for l in lines]
-        ax1.legend(lines, labels, loc='upper center', bbox_to_anchor=(0.5, -0.1), ncol=3, frameon=True)
+        ax1.legend(lines, labels, loc='upper center', bbox_to_anchor=(0.5, -0.1), ncol=2, frameon=True)
         
-        plt.title('Electricity Usage and Pricing Over Time')
+        plt.title('Grid Electricity Consumption vs Pricing Structure Over Time')
         plt.tight_layout()
         
         outfile = os.path.join ("Results", folder_name, f"electricity_usage_pricing_{file_name}_{timestamp}.png")
@@ -878,39 +879,200 @@ def postprocessing(**kwargs):
         df_saturation = pd.DataFrame(detailed_rows, index=plot_indices)
         df_saturation.index.name = "Time Step"
         return df_saturation
-    
-    def _round_df(df):
+
+
+    def _soc_level_over_time():
         """
-        Round numeric values in a DataFrame to 3 decimal places.
-        Returns a new DataFrame with numeric columns rounded.
+        Build SoC statistics over time using all active non-WRAP arcs.
+        Each time step uses active arc start SoC level (arc.o.l), weighted by x[e_id].
+        Also computes percentage of SAEVs that are charging.
+
+        Returns:
+            pd.DataFrame: SoC statistics by time step
         """
-        try:
-            return df.round(3)
-        except Exception:
-            # Fallback: round numeric columns in-place
-            numeric_cols = df.select_dtypes(include=["number"]).columns
-            for col in numeric_cols:
-                df[col] = df[col].round(3)
-            return df
+        records = []
+
+        for t in TIMESTEPS:
+            soc_levels          = []
+            counts              = []
+            num_evs_charging    = 0.0
+
+            for e_id, arc in all_arcs.items():
+
+                if arc.type == ArcType.WRAP:
+                    if t != T:  # Only consider WRAP arcs at the final time step T
+                        continue
+                else:
+                    if not (arc.o.t <= t < arc.d.t):
+                        continue
+
+                ev_count = x.get(e_id, 0.0)
+                if ev_count <= 0:
+                    continue
+
+                soc_levels.append(arc.o.l)
+                counts.append(ev_count)
+
+                if arc.type == ArcType.CHARGE:
+                    num_evs_charging += ev_count
+
+            total_active_evs = sum(counts)  # total number of SAEVs active at this time step (should be equal to num_EVs)
+            charging_pct = (num_evs_charging / num_EVs * 100.0) if num_EVs > 0 else 0.0
+
+            if total_active_evs <= 0:
+                row = {
+                    "Mean SoC"          : float("nan"),
+                    "Median SoC"        : float("nan"),
+                    "Min SoC"           : float("nan"),
+                    "P25 SoC"           : float("nan"),
+                    "P75 SoC"           : float("nan"),
+                    "Max SoC"           : float("nan"),
+                    "Active SAEVs"      : 0.0,
+                    "EVs Charging"      : 0.0,
+                    "% SAEVs Charging"  : charging_pct,
+                }
+            else:
+                weighted_mean   = sum(v * w for v, w in zip(soc_levels, counts)) / total_active_evs
+                weighted_min    = min(soc_levels)
+                weighted_max    = max(soc_levels)
+                weighted_p25    = weighted_quantile(soc_levels, counts, 0.25)
+                weighted_median = weighted_quantile(soc_levels, counts, 0.50)
+                weighted_p75    = weighted_quantile(soc_levels, counts, 0.75)
+
+                row = {
+                    "Mean SoC"          : weighted_mean,
+                    "Median SoC"        : weighted_median,
+                    "Min SoC"           : weighted_min,
+                    "P25 SoC"           : weighted_p25,
+                    "P75 SoC"           : weighted_p75,
+                    "Max SoC"           : weighted_max,
+                    "Active SAEVs"      : total_active_evs,
+                    "EVs Charging"      : num_evs_charging,
+                    "% SAEVs Charging"  : charging_pct,
+                }
+
+            records.append(row)
+
+        df_soc = pd.DataFrame(records, index=TIMESTEPS)
+        df_soc.index.name = "Time Interval"
+
+        fig, ax1 = plt.subplots(figsize=(12, 8))
+
+        # Left axis: charging participation share.
+        ax1.set_xlabel("Time Step")
+        ax1.set_ylabel("% of SAEVs Charging", color='tab:orange')
+        line1 = ax1.plot(
+            df_soc.index,
+            df_soc["% SAEVs Charging"],
+            color='tab:orange',
+            linewidth=2,
+            marker=markers[0],
+            # linestyle='-.',
+            label='% SAEVs Charging (left y-axis)',
+        )
+        ax1.tick_params(axis='y', labelcolor='tab:orange')
+        ax1.grid(True, alpha=0.3)
+
+        # Right axis: SoC statistics for all active SAEVs.
+        ax2 = ax1.twinx()
+        ax2.set_ylabel("SoC Level", color='tab:blue')
+        ax2.fill_between(
+            df_soc.index,
+            df_soc["P25 SoC"],
+            df_soc["P75 SoC"],
+            color='tab:blue',
+            alpha=0.12,
+            label='IQR (P25-P75) (right y-axis)',   
+        )
+
+        line2 = ax2.plot(
+            df_soc.index,
+            df_soc["Mean SoC"],
+            color='tab:blue',
+            linewidth=2,
+            marker=markers[1],
+            label='Mean SoC (right y-axis)',
+            linestyle='--',
+        )
+        line3 = ax2.plot(
+            df_soc.index,
+            df_soc["Median SoC"],
+            color='tab:purple',
+            linewidth=2,
+            marker=markers[2],
+            label='Median SoC (right y-axis)',
+            linestyle='--',
+        )
+        line4 = ax2.plot(
+            df_soc.index,
+            df_soc["P25 SoC"],
+            color='tab:green',
+            linewidth=1.8,
+            marker=markers[3],
+            linestyle=':',
+            label='P25 SoC (right y-axis)',
+        )
+        line5 = ax2.plot(
+            df_soc.index,
+            df_soc["P75 SoC"],
+            color='tab:cyan',
+            linewidth=1.8,
+            marker=markers[4],
+            linestyle=':',
+            label='P75 SoC (right y-axis)',
+        )
+        line6 = ax2.plot(
+            df_soc.index,
+            df_soc["Min SoC"],
+            color='xkcd:light green' ,
+            linewidth=1.6,
+            marker=markers[5],
+            linestyle='-.',
+            label='Min SoC (right y-axis)',
+        )
+        line7 = ax2.plot(
+            df_soc.index,
+            df_soc["Max SoC"],
+            color='xkcd:light red',
+            linewidth=1.6,
+            marker=markers[6],
+            linestyle='-.',
+            label='Max SoC (right y-axis)',
+        )
+        ax2.tick_params(axis='y', labelcolor='tab:blue')
+
+        lines = line1 + line2 + line3 + line4 + line5 + line6 + line7
+        labels = [l.get_label() for l in lines]
+        ax1.legend(lines, labels, loc='upper center', bbox_to_anchor=(0.5, -0.1), ncol=2, frameon=True)
+
+        plt.title("SAEV Charging Rate vs SoC Level Distribution Over Time")
+        plt.tight_layout()
+
+        outfile = os.path.join("Results", folder_name, f"soc_level_over_time_{file_name}_{timestamp}.png")
+        plt.savefig(outfile, dpi=150, bbox_inches="tight")
+        plt.close()
+        logger.info(f"Saved SoC over time plot to {outfile}")
+
+        return df_soc
     
     # Create an excel in the Results folder to save results
     with pd.ExcelWriter(results_name, engine="openpyxl") as writer:
         # 1. Fleet operator profit summary
         df_summary = _fleet_operator_profit()
-        df_summary = _round_df(df_summary)
+        df_summary = round_df(df_summary)
         df_summary.to_excel(writer, sheet_name="Fleet Operator Profit", index_label="Time Step")
         logger.info("1. Saved Fleet Operator Profit to excel")
 
         # 2. EV operations over time
         df_ev_operations = _ev_operations_over_time()
-        df_ev_operations = _round_df(df_ev_operations)
+        df_ev_operations = round_df(df_ev_operations)
         df_ev_operations.to_excel(writer, sheet_name="EV Operations", index_label="Time Step")
         logger.info("2. Saved EV Operations to excel")
 
         # 3. Demand served over time
         df_demand_served = _demand_served_over_time()
         # Round values before saving
-        df_demand_served = _round_df(df_demand_served)
+        df_demand_served = round_df(df_demand_served)
         if df_demand_served.shape[1] > 10000:
             logger.warning("Demand Served DataFrame has more than 10,000 columns. Saving only final \"total\" columns in Excel.")
             df_demand_served["total"].to_excel(writer, sheet_name="Demand Served", index_label="Time Step")
@@ -922,29 +1084,29 @@ def postprocessing(**kwargs):
 
         # 4. Service and demand comparison
         df_service_demand = _service_and_demand_comparison()
-        df_service_demand = _round_df(df_service_demand)
+        df_service_demand = round_df(df_service_demand)
         df_service_demand.to_excel(writer, sheet_name="Service vs Demand", index_label="Time Step")
         logger.info("4. Saved Service and Demand Comparison to excel")
 
         # 5. Electricity usage and pricing
         df_electricity = _electricity_usage_and_pricing()
-        df_electricity = _round_df(df_electricity)
+        df_electricity = round_df(df_electricity)
         df_electricity.to_excel(writer, sheet_name="Electricity Usage vs Pricing", index_label="Time Step")
         logger.info("5. Saved electricity usage and pricing to excel")
 
         # 6. Electricity by zone
         df_zone_electricity = _electricity_by_zone()
-        df_zone_electricity = _round_df(df_zone_electricity)
+        df_zone_electricity = round_df(df_zone_electricity)
         df_zone_electricity.to_excel(writer, sheet_name="Electricity by Zone", index_label="Time Step")
         logger.info("6. Saved electricity by zone to excel")
 
         # 7. Zone saturation plots and data - EV Charging
         df_elec_sat = _plot_zone_saturation(
             metric_name     = "Usage (SoC)",
-            title_suffix    = "Electricity Utilization Rate",
+            title_suffix    = "Grid Electricity Consumption Rate",
             filename_suffix = "saturation_elec",
         )
-        df_elec_sat = _round_df(df_elec_sat)
+        df_elec_sat = round_df(df_elec_sat)
         df_elec_sat.to_excel(writer, sheet_name="Saturation - Electricity", index_label="Time Step")
         logger.info("7. Saved Electricity Saturation data to excel")
 
@@ -954,8 +1116,14 @@ def postprocessing(**kwargs):
             title_suffix    = "Port Utilization Rate",
             filename_suffix = "saturation_port",
         )
-        df_port_sat = _round_df(df_port_sat)
+        df_port_sat = round_df(df_port_sat)
         df_port_sat.to_excel(writer, sheet_name="Saturation - Ports", index_label="Time Step")
         logger.info("8. Saved Port Saturation data to excel")
+
+        # 9. SoC level statistics over time (for charging SAEVs)
+        df_soc = _soc_level_over_time()
+        df_soc = round_df(df_soc)
+        df_soc.to_excel(writer, sheet_name="SoC Level Over Time", index_label="Time Step")
+        logger.info("9. Saved SoC level statistics to excel")
 
     logger.info(f"All results saved to {results_name}")
