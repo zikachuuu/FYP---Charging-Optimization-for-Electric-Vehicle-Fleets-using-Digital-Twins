@@ -618,7 +618,7 @@ def postprocessing(**kwargs):
             color       = 'xkcd:light red'      ,        
             linewidth   = 2                     , 
             marker      = markers[3]            ,
-            label       = 'Base Price (right y-axis)'          , 
+            label       = 'Additional Price (right y-axis)'    , 
             linestyle   = ':'                   ,
         )
         line5 = ax2.plot(
@@ -627,7 +627,7 @@ def postprocessing(**kwargs):
             color       = 'xkcd:light green'    ,     
             linewidth   = 2                     , 
             marker      = markers[4]            ,
-            label       = 'Additional Price (right y-axis)'           , 
+            label       = 'Base Price (right y-axis)'               , 
             linestyle   = ':'                   ,
         )
         line6 = ax2.plot(
