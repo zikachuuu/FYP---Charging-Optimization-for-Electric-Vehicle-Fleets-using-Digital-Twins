@@ -53,7 +53,7 @@ You will NOT find
 
 6. Run `main.py` and follow any instructions given. You will be asked to choose to run only Stage 1 (Bilevel Optimization to find optimal price), only Stage 2 (Follower Model), or run both stages.
 
-    - If you choose to run only Stage 1, the optimal retail electricity pricing structure (base price, additional price, threshold) will be appended to the provided testcase and return as a new file (as `charge_cost_low`, `charge_cost_high`, `elec_threshold`). This allows you to run both stages in two different seatings / on two different computers.
+    - If you choose to run only Stage 1, the optimal retail electricity pricing structure (base price, additional price, threshold) will be appended to the provided testcase (as `charge_cost_low`, `charge_cost_high`, `elec_threshold`) and return as a new json file in `Results` folder. This allows you to run both stages in two different sittings / on two different computers.
 
     - If you choose to run only Stage 2, then the  retail electricity pricing structure (as `charge_cost_low`, `charge_cost_high`, `elec_threshold`) should be in the provided testcase.
 

@@ -1,10 +1,12 @@
 from __future__ import annotations
+
+from dotenv import load_dotenv
+load_dotenv()
+
 import gurobipy as gp
 from gurobipy import GRB
-from dotenv import load_dotenv
-import os
 
-load_dotenv()
+import os
 
 from logger import Logger
 from networkClass import Node, Arc, ArcType, ServiceArc, ChargingArc, RelocationArc, IdleArc, WraparoundArc
