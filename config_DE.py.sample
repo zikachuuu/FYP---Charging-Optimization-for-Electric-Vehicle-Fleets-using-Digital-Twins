@@ -59,3 +59,5 @@ FINAL_UPPER_BOUND_MULTIPLICITY_B    : float = 10.0  # Final upper bound for b_t 
 RELAX_STAGE_2                       : bool  = True  # whether to relax integrality constraints in follower model (Stage 2) during DE evaluations (for debugging)
 RANDOM_SEED                         : int   = 67    # random seed for reproducibility (numpy, Gurobi)
 VARS_PER_STEP                       : int   = 3     # number of dimensions (variables) per time step (i.e. a_t, b_t, r_t)
+
+MAX_SUBOPTIMAL_TOLERANCE            : int   = 1     # max number of suboptimal (status 13) results allowed per iteration (numeric instability). Only status 13 is safe to ignore.

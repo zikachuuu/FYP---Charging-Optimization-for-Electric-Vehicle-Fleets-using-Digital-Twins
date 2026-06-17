@@ -30,6 +30,7 @@ from config_DE import (
     FINAL_UPPER_BOUND_MULTIPLICITY_A    ,
     FINAL_UPPER_BOUND_MULTIPLICITY_B    ,
     RANDOM_SEED                         ,
+    MAX_SUBOPTIMAL_TOLERANCE            ,
 )
 
 # Threshold for fitness improvement to trigger anchor increase
@@ -664,10 +665,23 @@ def run_parallel_de(
             # Calculate initial fitness (Parallel)
             # Runs the evaluate_single_candidate function on each candidate in the population in parallel
             try:
-                results: npt.NDArray[np.float64] = np.array(pool.map(evaluate_single_candidate_worker, population))
+                results = np.array(pool.map(evaluate_single_candidate_worker, population))
             except Exception as e:
                 logger.error("An error occurred during the initial evaluation of candidates.")
                 raise e
+
+            initial_suboptimal_count = int(np.count_nonzero(results[:, 4] > 0.5))
+            if initial_suboptimal_count > MAX_SUBOPTIMAL_TOLERANCE:
+                logger.error(
+                    f"Suboptimal tolerance exceeded after initial evaluation: {initial_suboptimal_count} > {MAX_SUBOPTIMAL_TOLERANCE}. Aborting optimization."
+                )
+                raise OptimizationError(
+                    f"Suboptimal tolerance exceeded after initial evaluation: {initial_suboptimal_count}/{MAX_SUBOPTIMAL_TOLERANCE}"
+                )
+            if initial_suboptimal_count > 0:
+                logger.warning(
+                    f"Initial evaluation included {initial_suboptimal_count} suboptimal candidate(s). Proceeding with all results."
+                )
 
             # Extract fitness and variance (first and second columns of each row)
             fitnesses                   : npt.NDArray[np.float64]    = results[:,0]
@@ -774,7 +788,20 @@ def run_parallel_de(
                 logger.info(f"  Trial population created")
 
                 # --- 2. EVALUATE TRIALS (PARALLEL BOTTLENECK) ---
-                trial_results   : npt.NDArray[np.float64] = np.array(pool.map(evaluate_single_candidate_worker, trial_population))
+                trial_results = np.array(pool.map(evaluate_single_candidate_worker, trial_population))
+
+                trial_suboptimal_count = int(np.count_nonzero(trial_results[:, 4] > 0.5))
+                if trial_suboptimal_count > MAX_SUBOPTIMAL_TOLERANCE:
+                    logger.error(
+                        f"Suboptimal tolerance exceeded in generation {gen+1}: {trial_suboptimal_count} > {MAX_SUBOPTIMAL_TOLERANCE}. Aborting optimization."
+                    )
+                    raise OptimizationError(
+                        f"Suboptimal tolerance exceeded in generation {gen+1}: {trial_suboptimal_count}/{MAX_SUBOPTIMAL_TOLERANCE}"
+                    )
+                if trial_suboptimal_count > 0:
+                    logger.warning(
+                        f"Generation {gen+1} included {trial_suboptimal_count} suboptimal candidate(s). Proceeding with all results."
+                    )
 
                 trial_fitnesses                 : npt.NDArray[np.float64] = trial_results[:,0]
                 trial_variances                 : npt.NDArray[np.float64] = trial_results[:,1]

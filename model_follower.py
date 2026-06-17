@@ -905,7 +905,7 @@ def follower_model(
         model.optimize()
 
     logger.info(f"3: Optimization completed with status {model.Status}")
-    
+
     if model.Status != GRB.OPTIMAL:
         # Map status code to name for better error messages
         status_names = {
@@ -926,14 +926,19 @@ def follower_model(
             GRB.USER_OBJ_LIMIT: "USER_OBJ_LIMIT",
         }
         status_name = status_names.get(model.Status, f"UNKNOWN({model.Status})")
-        logger.error(f"Optimization was not successful. Status: {model.Status} ({status_name})")
 
-        if stage2 and model.Status == GRB.INFEASIBLE:
-            model.computeIIS()
-            model.write (os.path.join ("Logs", folder_name, f"gurobi_model_infeasible_{file_name}_{timestamp}.ilp"))
-            logger.error("Model is infeasible. IIS written to file.")
+        # Allow suboptimal solutions if within tolerance (numeric instability workaround)
+        if model.Status == GRB.SUBOPTIMAL:
+            logger.warning("Optimization returned SUBOPTIMAL (status 13) - numeric instability detected. Proceeding with solution.")
+        else:
+            logger.error(f"Optimization was not successful. Status: {model.Status} ({status_name})")
 
-        raise OptimizationError(f"Optimization was not successful. Status: {status_name}", status=model.Status)
+            if stage2 and model.Status == GRB.INFEASIBLE:
+                model.computeIIS()
+                model.write (os.path.join ("Logs", folder_name, f"gurobi_model_infeasible_{file_name}_{timestamp}.ilp"))
+                logger.error("Model is infeasible. IIS written to file.")
+
+            raise OptimizationError(f"Optimization was not successful. Status: {status_name}", status=model.Status)
 
     logger.info (f"4: Optimization successful. Runtime: {model.Runtime:.4f} seconds. Objective value: {model.ObjVal:.4f}")
 
@@ -955,6 +960,8 @@ def follower_model(
         "u"     : u_sol,
         "e"     : e_sol,
         "q"     : q_sol,
+        "status" : model.Status,
+        "was_suboptimal" : model.Status == GRB.SUBOPTIMAL,
     }
 
 
