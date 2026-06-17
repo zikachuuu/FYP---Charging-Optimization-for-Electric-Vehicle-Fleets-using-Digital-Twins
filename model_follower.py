@@ -906,6 +906,7 @@ def follower_model(
 
     logger.info(f"3: Optimization completed with status {model.Status}")
 
+
     if model.Status != GRB.OPTIMAL:
         # Map status code to name for better error messages
         status_names = {
@@ -937,7 +938,12 @@ def follower_model(
                 model.computeIIS()
                 model.write (os.path.join ("Logs", folder_name, f"gurobi_model_infeasible_{file_name}_{timestamp}.ilp"))
                 logger.error("Model is infeasible. IIS written to file.")
+            if stage2 and model.Status == GRB.INFEASIBLE:
+                model.computeIIS()
+                model.write (os.path.join ("Logs", folder_name, f"gurobi_model_infeasible_{file_name}_{timestamp}.ilp"))
+                logger.error("Model is infeasible. IIS written to file.")
 
+            raise OptimizationError(f"Optimization was not successful. Status: {status_name}", status=model.Status)
             raise OptimizationError(f"Optimization was not successful. Status: {status_name}", status=model.Status)
 
     logger.info (f"4: Optimization successful. Runtime: {model.Runtime:.4f} seconds. Objective value: {model.ObjVal:.4f}")

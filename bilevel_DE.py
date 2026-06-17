@@ -31,6 +31,7 @@ from config_DE import (
     FINAL_UPPER_BOUND_MULTIPLICITY_B    ,
     RANDOM_SEED                         ,
     MAX_SUBOPTIMAL_TOLERANCE            ,
+    MAX_SUBOPTIMAL_TOLERANCE            ,
 )
 
 # Threshold for fitness improvement to trigger anchor increase
@@ -467,6 +468,7 @@ def run_parallel_de(
     # 1. Create the Queue using Manager (Safest for Pools)
     manager = multiprocessing.Manager()
     log_queue = manager.Queue()
+    suboptimal_count = manager.Value('i', 0)  # Shared counter for suboptimal results
 
     manager_gurobi = multiprocessing.Manager()
     log_queue_gurobi = manager_gurobi.Queue()
@@ -640,6 +642,8 @@ def run_parallel_de(
             reference_variance      = reference_variance    ,
             log_queue               = log_queue             ,
             log_queue_gurobi        = log_queue_gurobi      ,
+            max_suboptimal_tolerance = MAX_SUBOPTIMAL_TOLERANCE ,
+            suboptimal_count        = suboptimal_count      ,
         )
 
 
@@ -664,6 +668,7 @@ def run_parallel_de(
 
             # Calculate initial fitness (Parallel)
             # Runs the evaluate_single_candidate function on each candidate in the population in parallel
+            suboptimal_count.value = 0  # Reset counter before initial evaluation
             try:
                 results = np.array(pool.map(evaluate_single_candidate_worker, population))
             except Exception as e:
@@ -802,6 +807,10 @@ def run_parallel_de(
                     logger.warning(
                         f"Generation {gen+1} included {trial_suboptimal_count} suboptimal candidate(s). Proceeding with all results."
                     )
+
+                # Check if suboptimal tolerance was exceeded
+                if suboptimal_count.value > MAX_SUBOPTIMAL_TOLERANCE:
+                    logger.warning(f"Suboptimal tolerance exceeded in this generation: {suboptimal_count.value} > {MAX_SUBOPTIMAL_TOLERANCE}. Continuing with solutions.")
 
                 trial_fitnesses                 : npt.NDArray[np.float64] = trial_results[:,0]
                 trial_variances                 : npt.NDArray[np.float64] = trial_results[:,1]
