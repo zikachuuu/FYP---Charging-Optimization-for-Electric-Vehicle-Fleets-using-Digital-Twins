@@ -909,21 +909,21 @@ def follower_model(
     if model.Status != GRB.OPTIMAL:
         # Map status code to name for better error messages
         status_names = {
-            GRB.LOADED: "LOADED",
-            GRB.OPTIMAL: "OPTIMAL",
-            GRB.INFEASIBLE: "INFEASIBLE",
-            GRB.INF_OR_UNBD: "INF_OR_UNBD",
-            GRB.UNBOUNDED: "UNBOUNDED",
-            GRB.CUTOFF: "CUTOFF",
-            GRB.ITERATION_LIMIT: "ITERATION_LIMIT",
-            GRB.NODE_LIMIT: "NODE_LIMIT",
-            GRB.TIME_LIMIT: "TIME_LIMIT",
-            GRB.SOLUTION_LIMIT: "SOLUTION_LIMIT",
-            GRB.INTERRUPTED: "INTERRUPTED",
-            GRB.NUMERIC: "NUMERIC",
-            GRB.SUBOPTIMAL: "SUBOPTIMAL",
-            GRB.INPROGRESS: "INPROGRESS",
-            GRB.USER_OBJ_LIMIT: "USER_OBJ_LIMIT",
+            GRB.LOADED          : "LOADED",
+            GRB.OPTIMAL         : "OPTIMAL",
+            GRB.INFEASIBLE      : "INFEASIBLE",
+            GRB.INF_OR_UNBD     : "INF_OR_UNBD",
+            GRB.UNBOUNDED       : "UNBOUNDED",
+            GRB.CUTOFF          : "CUTOFF",
+            GRB.ITERATION_LIMIT : "ITERATION_LIMIT",
+            GRB.NODE_LIMIT      : "NODE_LIMIT",
+            GRB.TIME_LIMIT      : "TIME_LIMIT",
+            GRB.SOLUTION_LIMIT  : "SOLUTION_LIMIT",
+            GRB.INTERRUPTED     : "INTERRUPTED",
+            GRB.NUMERIC         : "NUMERIC",
+            GRB.SUBOPTIMAL      : "SUBOPTIMAL",
+            GRB.INPROGRESS      : "INPROGRESS",
+            GRB.USER_OBJ_LIMIT  : "USER_OBJ_LIMIT",
         }
         status_name = status_names.get(model.Status, f"UNKNOWN({model.Status})")
 
@@ -954,14 +954,14 @@ def follower_model(
     q_sol: dict[int                         , float] = {t: v.X for t, v in q.items()}
 
     return {
-        "obj"   : model.ObjVal,
-        "x"     : x_sol,
-        "s"     : s_sol,
-        "u"     : u_sol,
-        "e"     : e_sol,
-        "q"     : q_sol,
-        "status" : model.Status,
-        "was_suboptimal" : model.Status == GRB.SUBOPTIMAL,
+        "obj"           : model.ObjVal,
+        "x"             : x_sol,
+        "s"             : s_sol,
+        "u"             : u_sol,
+        "e"             : e_sol,
+        "q"             : q_sol,
+        "status"        : model.Status,
+        "was_suboptimal": model.Status == GRB.SUBOPTIMAL,
     }
 
 

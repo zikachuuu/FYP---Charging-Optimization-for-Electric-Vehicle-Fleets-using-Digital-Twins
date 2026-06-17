@@ -69,7 +69,8 @@ def leader_model(
     x                       : dict[int                      , float]    = kwargs["x"]
 
     # Metadata
-    logger                  : Logger                                    = kwargs["logger"]                      # logger instance
+    logger                  : Logger                                    = kwargs["logger"]                  # logger instance
+    was_suboptimal          : bool                                      = kwargs["was_suboptimal"]          # whether the follower model was suboptimal
 
     # ----------------------------
     # Variance Calculation
@@ -127,10 +128,11 @@ def leader_model(
     logger.info(f"Leader model completed. Fitness: {fitness:.4f}, Percentage Price Increase: {percentage_price_increase:.4f}")
 
     return {
-        "fitness"                   : fitness,
-        "variance"                  : variance,
-        "variance_ratio"            : variance_ratio,
-        "percentage_price_increase" : percentage_price_increase
+        "fitness"                   : fitness                   ,
+        "variance"                  : variance                  ,
+        "variance_ratio"            : variance_ratio            ,
+        "percentage_price_increase" : percentage_price_increase ,
+        "was_suboptimal"            : was_suboptimal
     }
 
         

@@ -428,6 +428,7 @@ def _evaluate_candidate(
         leader_outputs["variance"]                  ,
         leader_outputs["variance_ratio"]            ,
         leader_outputs["percentage_price_increase"] ,
+        leader_outputs["was_suboptimal"]            ,
     )
 
 
@@ -669,8 +670,17 @@ def run_parallel_de(
             except Exception as e:
                 logger.error("An error occurred during the initial evaluation of candidates.")
                 raise e
+            
+            # Extract fitness and variance (first and second columns of each row)
+            fitnesses                   : npt.NDArray[np.float64]    = results[:,0]
+            variances                   : npt.NDArray[np.float64]    = results[:,1]
+            variance_ratios             : npt.NDArray[np.float64]    = results[:,2]
+            percentage_price_increases  : npt.NDArray[np.float64]    = results[:,3]
+            were_suboptimal             : npt.NDArray[np.bool_]      = results[:,4] > 0.5  # boolean array indicating which candidates were suboptimal
+            
+            init_end_time               : float = time.time()
+            initial_suboptimal_count    : int   = int(were_suboptimal.sum())
 
-            initial_suboptimal_count = int(np.count_nonzero(results[:, 4] > 0.5))
             if initial_suboptimal_count > MAX_SUBOPTIMAL_TOLERANCE:
                 logger.error(
                     f"Suboptimal tolerance exceeded after initial evaluation: {initial_suboptimal_count} > {MAX_SUBOPTIMAL_TOLERANCE}. Aborting optimization."
@@ -682,15 +692,7 @@ def run_parallel_de(
                 logger.warning(
                     f"Initial evaluation included {initial_suboptimal_count} suboptimal candidate(s). Proceeding with all results."
                 )
-
-            # Extract fitness and variance (first and second columns of each row)
-            fitnesses                   : npt.NDArray[np.float64]    = results[:,0]
-            variances                   : npt.NDArray[np.float64]    = results[:,1]
-            variance_ratios             : npt.NDArray[np.float64]    = results[:,2]
-            percentage_price_increases  : npt.NDArray[np.float64]    = results[:,3]
-
-            init_end_time       : float = time.time()
-
+            
             # Check if any candidate meets variance threshold
             # if so, early stop by taking the candidate with the lowest fitness among them
             meet_threshold: npt.NDArray[np.bool_] = variances <= VAR_THRESHOLD
@@ -790,27 +792,24 @@ def run_parallel_de(
                 # --- 2. EVALUATE TRIALS (PARALLEL BOTTLENECK) ---
                 trial_results = np.array(pool.map(evaluate_single_candidate_worker, trial_population))
 
-                trial_suboptimal_count = int(np.count_nonzero(trial_results[:, 4] > 0.5))
+                trial_fitnesses                 : npt.NDArray[np.float64] = trial_results[:,0]
+                trial_variances                 : npt.NDArray[np.float64] = trial_results[:,1]
+                trial_variance_ratios           : npt.NDArray[np.float64] = trial_results[:,2]
+                trial_percentage_price_increases: npt.NDArray[np.float64] = trial_results[:,3]
+                trial_were_suboptimal           : npt.NDArray[np.bool_]   = trial_results[:,4] > 0.5  # boolean array indicating which trials were suboptimal
+
+                trial_suboptimal_count = int(trial_were_suboptimal.sum())
                 if trial_suboptimal_count > MAX_SUBOPTIMAL_TOLERANCE:
                     logger.error(
-                        f"Suboptimal tolerance exceeded in generation {gen+1}: {trial_suboptimal_count} > {MAX_SUBOPTIMAL_TOLERANCE}. Aborting optimization."
+                        f"  Suboptimal tolerance exceeded in generation {gen+1}: {trial_suboptimal_count} > {MAX_SUBOPTIMAL_TOLERANCE}. Aborting optimization."
                     )
                     raise OptimizationError(
                         f"Suboptimal tolerance exceeded in generation {gen+1}: {trial_suboptimal_count}/{MAX_SUBOPTIMAL_TOLERANCE}"
                     )
                 if trial_suboptimal_count > 0:
                     logger.warning(
-                        f"Generation {gen+1} included {trial_suboptimal_count} suboptimal candidate(s). Proceeding with all results."
+                        f"  Generation {gen+1} included {trial_suboptimal_count} suboptimal candidate(s). Proceeding with all results."
                     )
-
-                # Check if suboptimal tolerance was exceeded
-                if trial_suboptimal_count > MAX_SUBOPTIMAL_TOLERANCE:
-                    logger.warning(f"Suboptimal tolerance exceeded in this generation: {trial_suboptimal_count} > {MAX_SUBOPTIMAL_TOLERANCE}. Continuing with solutions.")
-
-                trial_fitnesses                 : npt.NDArray[np.float64] = trial_results[:,0]
-                trial_variances                 : npt.NDArray[np.float64] = trial_results[:,1]
-                trial_variance_ratios           : npt.NDArray[np.float64] = trial_results[:,2]
-                trial_percentage_price_increases: npt.NDArray[np.float64] = trial_results[:,3]
 
                 logger.info(f"  Trial population evaluated")
 
