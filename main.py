@@ -156,11 +156,11 @@ Examples:
 
     logger.info("Starting the EV Fleet Charging Optimization Model...")
     if model_choice == '1':
-        logger.info("   Model choice: Running only Stage 1 (Bilevel Optimization to find optimal price)")
+        logger.info("  Model choice: Running only Stage 1 (Bilevel Optimization to find optimal price)")
     elif model_choice == '2':
-        logger.info("   Model choice: Running only Stage 2 (Follower Model)")
+        logger.info("  Model choice: Running only Stage 2 (Follower Model)")
     else:
-        logger.info(    "Model choice: Running both Stage 1 (Bilevel Optimization) and Stage 2 (Follower Model)")
+        logger.info("  Model choice: Running both Stage 1 (Bilevel Optimization) and Stage 2 (Follower Model)")
     logger.info(f"  Test case file: {file_name}.json in folder: {directory if directory != '' else 'Testcases/'}")
     logger.info(f"  Results will be saved in: {results_name}")
 
