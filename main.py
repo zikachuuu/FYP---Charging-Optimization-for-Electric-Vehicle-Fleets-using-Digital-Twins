@@ -33,6 +33,7 @@ from config_DE import (
     FINAL_UPPER_BOUND_MULTIPLICITY_B    ,
     RELAX_STAGE_2                       ,
     RANDOM_SEED                         ,
+    MAX_SUBOPTIMAL_TOLERANCE            ,
 )
 
 
@@ -189,8 +190,9 @@ Examples:
     logger.info(f"  └── Miscellaneous parameters:")
     logger.info(f"      ├── Relax Follower Model in Stage 2 (RELAX_STAGE_2)                                 : {RELAX_STAGE_2}")
     logger.info(f"      ├── Random Seed (RANDOM_SEED)                                                       : {RANDOM_SEED}")
-    logger.info(f"      └── Variables per Time Step (VARS_PER_STEP)                                         : {VARS_PER_STEP}")
-
+    logger.info(f"      ├── Variables per Time Step (VARS_PER_STEP)                                         : {VARS_PER_STEP}")
+    logger.info(f"      └── Maximum Suboptimal Tolerance (MAX_SUBOPTIMAL_TOLERANCE)                         : {MAX_SUBOPTIMAL_TOLERANCE}")
+    
 
     # Load data from the specified JSON file
     data: dict = None

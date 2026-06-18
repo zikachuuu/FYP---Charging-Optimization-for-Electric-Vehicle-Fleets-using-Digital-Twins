@@ -506,28 +506,28 @@ def run_parallel_de(
         # Population Initialization
         # ----------------------------
         # Using numpy array is much faster for numerical operations
-        wholesale_elec_price_arr: npt.NDArray[np.float64] = np.array([wholesale_elec_price.get(t, 0) for t in TIMESTEPS])
+        wholesale_elec_price_arr: npt.NDArray[np.float64]   = np.array([wholesale_elec_price.get(t, 0) for t in TIMESTEPS])
 
         # Lower bounds
-        lower_bounds_a          : npt.NDArray[np.float64] = wholesale_elec_price_arr.copy()          # a_t >= wholesale price
-        lower_bounds_b          : npt.NDArray[np.float64] = np.zeros(T + 1)                          # b_t >= 0
-        lower_bounds_r          : npt.NDArray[np.float64] = np.zeros(T + 1)                          # r_t >= 0
+        lower_bounds_a          : npt.NDArray[np.float64]   = wholesale_elec_price_arr.copy()          # a_t >= wholesale price
+        lower_bounds_b          : npt.NDArray[np.float64]   = np.zeros(T + 1)                          # b_t >= 0
+        lower_bounds_r          : npt.NDArray[np.float64]   = np.zeros(T + 1)                          # r_t >= 0
 
         # Upper bounds
-        upper_bounds_a_init     : npt.NDArray[np.float64] = wholesale_elec_price_arr * INITIAL_UPPER_BOUND_MULTIPLICITY_A     # a_t initial upper bound
-        upper_bounds_b_init     : npt.NDArray[np.float64] = wholesale_elec_price_arr * INITIAL_UPPER_BOUND_MULTIPLICITY_B     # b_t initial upper bound
-        upper_bounds_r          : npt.NDArray[np.float64] = np.array([sum(elec_supplied.get((i,t), 0) for i in ZONES) for t in TIMESTEPS])  # r_t <= total electricity supplied at time t (hard limit)
+        upper_bounds_a_init     : npt.NDArray[np.float64]   = wholesale_elec_price_arr * INITIAL_UPPER_BOUND_MULTIPLICITY_A     # a_t initial upper bound
+        upper_bounds_b_init     : npt.NDArray[np.float64]   = wholesale_elec_price_arr * INITIAL_UPPER_BOUND_MULTIPLICITY_B     # b_t initial upper bound
+        upper_bounds_r          : npt.NDArray[np.float64]   = np.array([sum(elec_supplied.get((i,t), 0) for i in ZONES) for t in TIMESTEPS])  # r_t <= total electricity supplied at time t (hard limit)
 
         # a_t and b_t can be unbounded in theory, but we set a very high upper bound for numerical stability
-        upper_bounds_a_final    : npt.NDArray[np.float64] = wholesale_elec_price_arr * FINAL_UPPER_BOUND_MULTIPLICITY_A
-        upper_bounds_b_final    : npt.NDArray[np.float64] = wholesale_elec_price_arr * FINAL_UPPER_BOUND_MULTIPLICITY_B
+        upper_bounds_a_final    : npt.NDArray[np.float64]   = wholesale_elec_price_arr * FINAL_UPPER_BOUND_MULTIPLICITY_A
+        upper_bounds_b_final    : npt.NDArray[np.float64]   = wholesale_elec_price_arr * FINAL_UPPER_BOUND_MULTIPLICITY_B
 
         logger.info("Bounds for decision variables set successfully!")
 
         # anchor indices (dimensionality reduction)
         # Only optimize time steps 1 to T-1 (exclude 0 and T)
         # Time steps 0 and T are fixed at their lower bounds
-        MAX_ANCHORS         : int                       = T - 1
+        MAX_ANCHORS             : int                       = T - 1
 
         if NUM_ANCHORS < 1:
             raise ValueError("NUM_ANCHORS must be at least 1")
@@ -960,13 +960,13 @@ def run_parallel_de(
 
         # Fitness progression plot
         fig_fitness = plt.figure(figsize=(12, 8))
-        plt.plot(gens, best_fitness_can_fitnesses, label="Best Fitness", color="tab:blue")
-        plt.plot(gens, best_variance_can_fitnesses, label="Best-Variance Fitness", color="tab:orange", linestyle="--")
-        plt.title("Fitness Progression")
-        plt.xlabel("Generation")
-        plt.ylabel("Fitness")
-        plt.grid(True, alpha=0.3)
-        plt.legend(loc='upper center', bbox_to_anchor=(0.5, -0.1), ncol=2, frameon=True)
+        plt.plot        (gens, best_fitness_can_fitnesses , label="Best Fitness"         , color="tab:blue")
+        plt.plot        (gens, best_variance_can_fitnesses, label="Best-Variance Fitness", color="tab:orange", linestyle="--")
+        plt.title       ("Fitness Progression")
+        plt.xlabel      ("Generation")
+        plt.ylabel      ("Fitness")
+        plt.grid        (True, alpha=0.3)
+        plt.legend      (loc='upper center', bbox_to_anchor=(0.5, -0.1), ncol=2, frameon=True)
         plt.tight_layout()
         fitness_plot_path = os.path.join("Results", folder_name, f"DE_fitness_progress_{file_name}_{timestamp}.png")
         fig_fitness.savefig(fitness_plot_path)
@@ -975,13 +975,13 @@ def run_parallel_de(
 
         # Variance progression plot
         fig_variance = plt.figure(figsize=(12, 8))
-        plt.plot(gens, best_fitness_can_variances, label="Best-Fitness Variance", color="tab:green")
-        plt.plot(gens, best_variance_can_variances, label="Best Variance", color="tab:red", linestyle="--")
-        plt.title("Variance Progression")
-        plt.xlabel("Generation")
-        plt.ylabel("Variance")
-        plt.grid(True, alpha=0.3)
-        plt.legend(loc='upper center', bbox_to_anchor=(0.5, -0.1), ncol=2, frameon=True)
+        plt.plot        (gens, best_fitness_can_variances , label="Best-Fitness Variance", color="tab:green")
+        plt.plot        (gens, best_variance_can_variances, label="Best Variance"        , color="tab:red", linestyle="--")
+        plt.title       ("Variance Progression")
+        plt.xlabel      ("Generation")
+        plt.ylabel      ("Variance")
+        plt.grid        (True, alpha=0.3)
+        plt.legend      (loc='upper center', bbox_to_anchor=(0.5, -0.1), ncol=2, frameon=True)
         plt.tight_layout()
         variance_plot_path = os.path.join("Results", folder_name, f"DE_variance_progress_{file_name}_{timestamp}.png")
         fig_variance.savefig(variance_plot_path)
@@ -990,14 +990,14 @@ def run_parallel_de(
 
 
         return _expand_trajectory(
-            candidate_flat  = best_vector       ,
-            M               = M                 ,
-            T               = T                 ,
-            lower_bounds_a  = lower_bounds_a    ,
-            lower_bounds_b  = lower_bounds_b    ,
-            lower_bounds_r  = lower_bounds_r    ,
-            upper_bounds_a  = upper_bounds_a_final,
-            upper_bounds_b  = upper_bounds_b_final,
-            upper_bounds_r  = upper_bounds_r    ,
-            TIMESTEPS       = TIMESTEPS         ,
+            candidate_flat  = best_vector           ,
+            M               = M                     ,
+            T               = T                     ,
+            lower_bounds_a  = lower_bounds_a        ,
+            lower_bounds_b  = lower_bounds_b        ,
+            lower_bounds_r  = lower_bounds_r        ,
+            upper_bounds_a  = upper_bounds_a_final  ,
+            upper_bounds_b  = upper_bounds_b_final  ,
+            upper_bounds_r  = upper_bounds_r        ,
+            TIMESTEPS       = TIMESTEPS             ,
         )
