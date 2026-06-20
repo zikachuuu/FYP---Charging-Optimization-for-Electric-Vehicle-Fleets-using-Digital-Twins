@@ -19,7 +19,7 @@ from config_DE import (
     MAX_ITER                            ,
     DIFF_WEIGHT                         ,
     CROSS_PROB                          ,
-    VAR_THRESHOLD                       ,
+    RAMP_RATE_THRESHOLD                 ,
     NUM_ANCHORS                         ,
     VARS_PER_STEP                       ,
     DIFF_WEIGHT_VARY                    ,
@@ -33,7 +33,6 @@ from config_DE import (
     MAX_SUBOPTIMAL_TOLERANCE            ,
 )
 
-# Threshold for fitness improvement to trigger anchor increase
 
 def _precompute_interpolation_matrix(
         T               : int                   , 
@@ -56,8 +55,8 @@ def _precompute_interpolation_matrix(
     ```
     Note that we only interpolates time steps 1 to T-1 (excludes time steps 0 and T)
     """
-    num_anchors = len(anchor_indices)
-    M: npt.NDArray[np.float64] = np.zeros((T-1, num_anchors))
+    num_anchors : int                       = len(anchor_indices)
+    M           : npt.NDArray[np.float64]   = np.zeros((T-1, num_anchors))
     
     for i in range(num_anchors - 1):
 
@@ -75,13 +74,13 @@ def _precompute_interpolation_matrix(
         for t in range(anchor_start, anchor_end + 1): # +1 to include end for continuity
             if t < 1 or t >= T:  # Skip time steps 0 and T
                 raise ValueError("Time step t out of interpolation range")
-            local_x = t - anchor_start
+            local_x     = t - anchor_start
             weight_next = local_x * slope
             weight_prev = 1.0 - weight_next
             
             # M[t-1, i] is weight of anchor i (t-1 because we skip time step 0)
             # M[t-1, i+1] is weight of anchor i+1
-            M[t-1, i] = weight_prev
+            M[t-1, i]   = weight_prev
             M[t-1, i+1] = weight_next
             
     return M
@@ -212,11 +211,11 @@ def _log_population_stats(
     Log distribution stats of the population based on per-candidate means.
     """
     if population.size == 0:
-        logger.info(f"  {label} Population Stats: empty population")
+        logger.error(f"  {label} Population Stats: empty population")
         return
 
     if population.shape[1] % VARS_PER_STEP != 0:
-        logger.info(f"  {label} Population Stats: unexpected dimensions {population.shape}")
+        logger.error(f"  {label} Population Stats: unexpected dimensions {population.shape}")
         return
 
     per_candidate = population.reshape(population.shape[0], -1, VARS_PER_STEP)
@@ -226,22 +225,22 @@ def _log_population_stats(
 
     def _format_stats(values: npt.NDArray[np.float64]) -> str:
         return (
-            f"mean={float(values.mean()):.6f}, "
-            f"var={float(values.var(ddof=0)):.6f}, "
-            f"min={float(values.min()):.6f}, "
-            f"max={float(values.max()):.6f}"
+            f"mean={float(values.mean()):.3f}, "
+            f"var={float(values.var(ddof=0)):.3f}, "
+            f"min={float(values.min()):.3f}, "
+            f"max={float(values.max()):.3f}"
         )
 
-    logger.info(f"  {label} Population Stats (candidate means) - a_t: {_format_stats(mean_a)}")
-    logger.info(f"  {label} Population Stats (candidate means) - b_t: {_format_stats(mean_b)}")
-    logger.info(f"  {label} Population Stats (candidate means) - r_t: {_format_stats(mean_r)}")
+    logger.info(f"  {label} Population Stats - a_t: {_format_stats(mean_a)}")
+    logger.info(f"  {label} Population Stats - b_t: {_format_stats(mean_b)}")
+    logger.info(f"  {label} Population Stats - r_t: {_format_stats(mean_r)}")
 
 
 def _reference_candidate(
         **kwargs
     ):
     """
-    Generate the reference variance value by solving the follower problem with minimum prices.
+    Generate the reference ramp rate by solving the follower problem with minimum prices.
     """
     # ----------------------------
     # Parameters
@@ -291,18 +290,20 @@ def _reference_candidate(
         follower_outputs = follower_model(
             **kwargs,
             # Metadata
-            logger                  = logger                ,
-            logger_gurobi           = logger_gurobi         ,
+            logger          = logger        ,
+            logger_gurobi   = logger_gurobi ,
         )
     except OptimizationError as e:
+        logger.error(f"Failed to solve follower problem for reference candidate. Status: {e.status}, Details: {str(e)}")
         raise OptimizationError("Failed to solve follower problem for reference candidate.", status=e.status, details=str(e)) from e
     except Exception as e:
+        logger.error(f"Unexpected error when solving follower problem for reference candidate. Details: {str(e)}")
         raise Exception("Unexpected error when solving follower problem for reference candidate.") from e
 
     logger.info("Reference candidate solved successfully.")
 
     # Extract variables and sets from the follower_outputs    
-    x               : dict[int, float]                          = follower_outputs["x"]
+    x: dict[int, float] = follower_outputs["x"]
 
     # Calculate electricity consumption at each time step using vectorized operations
     electricity_usage: npt.NDArray[np.float64] = np.zeros(T + 1)
@@ -316,11 +317,11 @@ def _reference_candidate(
             charge_amount = arc.d.l - arc.o.l  # SoC levels charged
             electricity_usage[t] += x[e_id] * charge_amount
 
-    # Calculate variance of electricity consumption using numpy
+    # Calculate ramp rate of electricity consumption using numpy
     usage_vector    : npt.NDArray[np.float64]   = electricity_usage[1:T]  # exclude time 0 and T
-    variance        : float                     = np.var(usage_vector, ddof=0) if len(usage_vector) > 1 else 0.0
+    ramp_rate       : float                     = np.sum(np.diff(usage_vector)**2) if len(usage_vector) > 1 else 0.0
 
-    return variance
+    return ramp_rate
 
 
 def _evaluate_candidate(
@@ -328,7 +329,7 @@ def _evaluate_candidate(
         **kwargs
     ):
     """
-    Calculate and returns the penalty and variance for a single candidate solution.
+    Calculate and returns the penalty and ramp rate for a single candidate solution.
     """    
     # ----------------------------
     # Parameters
@@ -403,8 +404,10 @@ def _evaluate_candidate(
             logger_gurobi   = logger_worker_gurobi  ,
         )
     except OptimizationError as e:
+        logger_worker.error(f"Failed to solve follower problem for candidate. Status: {e.status}, Details: {str(e)}")
         raise OptimizationError("Failed to solve follower problem for candidate.", status=e.status, details=str(e)) from e
     except Exception as e:
+        logger_worker.error(f"Unexpected error when solving follower problem for candidate. Details: {str(e)}")
         raise Exception("Unexpected error when solving follower problem for candidate.") from e
 
     logger_worker.info("Follower problem for candidate solved successfully. Solving leader problem...")
@@ -425,8 +428,8 @@ def _evaluate_candidate(
 
     return (
         leader_outputs["fitness"]                   ,
-        leader_outputs["variance"]                  ,
-        leader_outputs["variance_ratio"]            ,
+        leader_outputs["ramp_rate"]                 ,
+        leader_outputs["ramp_rate_ratio"]           ,
         leader_outputs["percentage_price_increase"] ,
         leader_outputs["was_suboptimal"]            ,
     )
@@ -466,11 +469,11 @@ def run_parallel_de(
     # Logger Setup
     # ----------------------------
     # 1. Create the Queue using Manager (Safest for Pools)
-    manager = multiprocessing.Manager()
-    log_queue = manager.Queue()
+    manager             = multiprocessing.Manager()
+    log_queue           = manager.Queue()
 
-    manager_gurobi = multiprocessing.Manager()
-    log_queue_gurobi = manager_gurobi.Queue()
+    manager_gurobi      = multiprocessing.Manager()
+    log_queue_gurobi    = manager_gurobi.Queue()
 
     with LogListener(
             "stage1_MP_evaluate_candidate",
@@ -580,18 +583,18 @@ def run_parallel_de(
         # ----------------------------
         # DE Setup
         # ----------------------------
-        # Obtain reference variance from the candidate with lowest possible charge costs
+        # Obtain reference ramp rate from the candidate with lowest possible charge costs
         # We do not use lower_bounds.copy() as our candidate here as it contain only the anchor points
         # after linear interpolation, some time steps may end up above the wholesale price
         lowest_charge_cost_low  = wholesale_elec_price.copy()  # shallow copy is ok as the values are floats
         lowest_charge_cost_high = {t: 0.0 for t in TIMESTEPS}
         lowest_elec_threshold   = {t: 0 for t in TIMESTEPS}
 
-        logger.info("Calculating reference variance from candidate with lowest prices...")
+        logger.info("Calculating reference ramp rate from candidate with lowest prices...")
         start_time_ref = time.time()
 
         try:
-            reference_variance = _reference_candidate(
+            reference_ramp_rate = _reference_candidate(
                 charge_cost_low     = lowest_charge_cost_low    ,
                 charge_cost_high    = lowest_charge_cost_high   ,
                 elec_threshold      = lowest_elec_threshold     ,
@@ -601,7 +604,7 @@ def run_parallel_de(
                 log_queue_gurobi    = log_queue_gurobi          ,
             )
         except OptimizationError as e:
-            logger.error("Failed to obtain reference variance from reference candidate.")
+            logger.error("Failed to obtain reference ramp rate from reference candidate.")
             raise e
         except Exception as e:
             logger.error(f"An unexpected error occurred: {e}")
@@ -609,17 +612,17 @@ def run_parallel_de(
 
         end_time_ref = time.time()
         duration_ref = end_time_ref - start_time_ref
-        logger.info(f"Reference variance obtained: {reference_variance:.5f} in {print_duration(duration_ref)} ({duration_ref:.2f} seconds)")
+        logger.info(f"Reference ramp rate obtained: {reference_ramp_rate:.3f} in {print_duration(duration_ref)} ({duration_ref:.1f} seconds)")
 
-        if reference_variance < VAR_THRESHOLD:
-            logger.info(f"Reference variance ({reference_variance:.5f}) is already below the variance threshold ({VAR_THRESHOLD:.5f}). No optimization needed.")
+        if reference_ramp_rate < RAMP_RATE_THRESHOLD:
+            logger.info(f"Reference ramp rate ({reference_ramp_rate:.3f}) is already below the ramp rate threshold ({RAMP_RATE_THRESHOLD:.3f}). No optimization needed.")
             return {
                 "charge_cost_low"    : lowest_charge_cost_low ,
                 "charge_cost_high"   : lowest_charge_cost_high,
                 "elec_threshold"     : lowest_elec_threshold  ,
             }
         else:
-            logger.info(f"Reference variance ({reference_variance:.5f}) is above the variance threshold ({VAR_THRESHOLD:.5f}). Proceeding with optimization.")
+            logger.info(f"Reference ramp rate ({reference_ramp_rate:.3f}) is above the ramp rate threshold ({RAMP_RATE_THRESHOLD:.3f}). Proceeding with optimization.")
             logger.info("Starting Differential Evolution optimization...")
 
         # Create a partial function with fixed parameters for the worker function
@@ -638,7 +641,7 @@ def run_parallel_de(
 
             # Metadata
             M                       = M                     ,
-            reference_variance      = reference_variance    ,
+            reference_ramp_rate     = reference_ramp_rate   ,
             log_queue               = log_queue             ,
             log_queue_gurobi        = log_queue_gurobi      ,
         )
@@ -647,12 +650,12 @@ def run_parallel_de(
         # ----------------------------
         # DE Main Loop
         # ----------------------------
-        # To track fitness and variance of candidate with best fitness
-        best_fitness_can_fitnesses: npt.NDArray[np.float64] = np.zeros(MAX_ITER + 1)
-        best_fitness_can_variances: npt.NDArray[np.float64] = np.zeros(MAX_ITER + 1)
-        # To track fitness and variance of candidate with best variance
-        best_variance_can_fitnesses: npt.NDArray[np.float64] = np.zeros(MAX_ITER + 1)
-        best_variance_can_variances: npt.NDArray[np.float64] = np.zeros(MAX_ITER + 1)
+        # To track fitness and ramp rate of candidate with best fitness
+        best_fitness_cand_fitnesses     : npt.NDArray[np.float64] = np.zeros(MAX_ITER + 1)
+        best_fitness_cand_ramp_rates    : npt.NDArray[np.float64] = np.zeros(MAX_ITER + 1)
+        # To track fitness and ramp rate of candidate with best ramp rate
+        best_ramp_rate_cand_fitnesses   : npt.NDArray[np.float64] = np.zeros(MAX_ITER + 1)
+        best_ramp_rate_cand_ramp_rates  : npt.NDArray[np.float64] = np.zeros(MAX_ITER + 1)
 
         start_time_DE = time.time()
 
@@ -671,10 +674,10 @@ def run_parallel_de(
                 logger.error("An error occurred during the initial evaluation of candidates.")
                 raise e
             
-            # Extract fitness and variance (first and second columns of each row)
+            # Extract fitness and ramp rates (first and second columns of each row)
             fitnesses                   : npt.NDArray[np.float64]    = results[:,0]
-            variances                   : npt.NDArray[np.float64]    = results[:,1]
-            variance_ratios             : npt.NDArray[np.float64]    = results[:,2]
+            ramp_rates                  : npt.NDArray[np.float64]    = results[:,1]
+            ramp_rate_ratios            : npt.NDArray[np.float64]    = results[:,2]
             percentage_price_increases  : npt.NDArray[np.float64]    = results[:,3]
             were_suboptimal             : npt.NDArray[np.bool_]      = results[:,4] > 0.5  # boolean array indicating which candidates were suboptimal
             
@@ -693,9 +696,9 @@ def run_parallel_de(
                     f"Initial evaluation included {initial_suboptimal_count} suboptimal candidate(s). Proceeding with all results."
                 )
             
-            # Check if any candidate meets variance threshold
+            # Check if any candidate meets ramp rate threshold
             # if so, early stop by taking the candidate with the lowest fitness among them
-            meet_threshold: npt.NDArray[np.bool_] = variances <= VAR_THRESHOLD
+            meet_threshold: npt.NDArray[np.bool_] = ramp_rates <= RAMP_RATE_THRESHOLD
 
             if np.any(meet_threshold):
                 qualified_indices           : npt.NDArray[np.int_]      = np.where(meet_threshold)[0]
@@ -703,10 +706,10 @@ def run_parallel_de(
                 best_idx_within_qualified   : int                       = qualified_indices[np.argmin(qualified_fitnesses)]
                 best_vector                 : npt.NDArray[np.float64]   = population[best_idx_within_qualified].copy()
 
-                logger.info(f"Early stopping at initialization with Var = {variances[best_idx_within_qualified]:.5f}, " \
-                    f"Fitness = {fitnesses[best_idx_within_qualified]:.5f}, " \
-                    f"Var Ratio =  {variance_ratios[best_idx_within_qualified]:.5f}, " \
-                    f"Percentage Price Increase = {percentage_price_increases[best_idx_within_qualified]:.5f}%"
+                logger.info(f"Early stopping at initialization with Ramp Rate = {ramp_rates[best_idx_within_qualified]:.3f}, " \
+                    f"Fitness = {fitnesses[best_idx_within_qualified]:.3f}, " \
+                    f"Ramp Rates Ratio = {ramp_rate_ratios[best_idx_within_qualified]:.3f}, " \
+                    f"% Price Increase = {percentage_price_increases[best_idx_within_qualified]:.3f}%"
                 )
                 logger.info(f"DE completed in {print_duration(init_end_time - start_time_DE)} ({init_end_time - start_time_DE:.1f}s)")
 
@@ -723,27 +726,27 @@ def run_parallel_de(
                     TIMESTEPS       = TIMESTEPS           ,
                 )
 
-            # Track both the candidate with best variance (and its fitness), and the candidate with best fitness (and its variance)
-            best_var_idx        : int   = np.argmin(variances)
+            # Track both the candidate with best ramp rate (and its fitness), and the candidate with best fitness (and its ramp rate)
+            best_ramp_rate_idx  : int   = np.argmin(ramp_rates)
             best_fitness_idx    : int   = np.argmin(fitnesses)
             prev_best_fitness   : float = fitnesses[best_fitness_idx]  # Track for anchor adaptation
 
             logger.info("Initial population")
-            logger.info(f"  Initial candidate with best variance: Var = {variances[best_var_idx]:.5f}, " \
-                f"Fitness = {fitnesses[best_var_idx]:.5f}, " \
-                f"Var Ratio = {variance_ratios[best_var_idx]:.5f}, " \
-                f"Percentage Price Increase = {percentage_price_increases[best_var_idx]:.5f}%"
+            logger.info(f"  Initial cand. with best ramp rate: Ramp Rate = {ramp_rates[best_ramp_rate_idx]:.3f}, " \
+                f"Fitness = {fitnesses[best_ramp_rate_idx]:.3f}, " \
+                f"Ramp Rates Ratio = {ramp_rate_ratios[best_ramp_rate_idx]:.3f}, " \
+                f"% Price Increase = {percentage_price_increases[best_ramp_rate_idx]:.3f}%"
             )
-            best_variance_can_fitnesses[0] = fitnesses[best_var_idx]
-            best_variance_can_variances[0] = variances[best_var_idx]
+            best_ramp_rate_cand_fitnesses[0]    = fitnesses[best_ramp_rate_idx]
+            best_ramp_rate_cand_ramp_rates[0]   = ramp_rates[best_ramp_rate_idx]
 
-            logger.info(f"  Initial candidate with best fitness: Var = {variances[best_fitness_idx]:.5f}, " \
-                f"Fitness = {fitnesses[best_fitness_idx]:.5f}, " \
-                f"Var Ratio = {variance_ratios[best_fitness_idx]:.5f}, " \
-                f"Percentage Price Increase = {percentage_price_increases[best_fitness_idx]:.5f}%"
+            logger.info(f"  Initial cand. with best fitness: Ramp Rate = {ramp_rates[best_fitness_idx]:.3f}, " \
+                f"Fitness = {fitnesses[best_fitness_idx]:.3f}, " \
+                f"Ramp Rates Ratio = {ramp_rate_ratios[best_fitness_idx]:.3f}, " \
+                f"% Price Increase = {percentage_price_increases[best_fitness_idx]:.3f}%"
             )
-            best_fitness_can_fitnesses[0] = fitnesses[best_fitness_idx]
-            best_fitness_can_variances[0] = variances[best_fitness_idx]
+            best_fitness_cand_fitnesses[0]      = fitnesses[best_fitness_idx]
+            best_fitness_cand_ramp_rates[0]     = ramp_rates[best_fitness_idx]
 
             duration_init = init_end_time - start_time_DE
             logger.info(f"  Time taken: {print_duration(duration_init)} ({duration_init:.1f}s)")
@@ -793,8 +796,8 @@ def run_parallel_de(
                 trial_results = np.array(pool.map(evaluate_single_candidate_worker, trial_population))
 
                 trial_fitnesses                 : npt.NDArray[np.float64] = trial_results[:,0]
-                trial_variances                 : npt.NDArray[np.float64] = trial_results[:,1]
-                trial_variance_ratios           : npt.NDArray[np.float64] = trial_results[:,2]
+                trial_ramp_rates                : npt.NDArray[np.float64] = trial_results[:,1]
+                trial_ramp_rates_ratio          : npt.NDArray[np.float64] = trial_results[:,2]
                 trial_percentage_price_increases: npt.NDArray[np.float64] = trial_results[:,3]
                 trial_were_suboptimal           : npt.NDArray[np.bool_]   = trial_results[:,4] > 0.5  # boolean array indicating which trials were suboptimal
 
@@ -819,26 +822,26 @@ def run_parallel_de(
                 
                 population[winners]                 = trial_population[winners]
                 fitnesses[winners]                  = trial_fitnesses[winners]
-                variances[winners]                  = trial_variances[winners]
-                variance_ratios[winners]            = trial_variance_ratios[winners]
+                ramp_rates[winners]                 = trial_ramp_rates[winners]
+                ramp_rate_ratios[winners]           = trial_ramp_rates_ratio[winners]
                 percentage_price_increases[winners] = trial_percentage_price_increases[winners]
                 
                 logger.info(f"  Selection completed - {winners.sum()} candidates replaced by better trials")
 
                 # --- 4. Early Stopping ---
-                # Check if any candidate meets variance threshold
+                # Check if any candidate meets ramp rate threshold
                 # if so, early stop by taking the candidate with the lowest fitness among them
-                meet_threshold: npt.NDArray[np.bool_] = variances <= VAR_THRESHOLD
+                meet_threshold: npt.NDArray[np.bool_] = ramp_rates <= RAMP_RATE_THRESHOLD
                 if np.any(meet_threshold):
                     qualified_indices           : npt.NDArray[np.int_]      = np.where(meet_threshold)[0]
                     qualified_fitnesses         : npt.NDArray[np.float64]   = fitnesses[qualified_indices]
                     best_idx_within_qualified   : int                       = qualified_indices[np.argmin(qualified_fitnesses)]
                     best_vector                 : npt.NDArray[np.float64]   = population[best_idx_within_qualified].copy()
 
-                    logger.info(f"Early stopping at generation {gen+1} with Var = {variances[best_idx_within_qualified]:.5f}, " \
-                        f"Fitness = {fitnesses[best_idx_within_qualified]:.5f}, " \
-                        f"Var Ratio = {variance_ratios[best_idx_within_qualified]:.5f}, " \
-                        f"Percentage Price Increase = {percentage_price_increases[best_idx_within_qualified]:.5f}%"
+                    logger.info(f"Early stopping at generation {gen+1} with Ramp Rate = {ramp_rates[best_idx_within_qualified]:.3f}, " \
+                        f"Fitness = {fitnesses[best_idx_within_qualified]:.3f}, " \
+                        f"Ramp Rate Ratio = {ramp_rate_ratios[best_idx_within_qualified]:.3f}, " \
+                        f"% Price Increase = {percentage_price_increases[best_idx_within_qualified]:.3f}%"
                     )
                     end_time_DE = time.time()
                     logger.info(f"DE completed in {print_duration(end_time_DE - start_time_DE)} ({end_time_DE - start_time_DE:.1f}s).")
@@ -846,7 +849,7 @@ def run_parallel_de(
                     break  # exit the generation loop
                 
                 # --- 5. Update Best Trackers ---
-                best_var_idx        = np.argmin(variances)
+                best_ramp_rate_idx  = np.argmin(ramp_rates)
                 best_fitness_idx    = np.argmin(fitnesses)
                 current_best_fitness = fitnesses[best_fitness_idx]
 
@@ -859,8 +862,7 @@ def run_parallel_de(
                     anchor_increase = math.ceil ((MAX_ANCHORS - current_num_anchors) / 2)
                     new_num_anchors = min(current_num_anchors + anchor_increase, MAX_ANCHORS)
                     
-                    logger.info(f"  Fitness improvement ({fitness_improvement:.5f}) below threshold ({FITNESS_IMPROVEMENT_THRESHOLD:.5f})")
-                    logger.info(f"  Increasing anchors from {current_num_anchors} to {new_num_anchors} next iteration")
+                    logger.info(f"  Fitness improvement ({fitness_improvement:.3f}) below threshold ({FITNESS_IMPROVEMENT_THRESHOLD:.3f}). Increasing anchors from {current_num_anchors} to {new_num_anchors} next iteration")
                     
                     # Recalculate anchor indices and interpolation matrix
                     old_M = M.copy()
@@ -912,56 +914,64 @@ def run_parallel_de(
                         upper_bounds_r          = upper_bounds_r        ,
                         # Metadata
                         M                       = M                     ,
-                        reference_variance      = reference_variance    ,
+                        reference_ramp_rate     = reference_ramp_rate   ,
                         log_queue               = log_queue             ,
                         log_queue_gurobi        = log_queue_gurobi      ,
                     )
                     
                     logger.info(f"  Anchor increase complete. New interpolation matrix shape for next iteration: {M.shape}")
-                
+
+                else:
+                    if ENABLE_ANCHOR_INCREASE and fitness_improvement >= FITNESS_IMPROVEMENT_THRESHOLD:
+                        logger.info(f"  Fitness improvement ({fitness_improvement:.3f}) above threshold ({FITNESS_IMPROVEMENT_THRESHOLD:.3f}). No anchor increase.")
+                    
+                    elif ENABLE_ANCHOR_INCREASE and current_num_anchors >= MAX_ANCHORS:
+                        logger.info(f"  Current number of anchors ({current_num_anchors}) has reached the maximum ({MAX_ANCHORS}). No anchor increase.")
+
+
                 # Update tracking
-                prev_best_fitness = current_best_fitness
+                prev_best_fitness   = current_best_fitness
 
                 # Estimate remaining time
-                gen_duration = time.time() - gen_start_time
-                est_remaining_time = gen_duration * (MAX_ITER - gen - 1)
+                gen_duration        = time.time() - gen_start_time
+                est_remaining_time  = gen_duration * (MAX_ITER - gen - 1)
 
                 logger.info(f"  Results:")
-                logger.info(f"      Best Variance Candidate: Var = {variances[best_var_idx]:.5f}, " \
-                    f"Fitness = {fitnesses[best_var_idx]:.5f}, " \
-                    f"Var Ratio = {variance_ratios[best_var_idx]:.5f}, " \
-                    f"Price Increase = {percentage_price_increases[best_var_idx]:.5f}%"
+                logger.info(f"      Best Ramp Rate Cand.: Ramp Rate = {ramp_rates[best_ramp_rate_idx]:.3f}, " \
+                    f"Fitness = {fitnesses[best_ramp_rate_idx]:.3f}, " \
+                    f"Ramp Rate Ratio = {ramp_rate_ratios[best_ramp_rate_idx]:.3f}, " \
+                    f"% Price Increase = {percentage_price_increases[best_ramp_rate_idx]:.3f}%"
                 )
-                best_variance_can_fitnesses[gen+1] = fitnesses[best_var_idx]
-                best_variance_can_variances[gen+1] = variances[best_var_idx]
+                best_ramp_rate_cand_fitnesses[gen+1] = fitnesses[best_ramp_rate_idx]
+                best_ramp_rate_cand_ramp_rates[gen+1] = ramp_rates[best_ramp_rate_idx]
 
-                logger.info(f"      Best Fitness Candidate: Var = {variances[best_fitness_idx]:.5f}, " \
-                    f"Fitness = {fitnesses[best_fitness_idx]:.5f}, " \
-                    f"Var Ratio = {variance_ratios[best_fitness_idx]:.5f}, " \
-                    f"Price Increase = {percentage_price_increases[best_fitness_idx]:.5f}%"
+                logger.info(f"      Best Fitness Cand.: Ramp Rate = {ramp_rates[best_fitness_idx]:.3f}, " \
+                    f"Fitness = {fitnesses[best_fitness_idx]:.3f}, " \
+                    f"Ramp Rate Ratio = {ramp_rate_ratios[best_fitness_idx]:.3f}, " \
+                    f"% Price Increase = {percentage_price_increases[best_fitness_idx]:.3f}%"
                 )
-                best_fitness_can_fitnesses[gen+1] = fitnesses[best_fitness_idx]
-                best_fitness_can_variances[gen+1] = variances[best_fitness_idx]
+                best_fitness_cand_fitnesses[gen+1] = fitnesses[best_fitness_idx]
+                best_fitness_cand_ramp_rates[gen+1] = ramp_rates[best_fitness_idx]
 
-                logger.info(f"      Fitness Improvement: {fitness_improvement:.5f}")
+                logger.info(f"      Fitness Improvement: {fitness_improvement:.3f}")
                 logger.info(f"      Generation Time: {print_duration(gen_duration)} ({gen_duration:.1f}s)")
                 logger.info(f"      Est. Remaining Time: {print_duration(est_remaining_time)} ({est_remaining_time:.1f}s)")
 
             else:
-                logger.info("Maximum iterations reached without meeting variance threshold.")
+                logger.info("Maximum iterations reached without meeting ramp rate threshold.")
                 logger.info(f"Picking candidate with best fitness...")
                 best_vector : npt.NDArray[np.float64] = population[best_fitness_idx].copy()
                 
                 end_time_DE = time.time()
                 logger.info(f"DE completed in {print_duration(end_time_DE - start_time_DE)} ({end_time_DE - start_time_DE:.1f}s).")
 
-        # Plot the 2 graphs for fitness and variance progression
-        gens = np.arange(len(best_fitness_can_fitnesses))
+        # Plot the 2 graphs for fitness and ramp rate progression
+        gens = np.arange(len(best_fitness_cand_fitnesses))
 
         # Fitness progression plot
         fig_fitness = plt.figure(figsize=(12, 8))
-        plt.plot        (gens, best_fitness_can_fitnesses , label="Best Fitness"         , color="tab:blue")
-        plt.plot        (gens, best_variance_can_fitnesses, label="Best-Variance Fitness", color="tab:orange", linestyle="--")
+        plt.plot        (gens, best_fitness_cand_fitnesses  , label="Best Fitness"          , color="tab:blue")
+        plt.plot        (gens, best_ramp_rate_cand_fitnesses, label="Best-Ramp-Rate Fitness", color="tab:orange", linestyle="--")
         plt.title       ("Fitness Progression")
         plt.xlabel      ("Generation")
         plt.ylabel      ("Fitness")
@@ -973,20 +983,20 @@ def run_parallel_de(
         plt.close(fig_fitness)
         logger.info(f"Saved fitness progression plot to: {fitness_plot_path}")
 
-        # Variance progression plot
-        fig_variance = plt.figure(figsize=(12, 8))
-        plt.plot        (gens, best_fitness_can_variances , label="Best-Fitness Variance", color="tab:green")
-        plt.plot        (gens, best_variance_can_variances, label="Best Variance"        , color="tab:red", linestyle="--")
-        plt.title       ("Variance Progression")
+        # Ramp rate progression plot
+        fig_ramp_rate = plt.figure(figsize=(12, 8))
+        plt.plot        (gens, best_fitness_cand_ramp_rates     , label="Best-Fitness Ramp Rate", color="tab:green")
+        plt.plot        (gens, best_ramp_rate_cand_ramp_rates   , label="Best-Ramp-Rate"        , color="tab:red", linestyle="--")
+        plt.title       ("Ramp Rate Progression")
         plt.xlabel      ("Generation")
-        plt.ylabel      ("Variance")
+        plt.ylabel      ("Ramp Rate")
         plt.grid        (True, alpha=0.3)
         plt.legend      (loc='upper center', bbox_to_anchor=(0.5, -0.1), ncol=2, frameon=True)
         plt.tight_layout()
-        variance_plot_path = os.path.join("Results", folder_name, f"DE_variance_progress_{file_name}_{timestamp}.png")
-        fig_variance.savefig(variance_plot_path)
-        plt.close(fig_variance)
-        logger.info(f"Saved variance progression plot to: {variance_plot_path}")
+        ramp_rate_plot_path = os.path.join("Results", folder_name, f"DE_ramp_rate_progress_{file_name}_{timestamp}.png")
+        fig_ramp_rate.savefig(ramp_rate_plot_path)
+        plt.close(fig_ramp_rate)
+        logger.info(f"Saved ramp rate progression plot to: {ramp_rate_plot_path}")
 
 
         return _expand_trajectory(

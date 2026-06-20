@@ -12,25 +12,25 @@ def leader_model(
     Leader: Charging Operator
 
     Given EV charging scheduling from the follower, calculate the electrity consumption at each time step,
-    the variance of the electricity consumption over the day, and the fitness score.
+    the ramp rate of the electricity consumption over the day, and the fitness score.
 
-    Fitness = variance_ratio + penalty_weight * percentage_price_increase <br>
+    Fitness = ramp_rate_ratio + penalty_weight * percentage_price_increase <br>
     Where: \n
-        - variance_ratio = variance / reference_variance
-        - reference_variance = variance when all charging prices are set to minimum levels (a_t = wholesale_elec_price_t, b_t = 0)
+        - ramp_rate_ratio = ramp_rate / reference_ramp_rate
+        - reference_ramp_rate = ramp rate when all charging prices are set to minimum levels (a_t = wholesale_elec_price_t, b_t = 0)
 
         - percentage_price_increase = 1/(T-2) sum ((a_t + b_t * K_t - wholesale_elec_price_t)/ wholesale_elec_price_t)
         - K_t = 1 - threshold_t / electricity_supplied_t
         
-    variance_ratio measures improvement / deterioration in variance of electricity consumption compared to reference variance <br>
-    A lower variance_ratio (<1) indicates better load balancing performance <br>
-    A higher variance_ratio (>1) indicates worse load balancing performance <br>
+    ramp_rate_ratio measures improvement / deterioration in ramp rate of electricity consumption compared to reference ramp rate <br>
+    A lower ramp_rate_ratio (<1) indicates better load balancing performance <br>
+    A higher ramp_rate_ratio (>1) indicates worse load balancing performance <br>
     Ideally, it should be minimized to 0 (perfectly flat electricity consumption over time)
 
     percentage_price_increase penalizes high charging prices set by the leader <br>
     Since setting very high prices (a_t, b_t) may discourage EVs from charging at all, leading to little to no electricity consumption, <br>
-    which results in very low variance, giving a misleadingly good fitness score. <br>
-    Ideally, it should be as low as possible to 0 while ensuring ideal variance. 
+    which results in very low ramp rate, giving a misleadingly good fitness score. <br>
+    Ideally, it should be as low as possible to 0 while ensuring ideal ramp rate. 
 
     K_t measures the "probability" of overcharging beyond threshold at time t <br>
     A lower threshold_t leads to higher K_t value (between 0 and 1), leading to higher weightage on b_t <br>
@@ -39,8 +39,8 @@ def leader_model(
     
     Returns a dictionary containing: \n
         - fitness: float
-        - variance: float
-        - variance_ratio: float
+        - ramp_rate: float
+        - ramp_rate_ratio: float
         - percentage_price_increase: float
     """
     # ----------------------------
@@ -58,7 +58,7 @@ def leader_model(
 
     # Leader model parameters
     wholesale_elec_price    : dict[int                      , float]    = kwargs["wholesale_elec_price"]    # wholesale electricity price at time t
-    reference_variance      : float                                     = kwargs["reference_variance"]      # reference variance for normalization
+    reference_ramp_rate     : float                                     = kwargs["reference_ramp_rate"]     # reference ramp rate for normalization
 
     # Pricing Variables
     charge_cost_low         : dict[int                      , float]    = kwargs["charge_cost_low"]         # a_t
@@ -73,7 +73,7 @@ def leader_model(
     was_suboptimal          : bool                                      = kwargs["was_suboptimal"]          # whether the follower model was suboptimal
 
     # ----------------------------
-    # Variance Calculation
+    # Ramp Rate Calculation
     # ----------------------------
 
     # Calculate electricity consumption at each time step using vectorized operations
@@ -90,11 +90,11 @@ def leader_model(
             charge_amount = arc.d.l - arc.o.l  # SoC levels charged
             electricity_usage[t - 1] += x[e_id] * charge_amount
 
-    # Calculate variance of electricity consumption using numpy
-    variance                    : float                     = np.var(electricity_usage, ddof=0) if len(electricity_usage) > 1 else 0.0   # ddof=0 for population variance, =1 for sample variance
-    variance_ratio              : float                     = variance / reference_variance if reference_variance > 0 else 0.0
+    # Calculate ramp rate of electricity consumption using numpy
+    ramp_rate                    : float                    = np.sum(np.diff(electricity_usage)**2) if len(electricity_usage) > 1 else 0.0
+    ramp_rate_ratio              : float                     = ramp_rate / (reference_ramp_rate + 1e-6)  # Add small epsilon to avoid division by zero
 
-    logger.info(f"Leader model variance calculation: Variance = {variance:.4f}, Variance Ratio = {variance_ratio:.4f}")
+    logger.info(f"Leader model ramp rate calculation: Ramp Rate = {ramp_rate:.3f}, Ramp Rate Ratio = {ramp_rate_ratio:.3f}")
 
     # ----------------------------
     # Fitness Calculation
@@ -123,14 +123,14 @@ def leader_model(
     ) / wholesale_elec_price_arr
     
     percentage_price_increase   : float = np.mean(price_increases)
-    fitness                     : float = variance_ratio + PENALTY_WEIGHT * percentage_price_increase
+    fitness                     : float = ramp_rate_ratio + PENALTY_WEIGHT * percentage_price_increase
 
-    logger.info(f"Leader model completed. Fitness: {fitness:.4f}, Percentage Price Increase: {percentage_price_increase:.4f}")
+    logger.info(f"Leader model completed. Fitness: {fitness:.3f}, Percentage Price Increase: {percentage_price_increase:.3f}")
 
     return {
         "fitness"                   : fitness                   ,
-        "variance"                  : variance                  ,
-        "variance_ratio"            : variance_ratio            ,
+        "ramp_rate"                 : ramp_rate                 ,
+        "ramp_rate_ratio"           : ramp_rate_ratio           ,
         "percentage_price_increase" : percentage_price_increase ,
         "was_suboptimal"            : was_suboptimal
     }

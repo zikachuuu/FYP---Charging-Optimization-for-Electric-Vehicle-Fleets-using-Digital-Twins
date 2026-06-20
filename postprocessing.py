@@ -606,6 +606,19 @@ def postprocessing(**kwargs):
             label       = 'Threshold (left y-axis)'           , 
             linestyle   = '--'                  ,
         )
+
+        # # --- FIX: Dynamic Y-Axis Limit ---
+        # # Find the peak value between usage and supply
+        # max_active_val = max(max(electricity_usage), max(max_supply))
+        
+        # # If the max threshold is more than double our active values, cut the axis off
+        # if max(threshold) > max_active_val * 2.0:
+        #     # Set limit to 150% of the active value to leave breathing room
+        #     ax1.set_ylim(0, max_active_val * 1.5)
+        # else:
+        #     # Otherwise, let it scale normally but enforce 0 as the floor
+        #     ax1.set_ylim(bottom=0)
+        
         ax1.tick_params(axis='y', labelcolor='tab:blue')
         ax1.grid(True, alpha=0.3)
         

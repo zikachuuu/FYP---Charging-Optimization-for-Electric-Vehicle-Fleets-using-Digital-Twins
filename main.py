@@ -21,7 +21,7 @@ from config_DE import (
     DIFF_WEIGHT                         ,
     DIFF_WEIGHT_VARY                    ,
     CROSS_PROB                          ,
-    VAR_THRESHOLD                       ,
+    RAMP_RATE_THRESHOLD                 ,
     PENALTY_WEIGHT                      ,
     NUM_ANCHORS                         ,
     VARS_PER_STEP                       ,
@@ -170,7 +170,7 @@ Examples:
     logger.info(f"  │   ├── Number of Processes (NUM_PROCESSES)                                             : {NUM_PROCESSES}")
     logger.info(f"  │   ├── Number of Threads per Process (NUM_THREADS)                                     : {NUM_THREADS}")
     logger.info(f"  │   ├── Maximum Iterations (MAX_ITER)                                                   : {MAX_ITER}")
-    logger.info(f"  │   └── Variance Threshold for Early Stopping (VAR_THRESHOLD)                           : {VAR_THRESHOLD}")
+    logger.info(f"  │   └── Ramp Rate Threshold for Early Stopping (RAMP_RATE_THRESHOLD)                    : {RAMP_RATE_THRESHOLD}")
     logger.info(f"  │   ")
     logger.info(f"  ├── DR Randomness parameters:")
     logger.info(f"  │   ├── Penalty Weight for Leader Fitness (PENALTY_WEIGHT)                              : {PENALTY_WEIGHT}")
@@ -211,7 +211,7 @@ Examples:
 
             end_time_load_data = time.time()
             duration_load_data = end_time_load_data - start_time_load_data
-            logger.info (f"Data loaded successfully in {print_duration(duration_load_data)} ({duration_load_data:.2f} seconds).")
+            logger.info (f"Data loaded successfully in {print_duration(duration_load_data)} ({duration_load_data:.1f} seconds).")
 
     except FileNotFoundError as e:
         logger.error(f"File {file_name}.json not found. Please ensure it exists in the Testcases folder with json extension.")
@@ -298,7 +298,7 @@ Examples:
     LEVELS                 : list[int]                              = network_parameters["LEVELS"]
     AGES                   : list[int]                              = network_parameters["AGES"]
 
-    logger.info(f"Network built in {print_duration(duration_build_network)} ({duration_build_network:.2f} seconds).")
+    logger.info(f"Network built in {print_duration(duration_build_network)} ({duration_build_network:.1f} seconds).")
     
     # -----------------------------------------------------------
     # Stage 1: Run the bilevel optimization on relaxed model
@@ -336,7 +336,7 @@ Examples:
 
         end_time_stage1 = time.time()
         duration_stage1 = end_time_stage1 - start_time_stage1
-        logger.info(f"Stage 1 completed in {print_duration(duration_stage1)} ({duration_stage1:.2f} seconds).")
+        logger.info(f"Stage 1 completed in {print_duration(duration_stage1)} ({duration_stage1:.1f} seconds).")
 
         charge_cost_low     : dict[int, float]                  = charge_price_parameters["charge_cost_low"]       # a_t
         charge_cost_high    : dict[int, float]                  = charge_price_parameters["charge_cost_high"]      # b_t
@@ -385,7 +385,7 @@ Examples:
             
         end_time_stage2 = time.time()
         duration_stage2 = end_time_stage2 - start_time_stage2
-        logger.info(f"Stage 2 completed in {print_duration(duration_stage2)} ({duration_stage2:.2f} seconds).")
+        logger.info(f"Stage 2 completed in {print_duration(duration_stage2)} ({duration_stage2:.1f} seconds).")
 
 
         # Extract variables and sets from the output
