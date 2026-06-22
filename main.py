@@ -164,6 +164,8 @@ Examples:
     logger.info(f"  Test case file: {file_name}.json in folder: {directory if directory != '' else 'Testcases/'}")
     logger.info(f"  Results will be saved in: {results_name}")
 
+    logger.warning ("Current Setup: Fitness function uses ramp ratio (instead of variance ratio) and percentage usage decrease (instead of percentage price increase)")
+
     logger.info(f"Configurations for Differential Evolution:")
     logger.info(f"  ├── Population size related parameters:")
     logger.info(f"  │   ├── Population Size (POP_SIZE)                                                      : {POP_SIZE}")

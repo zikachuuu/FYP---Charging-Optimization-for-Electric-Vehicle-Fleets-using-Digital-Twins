@@ -59,6 +59,7 @@ def leader_model(
     # Leader model parameters
     wholesale_elec_price    : dict[int                      , float]    = kwargs["wholesale_elec_price"]    # wholesale electricity price at time t
     reference_ramp_rate     : float                                     = kwargs["reference_ramp_rate"]     # reference ramp rate for normalization
+    reference_total_usage   : float                                     = kwargs["total_usage"]             # total electricity usage across all time steps
 
     # Pricing Variables
     charge_cost_low         : dict[int                      , float]    = kwargs["charge_cost_low"]         # a_t
@@ -79,7 +80,8 @@ def leader_model(
     # Calculate electricity consumption at each time step using vectorized operations
     # Exclude first time step (t=0) as no charging occurs at t=0
     # Exclude last time step (t=T) as no charging occurs at t=T
-    electricity_usage: npt.NDArray[np.float64] = np.zeros(T - 1) # electricity usage from t=1 to t=T-1
+    electricity_usage   : npt.NDArray[np.float64] = np.zeros(T - 1) # electricity usage from t=1 to t=T-1
+    current_total_usage : float = electricity_usage.sum()  # total electricity usage across all time steps (excluding t=0 and t=T)
 
     for t in TIMESTEPS[1:-1]: 
         # Calculate total electricity used at time t
@@ -91,10 +93,12 @@ def leader_model(
             electricity_usage[t - 1] += x[e_id] * charge_amount
 
     # Calculate ramp rate of electricity consumption using numpy
-    ramp_rate                    : float                    = np.sum(np.diff(electricity_usage)**2) if len(electricity_usage) > 1 else 0.0
-    ramp_rate_ratio              : float                     = ramp_rate / (reference_ramp_rate + 1e-6)  # Add small epsilon to avoid division by zero
+    ramp_rate                   : float                     = np.sum(np.diff(electricity_usage)**2) if len(electricity_usage) > 1 else 0.0
+    ramp_rate_ratio             : float                     = ramp_rate / (reference_ramp_rate + 1e-6)  # Add small epsilon to avoid division by zero
 
-    logger.info(f"Leader model ramp rate calculation: Ramp Rate = {ramp_rate:.3f}, Ramp Rate Ratio = {ramp_rate_ratio:.3f}")
+    percentage_usage_decrease   : float                     = (reference_total_usage - current_total_usage) / (reference_total_usage + 1e-6)  # Add small epsilon to avoid division by zero
+
+    logger.info(f"Leader model ramp rate calculation: Ramp Rate = {ramp_rate:.3f}, Ramp Rate Ratio = {ramp_rate_ratio:.3f}, % Usage Decrease = {percentage_usage_decrease:.3f}%")
 
     # ----------------------------
     # Fitness Calculation
@@ -123,15 +127,17 @@ def leader_model(
     ) / wholesale_elec_price_arr
     
     percentage_price_increase   : float = np.mean(price_increases)
-    fitness                     : float = ramp_rate_ratio + PENALTY_WEIGHT * percentage_price_increase
+    # fitness                     : float = ramp_rate_ratio + PENALTY_WEIGHT * percentage_price_increase
+    fitness                     : float = ramp_rate_ratio + PENALTY_WEIGHT * percentage_usage_decrease
 
-    logger.info(f"Leader model completed. Fitness: {fitness:.3f}, Percentage Price Increase: {percentage_price_increase:.3f}")
+    logger.info(f"Leader model completed. Fitness: {fitness:.3f}, % Price Increase: {percentage_price_increase:.3f}%")
 
     return {
         "fitness"                   : fitness                   ,
         "ramp_rate"                 : ramp_rate                 ,
         "ramp_rate_ratio"           : ramp_rate_ratio           ,
         "percentage_price_increase" : percentage_price_increase ,
+        "percentage_usage_decrease" : percentage_usage_decrease ,
         "was_suboptimal"            : was_suboptimal
     }
 

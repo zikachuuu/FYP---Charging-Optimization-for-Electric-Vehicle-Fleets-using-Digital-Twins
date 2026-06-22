@@ -306,7 +306,8 @@ def _reference_candidate(
     x: dict[int, float] = follower_outputs["x"]
 
     # Calculate electricity consumption at each time step using vectorized operations
-    electricity_usage: npt.NDArray[np.float64] = np.zeros(T + 1)
+    electricity_usage   : npt.NDArray[np.float64]   = np.zeros(T + 1)
+    total_usage         : float                     = electricity_usage.sum()
 
     for t in TIMESTEPS:
         # Calculate total electricity used at time t
@@ -321,7 +322,7 @@ def _reference_candidate(
     usage_vector    : npt.NDArray[np.float64]   = electricity_usage[1:T]  # exclude time 0 and T
     ramp_rate       : float                     = np.sum(np.diff(usage_vector)**2) if len(usage_vector) > 1 else 0.0
 
-    return ramp_rate
+    return ramp_rate, total_usage
 
 
 def _evaluate_candidate(
@@ -432,7 +433,88 @@ def _evaluate_candidate(
         leader_outputs["ramp_rate_ratio"]           ,
         leader_outputs["percentage_price_increase"] ,
         leader_outputs["was_suboptimal"]            ,
+        leader_outputs["percentage_usage_decrease"] ,
     )
+
+
+def _plot_DE_progression(
+        logger                                              : Logger                    ,
+        folder_name                                         : str                       ,
+        file_name                                           : str                       ,
+        timestamp                                           : str                       ,
+        best_fitness_cand_fitnesses                         : npt.NDArray[np.float64]    ,
+        best_ramp_rate_ratio_cand_fitnesses                 : npt.NDArray[np.float64]    ,
+        best_fitness_cand_ramp_rate_ratios                  : npt.NDArray[np.float64]    ,
+        best_ramp_rate_ratio_cand_ramp_rate_ratios          : npt.NDArray[np.float64]    ,
+        best_fitness_cand_percentage_price_increases        : npt.NDArray[np.float64]    ,
+        best_ramp_rate_ratio_cand_percentage_price_increases : npt.NDArray[np.float64]   ,
+        best_fitness_cand_percentage_usage_decreases        : npt.NDArray[np.float64]    ,
+        best_ramp_rate_ratio_cand_percentage_usage_decreases : npt.NDArray[np.float64]   ,
+    ) -> None:
+    """
+    Plot and save the DE progression charts.
+    """
+    gens = np.arange(len(best_fitness_cand_fitnesses))
+
+    # Fitness progression plot
+    fig_fitness = plt.figure(figsize=(12, 8))
+    plt.plot        (gens, best_fitness_cand_fitnesses          , label="Best Fitness"                              , color="tab:blue")
+    plt.plot        (gens, best_ramp_rate_ratio_cand_fitnesses  , label="Best-Ramp-Rate-Ratio Candidate's Fitness"  , color="tab:red", linestyle="--")
+    plt.title       ("Fitness Progression")
+    plt.xlabel      ("Generation")
+    plt.ylabel      ("Fitness")
+    plt.grid        (True, alpha=0.3)
+    plt.legend      (loc='upper center', bbox_to_anchor=(0.5, -0.1), ncol=2, frameon=True)
+    plt.tight_layout()
+    fitness_plot_path = os.path.join("Results", folder_name, f"DE_fitness_progress_{file_name}_{timestamp}.png")
+    fig_fitness.savefig(fitness_plot_path)
+    plt.close(fig_fitness)
+    logger.info(f"Saved fitness progression plot to: {fitness_plot_path}")
+
+    # Ramp rate ratio progression plot
+    fig_ramp_rate = plt.figure(figsize=(12, 8))
+    plt.plot        (gens, best_fitness_cand_ramp_rate_ratios           , label="Best-Fitness Candidate's Ramp Rate Ratio"  , color="tab:blue")
+    plt.plot        (gens, best_ramp_rate_ratio_cand_ramp_rate_ratios   , label="Best Ramp Rate Ratio"                      , color="tab:red", linestyle="--")
+    plt.title       ("Ramp Rate Ratio Progression")
+    plt.xlabel      ("Generation")
+    plt.ylabel      ("Ramp Rate Ratio")
+    plt.grid        (True, alpha=0.3)
+    plt.legend      (loc='upper center', bbox_to_anchor=(0.5, -0.1), ncol=2, frameon=True)
+    plt.tight_layout()
+    ramp_rate_ratio_plot_path = os.path.join("Results", folder_name, f"DE_ramp_rate_ratio_progress_{file_name}_{timestamp}.png")
+    fig_ramp_rate.savefig(ramp_rate_ratio_plot_path)
+    plt.close(fig_ramp_rate)
+    logger.info(f"Saved ramp rate ratio progression plot to: {ramp_rate_ratio_plot_path}")
+
+    # Percentage price increase progression plot
+    fig_price_increase = plt.figure(figsize=(12, 8))
+    plt.plot        (gens, best_fitness_cand_percentage_price_increases           , label="Best-Fitness Candidate's % Price Increase"           , color="tab:blue")
+    plt.plot        (gens, best_ramp_rate_ratio_cand_percentage_price_increases   , label="Best Ramp Rate Ratio Candidate's % Price Increase"   , color="tab:red", linestyle="--")
+    plt.title       ("Percentage Price Increase Progression")
+    plt.xlabel      ("Generation")
+    plt.ylabel      ("Percentage Price Increase (%)")
+    plt.grid        (True, alpha=0.3)
+    plt.legend      (loc='upper center', bbox_to_anchor=(0.5, -0.1), ncol=2, frameon=True)
+    plt.tight_layout()
+    price_increase_plot_path = os.path.join("Results", folder_name, f"DE_percentage_price_increase_progress_{file_name}_{timestamp}.png")
+    fig_price_increase.savefig(price_increase_plot_path)
+    plt.close(fig_price_increase)
+    logger.info(f"Saved percentage price increase progression plot to: {price_increase_plot_path}")
+
+    # Percentage usage decrease progression plot
+    fig_usage_decrease = plt.figure(figsize=(12, 8))
+    plt.plot        (gens, best_fitness_cand_percentage_usage_decreases           , label="Best-Fitness Candidate's % Usage Decrease"           , color="tab:blue")
+    plt.plot        (gens, best_ramp_rate_ratio_cand_percentage_usage_decreases   , label="Best Ramp Rate Ratio Candidate's % Usage Decrease"   , color="tab:red", linestyle="--")
+    plt.title       ("Percentage Usage Decrease Progression")
+    plt.xlabel      ("Generation")
+    plt.ylabel      ("Percentage Usage Decrease (%)")
+    plt.grid        (True, alpha=0.3)
+    plt.legend      (loc='upper center', bbox_to_anchor=(0.5, -0.1), ncol=2, frameon=True)
+    plt.tight_layout()
+    usage_decrease_plot_path = os.path.join("Results", folder_name, f"DE_percentage_usage_decrease_progress_{file_name}_{timestamp}.png")
+    fig_usage_decrease.savefig(usage_decrease_plot_path)
+    plt.close(fig_usage_decrease)
+    logger.info(f"Saved percentage usage decrease progression plot to: {usage_decrease_plot_path}")
 
 
 def run_parallel_de(
@@ -594,7 +676,7 @@ def run_parallel_de(
         start_time_ref = time.time()
 
         try:
-            reference_ramp_rate = _reference_candidate(
+            reference_ramp_rate, total_usage = _reference_candidate(
                 charge_cost_low     = lowest_charge_cost_low    ,
                 charge_cost_high    = lowest_charge_cost_high   ,
                 elec_threshold      = lowest_elec_threshold     ,
@@ -612,7 +694,7 @@ def run_parallel_de(
 
         end_time_ref = time.time()
         duration_ref = end_time_ref - start_time_ref
-        logger.info(f"Reference ramp rate obtained: {reference_ramp_rate:.3f} in {print_duration(duration_ref)} ({duration_ref:.1f} seconds)")
+        logger.info(f"Reference ramp rate: {reference_ramp_rate:.3f}, Total electricity usage: {total_usage:.3f} obtained in {print_duration(duration_ref)} ({duration_ref:.1f} seconds)")
 
         if reference_ramp_rate < RAMP_RATE_THRESHOLD:
             logger.info(f"Reference ramp rate ({reference_ramp_rate:.3f}) is already below the ramp rate threshold ({RAMP_RATE_THRESHOLD:.3f}). No optimization needed.")
@@ -620,6 +702,7 @@ def run_parallel_de(
                 "charge_cost_low"    : lowest_charge_cost_low ,
                 "charge_cost_high"   : lowest_charge_cost_high,
                 "elec_threshold"     : lowest_elec_threshold  ,
+                "total_usage"        : total_usage            ,
             }
         else:
             logger.info(f"Reference ramp rate ({reference_ramp_rate:.3f}) is above the ramp rate threshold ({RAMP_RATE_THRESHOLD:.3f}). Proceeding with optimization.")
@@ -642,6 +725,7 @@ def run_parallel_de(
             # Metadata
             M                       = M                     ,
             reference_ramp_rate     = reference_ramp_rate   ,
+            total_usage             = total_usage           ,
             log_queue               = log_queue             ,
             log_queue_gurobi        = log_queue_gurobi      ,
         )
@@ -650,12 +734,18 @@ def run_parallel_de(
         # ----------------------------
         # DE Main Loop
         # ----------------------------
-        # To track fitness and ramp rate of candidate with best fitness
-        best_fitness_cand_fitnesses     : npt.NDArray[np.float64] = np.zeros(MAX_ITER + 1)
-        best_fitness_cand_ramp_rates    : npt.NDArray[np.float64] = np.zeros(MAX_ITER + 1)
-        # To track fitness and ramp rate of candidate with best ramp rate
-        best_ramp_rate_cand_fitnesses   : npt.NDArray[np.float64] = np.zeros(MAX_ITER + 1)
-        best_ramp_rate_cand_ramp_rates  : npt.NDArray[np.float64] = np.zeros(MAX_ITER + 1)
+        # To track fitness and ramp rate ratios of candidate with best fitness
+        best_fitness_cand_fitnesses                             : npt.NDArray[np.float64] = np.zeros(MAX_ITER + 1)
+        best_fitness_cand_ramp_rate_ratios                      : npt.NDArray[np.float64] = np.zeros(MAX_ITER + 1)
+        best_fitness_cand_percentage_price_increases            : npt.NDArray[np.float64] = np.zeros(MAX_ITER + 1)
+        best_fitness_cand_percentage_usage_decreases            : npt.NDArray[np.float64] = np.zeros(MAX_ITER + 1)
+
+        # To track fitness and ramp rate ratios of candidate with best ramp rate ratio
+        best_ramp_rate_ratio_cand_fitnesses                     : npt.NDArray[np.float64] = np.zeros(MAX_ITER + 1)
+        best_ramp_rate_ratio_cand_ramp_rate_ratios              : npt.NDArray[np.float64] = np.zeros(MAX_ITER + 1)
+        best_ramp_rate_ratio_cand_percentage_price_increases    : npt.NDArray[np.float64] = np.zeros(MAX_ITER + 1)
+        best_ramp_rate_ratio_cand_percentage_usage_decreases    : npt.NDArray[np.float64] = np.zeros(MAX_ITER + 1)
+
 
         start_time_DE = time.time()
 
@@ -675,14 +765,15 @@ def run_parallel_de(
                 raise e
             
             # Extract fitness and ramp rates (first and second columns of each row)
-            fitnesses                   : npt.NDArray[np.float64]    = results[:,0]
-            ramp_rates                  : npt.NDArray[np.float64]    = results[:,1]
-            ramp_rate_ratios            : npt.NDArray[np.float64]    = results[:,2]
-            percentage_price_increases  : npt.NDArray[np.float64]    = results[:,3]
-            were_suboptimal             : npt.NDArray[np.bool_]      = results[:,4] > 0.5  # boolean array indicating which candidates were suboptimal
+            fitnesses                   : npt.NDArray[np.float64]   = results[:,0]
+            ramp_rates                  : npt.NDArray[np.float64]   = results[:,1]
+            ramp_rate_ratios            : npt.NDArray[np.float64]   = results[:,2]
+            percentage_price_increases  : npt.NDArray[np.float64]   = results[:,3]
+            were_suboptimal             : npt.NDArray[np.bool_]     = results[:,4] > 0.5  # boolean array indicating which candidates were suboptimal
+            percentage_usage_decreases  : npt.NDArray[np.float64]   = results[:,5]
             
-            init_end_time               : float = time.time()
-            initial_suboptimal_count    : int   = int(were_suboptimal.sum())
+            init_end_time               : float                     = time.time()
+            initial_suboptimal_count    : int                       = int(were_suboptimal.sum())
 
             if initial_suboptimal_count > MAX_SUBOPTIMAL_TOLERANCE:
                 logger.error(
@@ -706,10 +797,10 @@ def run_parallel_de(
                 best_idx_within_qualified   : int                       = qualified_indices[np.argmin(qualified_fitnesses)]
                 best_vector                 : npt.NDArray[np.float64]   = population[best_idx_within_qualified].copy()
 
-                logger.info(f"Early stopping at initialization with Ramp Rate = {ramp_rates[best_idx_within_qualified]:.3f}, " \
+                logger.info(f"Early stopping at init. w/ Ramp Rate Ratio = {ramp_rate_ratios[best_idx_within_qualified]:.3f}, " \
                     f"Fitness = {fitnesses[best_idx_within_qualified]:.3f}, " \
-                    f"Ramp Rates Ratio = {ramp_rate_ratios[best_idx_within_qualified]:.3f}, " \
-                    f"% Price Increase = {percentage_price_increases[best_idx_within_qualified]:.3f}%"
+                    f"% Price Increase = {percentage_price_increases[best_idx_within_qualified]:.3f}%, " \
+                    f"% Usage Decrease = {percentage_usage_decreases[best_idx_within_qualified]:.3f}%"
                 )
                 logger.info(f"DE completed in {print_duration(init_end_time - start_time_DE)} ({init_end_time - start_time_DE:.1f}s)")
 
@@ -727,26 +818,30 @@ def run_parallel_de(
                 )
 
             # Track both the candidate with best ramp rate (and its fitness), and the candidate with best fitness (and its ramp rate)
-            best_ramp_rate_idx  : int   = np.argmin(ramp_rates)
-            best_fitness_idx    : int   = np.argmin(fitnesses)
-            prev_best_fitness   : float = fitnesses[best_fitness_idx]  # Track for anchor adaptation
+            best_ramp_rate_ratio_idx    : int   = np.argmin(ramp_rate_ratios)
+            best_fitness_idx            : int   = np.argmin(fitnesses)
+            prev_best_fitness           : float = fitnesses[best_fitness_idx]  # Track for anchor adaptation
 
             logger.info("Initial population")
-            logger.info(f"  Initial cand. with best ramp rate: Ramp Rate = {ramp_rates[best_ramp_rate_idx]:.3f}, " \
-                f"Fitness = {fitnesses[best_ramp_rate_idx]:.3f}, " \
-                f"Ramp Rates Ratio = {ramp_rate_ratios[best_ramp_rate_idx]:.3f}, " \
-                f"% Price Increase = {percentage_price_increases[best_ramp_rate_idx]:.3f}%"
+            logger.info(f"  Initial cand. w/ best ramp rate ratio: Ramp Rate Ratio = {ramp_rate_ratios[best_ramp_rate_ratio_idx]:.3f}, " \
+                f"Fitness = {fitnesses[best_ramp_rate_ratio_idx]:.3f}, " \
+                f"% Price Increase = {percentage_price_increases[best_ramp_rate_ratio_idx]:.3f}%, " \
+                f"% Usage Decrease = {percentage_usage_decreases[best_ramp_rate_ratio_idx]:.3f}%"
             )
-            best_ramp_rate_cand_fitnesses[0]    = fitnesses[best_ramp_rate_idx]
-            best_ramp_rate_cand_ramp_rates[0]   = ramp_rates[best_ramp_rate_idx]
+            best_ramp_rate_ratio_cand_fitnesses[0]                  = fitnesses[best_ramp_rate_ratio_idx]
+            best_ramp_rate_ratio_cand_ramp_rate_ratios[0]           = ramp_rate_ratios[best_ramp_rate_ratio_idx]
+            best_ramp_rate_ratio_cand_percentage_price_increases[0] = percentage_price_increases[best_ramp_rate_ratio_idx]
+            best_ramp_rate_ratio_cand_percentage_usage_decreases[0] = percentage_usage_decreases[best_ramp_rate_ratio_idx]
 
-            logger.info(f"  Initial cand. with best fitness: Ramp Rate = {ramp_rates[best_fitness_idx]:.3f}, " \
+            logger.info(f"  Initial cand. w/ best fitness: Ramp Rate Ratio = {ramp_rate_ratios[best_fitness_idx]:.3f}, " \
                 f"Fitness = {fitnesses[best_fitness_idx]:.3f}, " \
-                f"Ramp Rates Ratio = {ramp_rate_ratios[best_fitness_idx]:.3f}, " \
-                f"% Price Increase = {percentage_price_increases[best_fitness_idx]:.3f}%"
+                f"% Price Increase = {percentage_price_increases[best_fitness_idx]:.3f}%, " \
+                f"% Usage Decrease = {percentage_usage_decreases[best_fitness_idx]:.3f}%"
             )
-            best_fitness_cand_fitnesses[0]      = fitnesses[best_fitness_idx]
-            best_fitness_cand_ramp_rates[0]     = ramp_rates[best_fitness_idx]
+            best_fitness_cand_fitnesses[0]                  = fitnesses[best_fitness_idx]
+            best_fitness_cand_ramp_rate_ratios[0]           = ramp_rate_ratios[best_fitness_idx]
+            best_fitness_cand_percentage_price_increases[0] = percentage_price_increases[best_fitness_idx]
+            best_fitness_cand_percentage_usage_decreases[0] = percentage_usage_decreases[best_fitness_idx]
 
             duration_init = init_end_time - start_time_DE
             logger.info(f"  Time taken: {print_duration(duration_init)} ({duration_init:.1f}s)")
@@ -777,18 +872,18 @@ def run_parallel_de(
                 # F       : scales the distance vector (differential weight)
                 # A + ... : shifts the scaled vector to start from A (the base vector)
                 # mutant has shape (pop_size, optimization_dims)
-                diff_weight: float = DIFF_WEIGHT if not DIFF_WEIGHT_VARY else np.random.uniform(DIFF_WEIGHT, 1.0)
-                mutant: npt.NDArray[np.float64]  = population[idxs_a] + diff_weight * (population[idxs_b] - population[idxs_c])
+                diff_weight     : float                     = DIFF_WEIGHT if not DIFF_WEIGHT_VARY else np.random.uniform(DIFF_WEIGHT, 1.0)
+                mutant          : npt.NDArray[np.float64]   = population[idxs_a] + diff_weight * (population[idxs_b] - population[idxs_c])
 
                 # enforce bounds
-                mutant: npt.NDArray[np.float64]  = np.maximum(mutant, lower_bounds)
-                mutant: npt.NDArray[np.float64]  = np.minimum(mutant, upper_bounds_final)
+                mutant          : npt.NDArray[np.float64]   = np.maximum(mutant, lower_bounds)
+                mutant          : npt.NDArray[np.float64]   = np.minimum(mutant, upper_bounds_final)
 
                 # Crossover
                 # for each variable, randomly decide whether to take from mutant or parent
                 # if rand < cr, take from mutant; else take from parent; setting higher cr is more exploratory
-                rand_mask       : npt.NDArray[np.float64] = np.random.rand(POP_SIZE, optimization_dims)
-                trial_population: npt.NDArray[np.float64] = np.where(rand_mask < CROSS_PROB, mutant, population)
+                rand_mask       : npt.NDArray[np.float64]   = np.random.rand(POP_SIZE, optimization_dims)
+                trial_population: npt.NDArray[np.float64]   = np.where(rand_mask < CROSS_PROB, mutant, population)
                 
                 logger.info(f"  Trial population created")
 
@@ -800,6 +895,7 @@ def run_parallel_de(
                 trial_ramp_rates_ratio          : npt.NDArray[np.float64] = trial_results[:,2]
                 trial_percentage_price_increases: npt.NDArray[np.float64] = trial_results[:,3]
                 trial_were_suboptimal           : npt.NDArray[np.bool_]   = trial_results[:,4] > 0.5  # boolean array indicating which trials were suboptimal
+                trial_percentage_usage_decreases: npt.NDArray[np.float64] = trial_results[:,5]
 
                 trial_suboptimal_count = int(trial_were_suboptimal.sum())
                 if trial_suboptimal_count > MAX_SUBOPTIMAL_TOLERANCE:
@@ -825,7 +921,8 @@ def run_parallel_de(
                 ramp_rates[winners]                 = trial_ramp_rates[winners]
                 ramp_rate_ratios[winners]           = trial_ramp_rates_ratio[winners]
                 percentage_price_increases[winners] = trial_percentage_price_increases[winners]
-                
+                percentage_usage_decreases[winners] = trial_percentage_usage_decreases[winners]
+
                 logger.info(f"  Selection completed - {winners.sum()} candidates replaced by better trials")
 
                 # --- 4. Early Stopping ---
@@ -838,10 +935,10 @@ def run_parallel_de(
                     best_idx_within_qualified   : int                       = qualified_indices[np.argmin(qualified_fitnesses)]
                     best_vector                 : npt.NDArray[np.float64]   = population[best_idx_within_qualified].copy()
 
-                    logger.info(f"Early stopping at generation {gen+1} with Ramp Rate = {ramp_rates[best_idx_within_qualified]:.3f}, " \
+                    logger.info(f"Early stopping at generation {gen+1} with Ramp Rate Ratio = {ramp_rate_ratios[best_idx_within_qualified]:.3f}, " \
                         f"Fitness = {fitnesses[best_idx_within_qualified]:.3f}, " \
-                        f"Ramp Rate Ratio = {ramp_rate_ratios[best_idx_within_qualified]:.3f}, " \
-                        f"% Price Increase = {percentage_price_increases[best_idx_within_qualified]:.3f}%"
+                        f"% Price Increase = {percentage_price_increases[best_idx_within_qualified]:.3f}%, " \
+                        f"% Usage Decrease = {percentage_usage_decreases[best_idx_within_qualified]:.3f}%"
                     )
                     end_time_DE = time.time()
                     logger.info(f"DE completed in {print_duration(end_time_DE - start_time_DE)} ({end_time_DE - start_time_DE:.1f}s).")
@@ -849,9 +946,9 @@ def run_parallel_de(
                     break  # exit the generation loop
                 
                 # --- 5. Update Best Trackers ---
-                best_ramp_rate_idx  = np.argmin(ramp_rates)
-                best_fitness_idx    = np.argmin(fitnesses)
-                current_best_fitness = fitnesses[best_fitness_idx]
+                best_ramp_rate_ratio_idx: int   = np.argmin(ramp_rate_ratios)
+                best_fitness_idx        : int   = np.argmin(fitnesses)
+                current_best_fitness    : float = fitnesses[best_fitness_idx]
 
                 # --- 6. Adaptive Anchor Sizing ---
                 # Check if fitness improvement is below threshold
@@ -915,6 +1012,7 @@ def run_parallel_de(
                         # Metadata
                         M                       = M                     ,
                         reference_ramp_rate     = reference_ramp_rate   ,
+                        total_usage             = total_usage           ,
                         log_queue               = log_queue             ,
                         log_queue_gurobi        = log_queue_gurobi      ,
                     )
@@ -937,21 +1035,25 @@ def run_parallel_de(
                 est_remaining_time  = gen_duration * (MAX_ITER - gen - 1)
 
                 logger.info(f"  Results:")
-                logger.info(f"      Best Ramp Rate Cand.: Ramp Rate = {ramp_rates[best_ramp_rate_idx]:.3f}, " \
-                    f"Fitness = {fitnesses[best_ramp_rate_idx]:.3f}, " \
-                    f"Ramp Rate Ratio = {ramp_rate_ratios[best_ramp_rate_idx]:.3f}, " \
-                    f"% Price Increase = {percentage_price_increases[best_ramp_rate_idx]:.3f}%"
+                logger.info(f"      Best Ramp Rate Ratio Cand.: Ramp Rate Ratio = {ramp_rate_ratios[best_ramp_rate_ratio_idx]:.3f}, " \
+                    f"Fitness = {fitnesses[best_ramp_rate_ratio_idx]:.3f}, " \
+                    f"% Price Increase = {percentage_price_increases[best_ramp_rate_ratio_idx]:.3f}%, " \
+                    f"% Usage Decrease = {percentage_usage_decreases[best_ramp_rate_ratio_idx]:.3f}%"
                 )
-                best_ramp_rate_cand_fitnesses[gen+1] = fitnesses[best_ramp_rate_idx]
-                best_ramp_rate_cand_ramp_rates[gen+1] = ramp_rates[best_ramp_rate_idx]
+                best_ramp_rate_ratio_cand_fitnesses[gen+1]                  = fitnesses[best_ramp_rate_ratio_idx]
+                best_ramp_rate_ratio_cand_ramp_rate_ratios[gen+1]           = ramp_rate_ratios[best_ramp_rate_ratio_idx]
+                best_ramp_rate_ratio_cand_percentage_price_increases[gen+1] = percentage_price_increases[best_ramp_rate_ratio_idx]
+                best_ramp_rate_ratio_cand_percentage_usage_decreases[gen+1] = percentage_usage_decreases[best_ramp_rate_ratio_idx]  
 
-                logger.info(f"      Best Fitness Cand.: Ramp Rate = {ramp_rates[best_fitness_idx]:.3f}, " \
+                logger.info(f"      Best Fitness Cand.: Ramp Rate Ratio = {ramp_rate_ratios[best_fitness_idx]:.3f}, " \
                     f"Fitness = {fitnesses[best_fitness_idx]:.3f}, " \
-                    f"Ramp Rate Ratio = {ramp_rate_ratios[best_fitness_idx]:.3f}, " \
-                    f"% Price Increase = {percentage_price_increases[best_fitness_idx]:.3f}%"
+                    f"% Price Increase = {percentage_price_increases[best_fitness_idx]:.3f}%, " \
+                    f"% Usage Decrease = {percentage_usage_decreases[best_fitness_idx]:.3f}%"
                 )
-                best_fitness_cand_fitnesses[gen+1] = fitnesses[best_fitness_idx]
-                best_fitness_cand_ramp_rates[gen+1] = ramp_rates[best_fitness_idx]
+                best_fitness_cand_fitnesses[gen+1]                  = fitnesses[best_fitness_idx]
+                best_fitness_cand_ramp_rate_ratios[gen+1]           = ramp_rate_ratios[best_fitness_idx]
+                best_fitness_cand_percentage_price_increases[gen+1] = percentage_price_increases[best_fitness_idx]
+                best_fitness_cand_percentage_usage_decreases[gen+1] = percentage_usage_decreases[best_fitness_idx]
 
                 logger.info(f"      Fitness Improvement: {fitness_improvement:.3f}")
                 logger.info(f"      Generation Time: {print_duration(gen_duration)} ({gen_duration:.1f}s)")
@@ -960,44 +1062,26 @@ def run_parallel_de(
             else:
                 logger.info("Maximum iterations reached without meeting ramp rate threshold.")
                 logger.info(f"Picking candidate with best fitness...")
-                best_vector : npt.NDArray[np.float64] = population[best_fitness_idx].copy()
+                best_vector: npt.NDArray[np.float64] = population[best_fitness_idx].copy()
                 
                 end_time_DE = time.time()
                 logger.info(f"DE completed in {print_duration(end_time_DE - start_time_DE)} ({end_time_DE - start_time_DE:.1f}s).")
 
-        # Plot the 2 graphs for fitness and ramp rate progression
-        gens = np.arange(len(best_fitness_cand_fitnesses))
-
-        # Fitness progression plot
-        fig_fitness = plt.figure(figsize=(12, 8))
-        plt.plot        (gens, best_fitness_cand_fitnesses  , label="Best Fitness"          , color="tab:blue")
-        plt.plot        (gens, best_ramp_rate_cand_fitnesses, label="Best-Ramp-Rate Fitness", color="tab:orange", linestyle="--")
-        plt.title       ("Fitness Progression")
-        plt.xlabel      ("Generation")
-        plt.ylabel      ("Fitness")
-        plt.grid        (True, alpha=0.3)
-        plt.legend      (loc='upper center', bbox_to_anchor=(0.5, -0.1), ncol=2, frameon=True)
-        plt.tight_layout()
-        fitness_plot_path = os.path.join("Results", folder_name, f"DE_fitness_progress_{file_name}_{timestamp}.png")
-        fig_fitness.savefig(fitness_plot_path)
-        plt.close(fig_fitness)
-        logger.info(f"Saved fitness progression plot to: {fitness_plot_path}")
-
-        # Ramp rate progression plot
-        fig_ramp_rate = plt.figure(figsize=(12, 8))
-        plt.plot        (gens, best_fitness_cand_ramp_rates     , label="Best-Fitness Ramp Rate", color="tab:green")
-        plt.plot        (gens, best_ramp_rate_cand_ramp_rates   , label="Best-Ramp-Rate"        , color="tab:red", linestyle="--")
-        plt.title       ("Ramp Rate Progression")
-        plt.xlabel      ("Generation")
-        plt.ylabel      ("Ramp Rate")
-        plt.grid        (True, alpha=0.3)
-        plt.legend      (loc='upper center', bbox_to_anchor=(0.5, -0.1), ncol=2, frameon=True)
-        plt.tight_layout()
-        ramp_rate_plot_path = os.path.join("Results", folder_name, f"DE_ramp_rate_progress_{file_name}_{timestamp}.png")
-        fig_ramp_rate.savefig(ramp_rate_plot_path)
-        plt.close(fig_ramp_rate)
-        logger.info(f"Saved ramp rate progression plot to: {ramp_rate_plot_path}")
-
+        # Plot the progression of fitness, ramp rate ratio, percentage price increase, and percentage usage decrease for both the best fitness candidate and best ramp rate ratio candidate
+        _plot_DE_progression(
+            logger                                               = logger                                  ,
+            folder_name                                          = folder_name                             ,
+            file_name                                            = file_name                               ,
+            timestamp                                            = timestamp                               ,
+            best_fitness_cand_fitnesses                          = best_fitness_cand_fitnesses             ,
+            best_ramp_rate_ratio_cand_fitnesses                  = best_ramp_rate_ratio_cand_fitnesses     ,
+            best_fitness_cand_ramp_rate_ratios                   = best_fitness_cand_ramp_rate_ratios      ,
+            best_ramp_rate_ratio_cand_ramp_rate_ratios           = best_ramp_rate_ratio_cand_ramp_rate_ratios,
+            best_fitness_cand_percentage_price_increases         = best_fitness_cand_percentage_price_increases,
+            best_ramp_rate_ratio_cand_percentage_price_increases = best_ramp_rate_ratio_cand_percentage_price_increases,
+            best_fitness_cand_percentage_usage_decreases         = best_fitness_cand_percentage_usage_decreases,
+            best_ramp_rate_ratio_cand_percentage_usage_decreases = best_ramp_rate_ratio_cand_percentage_usage_decreases,
+        )
 
         return _expand_trajectory(
             candidate_flat  = best_vector           ,
