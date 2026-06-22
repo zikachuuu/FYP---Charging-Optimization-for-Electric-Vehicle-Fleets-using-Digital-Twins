@@ -627,15 +627,6 @@ def postprocessing(**kwargs):
         ax2.set_ylabel('Price ($/SoC)', color='tab:red')
         line4 = ax2.plot(
             df_electricity.index                , 
-            df_electricity["Price High ($/SoC)"], 
-            color       = 'xkcd:light red'      ,        
-            linewidth   = 2                     , 
-            marker      = markers[3]            ,
-            label       = 'Additional Price (right y-axis)'    , 
-            linestyle   = ':'                   ,
-        )
-        line5 = ax2.plot(
-            df_electricity.index                , 
             df_electricity["Price Low ($/SoC)"] , 
             color       = 'xkcd:light green'    ,     
             linewidth   = 2                     , 
@@ -643,6 +634,15 @@ def postprocessing(**kwargs):
             label       = 'Base Price (right y-axis)'               , 
             linestyle   = ':'                   ,
         )
+        line5 = ax2.plot(
+            df_electricity.index                , 
+            df_electricity["Price High ($/SoC)"], 
+            color       = 'xkcd:light red'      ,        
+            linewidth   = 2                     , 
+            marker      = markers[3]            ,
+            label       = 'Additional Price (right y-axis)'    , 
+            linestyle   = ':'                   ,
+        )        
         line6 = ax2.plot(
             df_electricity.index                    , 
             df_electricity["Wholesale Price ($/SoC)"] , 

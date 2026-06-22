@@ -307,7 +307,6 @@ def _reference_candidate(
 
     # Calculate electricity consumption at each time step using vectorized operations
     electricity_usage   : npt.NDArray[np.float64]   = np.zeros(T + 1)
-    total_usage         : float                     = electricity_usage.sum()
 
     for t in TIMESTEPS:
         # Calculate total electricity used at time t
@@ -321,6 +320,7 @@ def _reference_candidate(
     # Calculate ramp rate of electricity consumption using numpy
     usage_vector    : npt.NDArray[np.float64]   = electricity_usage[1:T]  # exclude time 0 and T
     ramp_rate       : float                     = np.sum(np.diff(usage_vector)**2) if len(usage_vector) > 1 else 0.0
+    total_usage     : float                     = electricity_usage.sum()
 
     return ramp_rate, total_usage
 
@@ -464,7 +464,7 @@ def _plot_DE_progression(
     plt.xlabel      ("Generation")
     plt.ylabel      ("Fitness")
     plt.grid        (True, alpha=0.3)
-    plt.legend      (loc='upper center', bbox_to_anchor=(0.5, -0.1), ncol=2, frameon=True)
+    plt.legend      (loc='upper center', bbox_to_anchor=(0.5, -0.1), ncol=1, frameon=True)
     plt.tight_layout()
     fitness_plot_path = os.path.join("Results", folder_name, f"DE_fitness_progress_{file_name}_{timestamp}.png")
     fig_fitness.savefig(fitness_plot_path)
@@ -479,7 +479,7 @@ def _plot_DE_progression(
     plt.xlabel      ("Generation")
     plt.ylabel      ("Ramp Rate Ratio")
     plt.grid        (True, alpha=0.3)
-    plt.legend      (loc='upper center', bbox_to_anchor=(0.5, -0.1), ncol=2, frameon=True)
+    plt.legend      (loc='upper center', bbox_to_anchor=(0.5, -0.1), ncol=1, frameon=True)
     plt.tight_layout()
     ramp_rate_ratio_plot_path = os.path.join("Results", folder_name, f"DE_ramp_rate_ratio_progress_{file_name}_{timestamp}.png")
     fig_ramp_rate.savefig(ramp_rate_ratio_plot_path)
@@ -488,13 +488,13 @@ def _plot_DE_progression(
 
     # Percentage price increase progression plot
     fig_price_increase = plt.figure(figsize=(12, 8))
-    plt.plot        (gens, best_fitness_cand_percentage_price_increases           , label="Best-Fitness Candidate's % Price Increase"           , color="tab:blue")
-    plt.plot        (gens, best_ramp_rate_ratio_cand_percentage_price_increases   , label="Best Ramp Rate Ratio Candidate's % Price Increase"   , color="tab:red", linestyle="--")
+    plt.plot        (gens, np.array(best_fitness_cand_percentage_price_increases) * 100           , label="Best-Fitness Candidate's % Price Increase"           , color="tab:blue")
+    plt.plot        (gens, np.array(best_ramp_rate_ratio_cand_percentage_price_increases) * 100   , label="Best-Ramp-Rate-Ratio Candidate's % Price Increase"   , color="tab:red", linestyle="--")
     plt.title       ("Percentage Price Increase Progression")
     plt.xlabel      ("Generation")
     plt.ylabel      ("Percentage Price Increase (%)")
     plt.grid        (True, alpha=0.3)
-    plt.legend      (loc='upper center', bbox_to_anchor=(0.5, -0.1), ncol=2, frameon=True)
+    plt.legend      (loc='upper center', bbox_to_anchor=(0.5, -0.1), ncol=1, frameon=True)
     plt.tight_layout()
     price_increase_plot_path = os.path.join("Results", folder_name, f"DE_percentage_price_increase_progress_{file_name}_{timestamp}.png")
     fig_price_increase.savefig(price_increase_plot_path)
@@ -503,13 +503,13 @@ def _plot_DE_progression(
 
     # Percentage usage decrease progression plot
     fig_usage_decrease = plt.figure(figsize=(12, 8))
-    plt.plot        (gens, best_fitness_cand_percentage_usage_decreases           , label="Best-Fitness Candidate's % Usage Decrease"           , color="tab:blue")
-    plt.plot        (gens, best_ramp_rate_ratio_cand_percentage_usage_decreases   , label="Best Ramp Rate Ratio Candidate's % Usage Decrease"   , color="tab:red", linestyle="--")
+    plt.plot        (gens, np.array(best_fitness_cand_percentage_usage_decreases) * 100           , label="Best-Fitness Candidate's % Usage Decrease"           , color="tab:blue")
+    plt.plot        (gens, np.array(best_ramp_rate_ratio_cand_percentage_usage_decreases) * 100   , label="Best-Ramp-Rate-Ratio Candidate's % Usage Decrease"   , color="tab:red", linestyle="--")
     plt.title       ("Percentage Usage Decrease Progression")
     plt.xlabel      ("Generation")
     plt.ylabel      ("Percentage Usage Decrease (%)")
     plt.grid        (True, alpha=0.3)
-    plt.legend      (loc='upper center', bbox_to_anchor=(0.5, -0.1), ncol=2, frameon=True)
+    plt.legend      (loc='upper center', bbox_to_anchor=(0.5, -0.1), ncol=1, frameon=True)
     plt.tight_layout()
     usage_decrease_plot_path = os.path.join("Results", folder_name, f"DE_percentage_usage_decrease_progress_{file_name}_{timestamp}.png")
     fig_usage_decrease.savefig(usage_decrease_plot_path)
@@ -694,7 +694,7 @@ def run_parallel_de(
 
         end_time_ref = time.time()
         duration_ref = end_time_ref - start_time_ref
-        logger.info(f"Reference ramp rate: {reference_ramp_rate:.3f}, Total electricity usage: {total_usage:.3f} obtained in {print_duration(duration_ref)} ({duration_ref:.1f} seconds)")
+        logger.info(f"Reference ramp rate: {reference_ramp_rate:.3f}, Reference total electricity usage: {total_usage:.3f} obtained in {print_duration(duration_ref)} ({duration_ref:.1f} seconds)")
 
         if reference_ramp_rate < RAMP_RATE_THRESHOLD:
             logger.info(f"Reference ramp rate ({reference_ramp_rate:.3f}) is already below the ramp rate threshold ({RAMP_RATE_THRESHOLD:.3f}). No optimization needed.")
@@ -799,8 +799,8 @@ def run_parallel_de(
 
                 logger.info(f"Early stopping at init. w/ Ramp Rate Ratio = {ramp_rate_ratios[best_idx_within_qualified]:.3f}, " \
                     f"Fitness = {fitnesses[best_idx_within_qualified]:.3f}, " \
-                    f"% Price Increase = {percentage_price_increases[best_idx_within_qualified]:.3f}%, " \
-                    f"% Usage Decrease = {percentage_usage_decreases[best_idx_within_qualified]:.3f}%"
+                    f"% Price Increase = {percentage_price_increases[best_idx_within_qualified]:.3%}, " \
+                    f"% Usage Decrease = {percentage_usage_decreases[best_idx_within_qualified]:.3%}"
                 )
                 logger.info(f"DE completed in {print_duration(init_end_time - start_time_DE)} ({init_end_time - start_time_DE:.1f}s)")
 
@@ -825,8 +825,8 @@ def run_parallel_de(
             logger.info("Initial population")
             logger.info(f"  Initial cand. w/ best ramp rate ratio: Ramp Rate Ratio = {ramp_rate_ratios[best_ramp_rate_ratio_idx]:.3f}, " \
                 f"Fitness = {fitnesses[best_ramp_rate_ratio_idx]:.3f}, " \
-                f"% Price Increase = {percentage_price_increases[best_ramp_rate_ratio_idx]:.3f}%, " \
-                f"% Usage Decrease = {percentage_usage_decreases[best_ramp_rate_ratio_idx]:.3f}%"
+                f"% Price Increase = {percentage_price_increases[best_ramp_rate_ratio_idx]:.3%}, " \
+                f"% Usage Decrease = {percentage_usage_decreases[best_ramp_rate_ratio_idx]:.3%}"
             )
             best_ramp_rate_ratio_cand_fitnesses[0]                  = fitnesses[best_ramp_rate_ratio_idx]
             best_ramp_rate_ratio_cand_ramp_rate_ratios[0]           = ramp_rate_ratios[best_ramp_rate_ratio_idx]
@@ -835,8 +835,8 @@ def run_parallel_de(
 
             logger.info(f"  Initial cand. w/ best fitness: Ramp Rate Ratio = {ramp_rate_ratios[best_fitness_idx]:.3f}, " \
                 f"Fitness = {fitnesses[best_fitness_idx]:.3f}, " \
-                f"% Price Increase = {percentage_price_increases[best_fitness_idx]:.3f}%, " \
-                f"% Usage Decrease = {percentage_usage_decreases[best_fitness_idx]:.3f}%"
+                f"% Price Increase = {percentage_price_increases[best_fitness_idx]:.3%}, " \
+                f"% Usage Decrease = {percentage_usage_decreases[best_fitness_idx]:.3%}"
             )
             best_fitness_cand_fitnesses[0]                  = fitnesses[best_fitness_idx]
             best_fitness_cand_ramp_rate_ratios[0]           = ramp_rate_ratios[best_fitness_idx]
@@ -937,8 +937,8 @@ def run_parallel_de(
 
                     logger.info(f"Early stopping at generation {gen+1} with Ramp Rate Ratio = {ramp_rate_ratios[best_idx_within_qualified]:.3f}, " \
                         f"Fitness = {fitnesses[best_idx_within_qualified]:.3f}, " \
-                        f"% Price Increase = {percentage_price_increases[best_idx_within_qualified]:.3f}%, " \
-                        f"% Usage Decrease = {percentage_usage_decreases[best_idx_within_qualified]:.3f}%"
+                        f"% Price Increase = {percentage_price_increases[best_idx_within_qualified]:.3%}, " \
+                        f"% Usage Decrease = {percentage_usage_decreases[best_idx_within_qualified]:.3%}"
                     )
                     end_time_DE = time.time()
                     logger.info(f"DE completed in {print_duration(end_time_DE - start_time_DE)} ({end_time_DE - start_time_DE:.1f}s).")
@@ -1037,8 +1037,8 @@ def run_parallel_de(
                 logger.info(f"  Results:")
                 logger.info(f"      Best Ramp Rate Ratio Cand.: Ramp Rate Ratio = {ramp_rate_ratios[best_ramp_rate_ratio_idx]:.3f}, " \
                     f"Fitness = {fitnesses[best_ramp_rate_ratio_idx]:.3f}, " \
-                    f"% Price Increase = {percentage_price_increases[best_ramp_rate_ratio_idx]:.3f}%, " \
-                    f"% Usage Decrease = {percentage_usage_decreases[best_ramp_rate_ratio_idx]:.3f}%"
+                    f"% Price Increase = {percentage_price_increases[best_ramp_rate_ratio_idx]:.3%}, " \
+                    f"% Usage Decrease = {percentage_usage_decreases[best_ramp_rate_ratio_idx]:.3%}"
                 )
                 best_ramp_rate_ratio_cand_fitnesses[gen+1]                  = fitnesses[best_ramp_rate_ratio_idx]
                 best_ramp_rate_ratio_cand_ramp_rate_ratios[gen+1]           = ramp_rate_ratios[best_ramp_rate_ratio_idx]
@@ -1047,8 +1047,8 @@ def run_parallel_de(
 
                 logger.info(f"      Best Fitness Cand.: Ramp Rate Ratio = {ramp_rate_ratios[best_fitness_idx]:.3f}, " \
                     f"Fitness = {fitnesses[best_fitness_idx]:.3f}, " \
-                    f"% Price Increase = {percentage_price_increases[best_fitness_idx]:.3f}%, " \
-                    f"% Usage Decrease = {percentage_usage_decreases[best_fitness_idx]:.3f}%"
+                    f"% Price Increase = {percentage_price_increases[best_fitness_idx]:.3%}, " \
+                    f"% Usage Decrease = {percentage_usage_decreases[best_fitness_idx]:.3%}"
                 )
                 best_fitness_cand_fitnesses[gen+1]                  = fitnesses[best_fitness_idx]
                 best_fitness_cand_ramp_rate_ratios[gen+1]           = ramp_rate_ratios[best_fitness_idx]

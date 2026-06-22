@@ -81,7 +81,6 @@ def leader_model(
     # Exclude first time step (t=0) as no charging occurs at t=0
     # Exclude last time step (t=T) as no charging occurs at t=T
     electricity_usage   : npt.NDArray[np.float64] = np.zeros(T - 1) # electricity usage from t=1 to t=T-1
-    current_total_usage : float = electricity_usage.sum()  # total electricity usage across all time steps (excluding t=0 and t=T)
 
     for t in TIMESTEPS[1:-1]: 
         # Calculate total electricity used at time t
@@ -93,10 +92,11 @@ def leader_model(
             electricity_usage[t - 1] += x[e_id] * charge_amount
 
     # Calculate ramp rate of electricity consumption using numpy
-    ramp_rate                   : float                     = np.sum(np.diff(electricity_usage)**2) if len(electricity_usage) > 1 else 0.0
-    ramp_rate_ratio             : float                     = ramp_rate / (reference_ramp_rate + 1e-6)  # Add small epsilon to avoid division by zero
-
-    percentage_usage_decrease   : float                     = (reference_total_usage - current_total_usage) / (reference_total_usage + 1e-6)  # Add small epsilon to avoid division by zero
+    ramp_rate                   : float = np.sum(np.diff(electricity_usage)**2) if len(electricity_usage) > 1 else 0.0
+    ramp_rate_ratio             : float = ramp_rate / (reference_ramp_rate + 1e-6)  # Add small epsilon to avoid division by zero
+    
+    current_total_usage         : float = electricity_usage.sum()  # total electricity usage across all time steps (excluding t=0 and t=T)
+    percentage_usage_decrease   : float = (reference_total_usage - current_total_usage) / (reference_total_usage + 1e-6)  # Add small epsilon to avoid division by zero
 
     logger.info(f"Leader model ramp rate calculation: Ramp Rate = {ramp_rate:.3f}, Ramp Rate Ratio = {ramp_rate_ratio:.3f}, % Usage Decrease = {percentage_usage_decrease:.3f}%")
 
