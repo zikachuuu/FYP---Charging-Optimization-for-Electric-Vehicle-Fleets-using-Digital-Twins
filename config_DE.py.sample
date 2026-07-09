@@ -16,7 +16,7 @@ NUM_THREADS                         : int   = 1     # number of threads used per
 
 MAX_ITER                            : int   = 40    # maximum iterations for DE
 
-VAR_THRESHOLD                       : float = 0     # variance threshold for early stopping of DE
+FITNESS_THRESHOLD                   : float = 0     # fitness threshold for early stopping of DE
 
 
 # ------------------------------------
