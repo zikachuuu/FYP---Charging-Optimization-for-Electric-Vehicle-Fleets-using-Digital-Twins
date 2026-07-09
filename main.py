@@ -21,7 +21,7 @@ from config_DE import (
     DIFF_WEIGHT                         ,
     DIFF_WEIGHT_VARY                    ,
     CROSS_PROB                          ,
-    VAR_THRESHOLD                       ,
+    FITNESS_THRESHOLD                   ,
     PENALTY_WEIGHT                      ,
     NUM_ANCHORS                         ,
     VARS_PER_STEP                       ,
@@ -34,6 +34,8 @@ from config_DE import (
     RELAX_STAGE_2                       ,
     RANDOM_SEED                         ,
     MAX_SUBOPTIMAL_TOLERANCE            ,
+    WINDOW_SIZE                         ,
+    STRIDE                              ,
 )
 
 
@@ -66,11 +68,11 @@ Examples:
     args = parser.parse_args()
 
     print ()
-    print ("============================================================")
-    print ("||                                                        ||")
-    print ("||  Welcome to the EV Fleet Charging Optimization Model!  ||")
-    print ("||                                                        ||")
-    print ("============================================================")
+    print ("==============================================================")
+    print ("||                                                          ||")
+    print ("||   Welcome to the EV Fleet Charging Optimization Model!   ||")
+    print ("||                                                          ||")
+    print ("==============================================================")
     print ()
     print ("Find input test case files in the Testcases folder.")
     print ("Output results will be saved in the Results folder.")
@@ -83,7 +85,7 @@ Examples:
     print ("    you need to provide the pricing and threshold values in the input JSON file.")
     print ("    i.e. 'charge_cost_low', 'charge_cost_high', and 'elec_threshold' values for each time step (0 to T inclusive).")
     print ()
-    print ("===========================================================")
+    print ("=============================================================")
     print ()
     
     # Get model choice from command line or prompt
@@ -170,7 +172,7 @@ Examples:
     logger.info(f"  │   ├── Number of Processes (NUM_PROCESSES)                                             : {NUM_PROCESSES}")
     logger.info(f"  │   ├── Number of Threads per Process (NUM_THREADS)                                     : {NUM_THREADS}")
     logger.info(f"  │   ├── Maximum Iterations (MAX_ITER)                                                   : {MAX_ITER}")
-    logger.info(f"  │   └── Variance Threshold for Early Stopping (VAR_THRESHOLD)                           : {VAR_THRESHOLD}")
+    logger.info(f"  │   └── Fitness Threshold for Early Stopping (FITNESS_THRESHOLD)                        : {FITNESS_THRESHOLD}")
     logger.info(f"  │   ")
     logger.info(f"  ├── DR Randomness parameters:")
     logger.info(f"  │   ├── Penalty Weight for Leader Fitness (PENALTY_WEIGHT)                              : {PENALTY_WEIGHT}")
@@ -191,7 +193,9 @@ Examples:
     logger.info(f"      ├── Relax Follower Model in Stage 2 (RELAX_STAGE_2)                                 : {RELAX_STAGE_2}")
     logger.info(f"      ├── Random Seed (RANDOM_SEED)                                                       : {RANDOM_SEED}")
     logger.info(f"      ├── Variables per Time Step (VARS_PER_STEP)                                         : {VARS_PER_STEP}")
-    logger.info(f"      └── Maximum Suboptimal Tolerance (MAX_SUBOPTIMAL_TOLERANCE)                         : {MAX_SUBOPTIMAL_TOLERANCE}")
+    logger.info(f"      ├── Maximum Suboptimal Tolerance (MAX_SUBOPTIMAL_TOLERANCE)                         : {MAX_SUBOPTIMAL_TOLERANCE}")
+    logger.info(f"      ├── Window Size for Local Variance Calculation (WINDOW_SIZE)                        : {WINDOW_SIZE}")
+    logger.info(f"      └── Stride for Local Variance Calculation (STRIDE)                                  : {STRIDE}")
     
 
     # Load data from the specified JSON file
@@ -338,9 +342,9 @@ Examples:
         duration_stage1 = end_time_stage1 - start_time_stage1
         logger.info(f"Stage 1 completed in {print_duration(duration_stage1)} ({duration_stage1:.2f} seconds).")
 
-        charge_cost_low     : dict[int, float]                  = charge_price_parameters["charge_cost_low"]       # a_t
-        charge_cost_high    : dict[int, float]                  = charge_price_parameters["charge_cost_high"]      # b_t
-        elec_threshold      : dict[int, int]                    = charge_price_parameters["elec_threshold"]        # r_t
+        charge_cost_low     : dict[int, float]  = charge_price_parameters["charge_cost_low"]       # a_t
+        charge_cost_high    : dict[int, float]  = charge_price_parameters["charge_cost_high"]      # b_t
+        elec_threshold      : dict[int, int]    = charge_price_parameters["elec_threshold"]        # r_t
 
         # Save the obtained pricing and threshold to a JSON file for reference
         # Saved JSON file is the cloned input Testcase file with pricing and threshold appended at the end (replace if already present)
@@ -389,12 +393,12 @@ Examples:
 
 
         # Extract variables and sets from the output
-        obj             : float                                     = solutions_stage2["obj"]
-        x               : dict[int, float]                          = solutions_stage2["x"]
-        s               : dict[tuple[int, int, int]     , float]    = solutions_stage2["s"]
-        u               : dict[tuple[int, int, int, int], float]    = solutions_stage2["u"]
-        e               : dict[tuple[int, int, int]     , float]    = solutions_stage2["e"]
-        q               : dict[int                      , float]    = solutions_stage2["q"]
+        obj : float                                     = solutions_stage2["obj"]
+        x   : dict[int, float]                          = solutions_stage2["x"]
+        s   : dict[tuple[int, int, int]     , float]    = solutions_stage2["s"]
+        u   : dict[tuple[int, int, int, int], float]    = solutions_stage2["u"]
+        e   : dict[tuple[int, int, int]     , float]    = solutions_stage2["e"]
+        q   : dict[int                      , float]    = solutions_stage2["q"]
 
 
         # ----------------------------
