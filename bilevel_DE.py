@@ -320,10 +320,12 @@ def _reference_candidate(
             charge_amount = arc.d.l - arc.o.l  # SoC levels charged
             electricity_usage[t - 1] += x[e_id] * charge_amount
 
+    # Get total electricity usage for reference candidate
+    reference_electricity_usage: float = np.sum(electricity_usage)
+
     # Calculate the list of reference variances of electricity consumption for each window
     # We use a sliding window approach with the specified WINDOW_SIZE and STRIDE
     # The last window can be smaller than WINDOW_SIZE if it reaches the end of the time steps (as long as its size is at least 2)
-    
     reference_variances : dict[int, float] = {} # Key is start time of the window, value is variance of that window
 
     for start in range(0, len(electricity_usage), STRIDE):
@@ -336,7 +338,7 @@ def _reference_candidate(
         if end == len(electricity_usage):
             break
 
-    return reference_variances
+    return reference_variances, reference_electricity_usage
 
 
 def _evaluate_candidate(
@@ -449,14 +451,18 @@ def _evaluate_candidate(
 
 
 def _plot_progression(
-        best_fitness_cand_fitnesses      : list[float]   ,
-        best_var_ratio_cand_fitnesses    : list[float]   ,
-        best_fitness_cand_var_ratios     : list[float]   ,
-        best_var_ratio_cand_var_ratios   : list[float]   ,
-        folder_name                      : str           ,
-        file_name                        : str           ,
-        timestamp                        : str           ,
-        logger                           : Logger        ,
+        best_fitness_cand_fitnesses         : list[float]   ,
+        best_fitness_cand_var_ratios        : list[float]   ,
+        best_fitness_cand_price_increases   : list[float]   ,
+        best_fitness_cand_usage_decreases   : list[float]   ,
+        best_var_ratio_cand_fitnesses       : list[float]   ,
+        best_var_ratio_cand_var_ratios      : list[float]   ,
+        best_var_ratio_cand_price_increases : list[float]   ,
+        best_var_ratio_cand_usage_decreases : list[float]   ,
+        folder_name                         : str           ,
+        file_name                           : str           ,
+        timestamp                           : str           ,
+        logger                              : Logger        ,
     ) -> None:
     """
     Plots the progression of fitness and variance ratio over generations.
@@ -493,6 +499,36 @@ def _plot_progression(
     fig_variance.savefig(variance_plot_path)
     plt.close(fig_variance)
     logger.info(f"Saved variance ratio progression plot to: {variance_plot_path}")
+
+    # Price Increase progression plot
+    fig_price_increase = plt.figure(figsize=(12, 8))
+    plt.plot        (gens, best_fitness_cand_price_increases     , label="Best-Fitness Candidate's % Price Increase"       , color="tab:blue")
+    plt.plot        (gens, best_var_ratio_cand_price_increases   , label="Best-Variance-Ratio Candidate's % Price Increase", color="tab:orange", linestyle="--")
+    plt.title       ("Price Increase Progression")
+    plt.xlabel      ("Generation")
+    plt.ylabel      ("Percentage Price Increase")
+    plt.grid        (True, alpha=0.3)
+    plt.legend      (loc='upper center', bbox_to_anchor=(0.5, -0.1), ncol=2, frameon=True)
+    plt.tight_layout()
+    price_increase_plot_path = os.path.join("Results", folder_name, f"DE_price_increase_progress_{file_name}_{timestamp}.png")
+    fig_price_increase.savefig(price_increase_plot_path)
+    plt.close(fig_price_increase)
+    logger.info(f"Saved price increase progression plot to: {price_increase_plot_path}")
+
+    # Usage Decrease progression plot
+    fig_usage_decrease = plt.figure(figsize=(12, 8))
+    plt.plot        (gens, best_fitness_cand_usage_decreases     , label="Best-Fitness Candidate's % Usage Decrease"       , color="tab:blue")
+    plt.plot        (gens, best_var_ratio_cand_usage_decreases   , label="Best-Variance-Ratio Candidate's % Usage Decrease", color="tab:orange", linestyle="--")
+    plt.title       ("Usage Decrease Progression")
+    plt.xlabel      ("Generation")
+    plt.ylabel      ("Percentage Usage Decrease")
+    plt.grid        (True, alpha=0.3)
+    plt.legend      (loc='upper center', bbox_to_anchor=(0.5, -0.1), ncol=2, frameon=True)
+    plt.tight_layout()
+    usage_decrease_plot_path = os.path.join("Results", folder_name, f"DE_usage_decrease_progress_{file_name}_{timestamp}.png")
+    fig_usage_decrease.savefig(usage_decrease_plot_path)
+    plt.close(fig_usage_decrease)
+    logger.info(f"Saved usage decrease progression plot to: {usage_decrease_plot_path}")
 
 
 
@@ -655,7 +691,7 @@ def run_parallel_de(
         start_time_ref = time.time()
 
         try:
-            reference_variances = _reference_candidate(
+            reference_variances, reference_usage = _reference_candidate(
                 charge_cost_low     = lowest_charge_cost_low    ,
                 charge_cost_high    = lowest_charge_cost_high   ,
                 elec_threshold      = lowest_elec_threshold     ,
@@ -673,7 +709,7 @@ def run_parallel_de(
 
         end_time_ref = time.time()
         duration_ref = end_time_ref - start_time_ref
-        logger.info(f"Reference variances (at start time steps {list(reference_variances.keys())}) obtained in {print_duration(duration_ref)} ({duration_ref:.1f} seconds)")
+        logger.info(f"Reference variances (at time steps {list(reference_variances.keys())}) and reference electricity usage ({reference_usage:.1f}) obtained in {print_duration(duration_ref)} ({duration_ref:.1f} seconds)")
 
         # Create a partial function with fixed parameters for the worker function
         # Now the worker function only needs the candidate vector as input
@@ -692,6 +728,7 @@ def run_parallel_de(
             # Metadata
             M                       = M                     ,
             reference_variances     = reference_variances   ,
+            reference_usage         = reference_usage       ,
             log_queue               = log_queue             ,
             log_queue_gurobi        = log_queue_gurobi      ,
         )
@@ -701,11 +738,15 @@ def run_parallel_de(
         # DE Main Loop
         # ----------------------------
         # To track fitness and variance of candidate with best fitness
-        best_fitness_cand_fitnesses     : npt.NDArray[np.float64] = np.zeros(MAX_ITER + 1)
-        best_fitness_cand_var_ratios    : npt.NDArray[np.float64] = np.zeros(MAX_ITER + 1)
+        best_fitness_cand_fitnesses         : npt.NDArray[np.float64] = np.zeros(MAX_ITER + 1)
+        best_fitness_cand_var_ratios        : npt.NDArray[np.float64] = np.zeros(MAX_ITER + 1)
+        best_fitness_cand_price_increases   : npt.NDArray[np.float64] = np.zeros(MAX_ITER + 1)
+        best_fitness_cand_usage_decreases   : npt.NDArray[np.float64] = np.zeros(MAX_ITER + 1)
         # To track fitness and variance of candidate with best variance
-        best_var_ratio_cand_fitnesses   : npt.NDArray[np.float64] = np.zeros(MAX_ITER + 1)
-        best_var_ratio_cand_var_ratios  : npt.NDArray[np.float64] = np.zeros(MAX_ITER + 1)
+        best_var_ratio_cand_fitnesses       : npt.NDArray[np.float64] = np.zeros(MAX_ITER + 1)
+        best_var_ratio_cand_var_ratios      : npt.NDArray[np.float64] = np.zeros(MAX_ITER + 1)
+        best_var_ratio_cand_price_increases : npt.NDArray[np.float64] = np.zeros(MAX_ITER + 1)
+        best_var_ratio_cand_usage_decreases : npt.NDArray[np.float64] = np.zeros(MAX_ITER + 1)
 
         start_time_DE = time.time()
 
@@ -728,7 +769,8 @@ def run_parallel_de(
             fitnesses                   : npt.NDArray[np.float64]   = results[:,0]
             variance_ratios             : npt.NDArray[np.float64]   = results[:,1]
             percentage_price_increases  : npt.NDArray[np.float64]   = results[:,2]
-            were_suboptimal             : npt.NDArray[np.bool_]     = results[:,3] > 0.5  # boolean array indicating which candidates were suboptimal
+            percentage_usage_decreases  : npt.NDArray[np.float64]   = results[:,3]
+            were_suboptimal             : npt.NDArray[np.bool_]     = results[:,4] > 0.5  # boolean array indicating which candidates were suboptimal
             
             init_end_time               : float                     = time.time()
             initial_suboptimal_count    : int                       = int(were_suboptimal.sum())
@@ -753,17 +795,23 @@ def run_parallel_de(
             logger.info("Initial population")
             logger.info(f"  Initial candidate with best fitness: Fitness = {fitnesses[best_fitness_idx]:.3f}, " \
                 f"Var Ratio = {variance_ratios[best_fitness_idx]:.3f}, " \
-                f"% Price Increase = {percentage_price_increases[best_fitness_idx]:.3f}%"
+                f"% Price Increase = {percentage_price_increases[best_fitness_idx]:.1%}, " \
+                f"% Usage Decrease = {percentage_usage_decreases[best_fitness_idx]:.1%}"
             )
-            best_fitness_cand_fitnesses[0] = fitnesses[best_fitness_idx]
-            best_fitness_cand_var_ratios[0] = variance_ratios[best_fitness_idx]
+            best_fitness_cand_fitnesses[0]          = fitnesses[best_fitness_idx]
+            best_fitness_cand_var_ratios[0]         = variance_ratios[best_fitness_idx]
+            best_fitness_cand_price_increases[0]    = percentage_price_increases[best_fitness_idx]
+            best_fitness_cand_usage_decreases[0]    = percentage_usage_decreases[best_fitness_idx]
 
             logger.info(f"  Initial candidate with best variance ratio: Fitness = {fitnesses[best_var_ratio_idx]:.3f}, " \
                 f"Var Ratio = {variance_ratios[best_var_ratio_idx]:.3f}, " \
-                f"% Price Increase = {percentage_price_increases[best_var_ratio_idx]:.3f}%"
+                f"% Price Increase = {percentage_price_increases[best_var_ratio_idx]:.1%}, " \
+                f"% Usage Decrease = {percentage_usage_decreases[best_var_ratio_idx]:.1%}"
             )
-            best_var_ratio_cand_fitnesses[0] = fitnesses[best_var_ratio_idx]
-            best_var_ratio_cand_var_ratios[0] = variance_ratios[best_var_ratio_idx]
+            best_var_ratio_cand_fitnesses[0]        = fitnesses[best_var_ratio_idx]
+            best_var_ratio_cand_var_ratios[0]       = variance_ratios[best_var_ratio_idx]
+            best_var_ratio_cand_price_increases[0]  = percentage_price_increases[best_var_ratio_idx]
+            best_var_ratio_cand_usage_decreases[0]  = percentage_usage_decreases[best_var_ratio_idx]
 
             duration_init = init_end_time - start_time_DE
             logger.info(f"  Time taken: {print_duration(duration_init)} ({duration_init:.1f}s)")
@@ -815,7 +863,8 @@ def run_parallel_de(
                 trial_fitnesses                 : npt.NDArray[np.float64] = trial_results[:,0]
                 trial_variance_ratios           : npt.NDArray[np.float64] = trial_results[:,1]
                 trial_percentage_price_increases: npt.NDArray[np.float64] = trial_results[:,2]
-                trial_were_suboptimal           : npt.NDArray[np.bool_]   = trial_results[:,3] > 0.5  # boolean array indicating which trials were suboptimal
+                trial_percentage_usage_decreases: npt.NDArray[np.float64] = trial_results[:,3]
+                trial_were_suboptimal           : npt.NDArray[np.bool_]   = trial_results[:,4] > 0.5  # boolean array indicating which trials were suboptimal
 
                 trial_suboptimal_count = int(trial_were_suboptimal.sum())
                 if trial_suboptimal_count > MAX_SUBOPTIMAL_TOLERANCE:
@@ -840,6 +889,7 @@ def run_parallel_de(
                 fitnesses[winners]                  = trial_fitnesses[winners]
                 variance_ratios[winners]            = trial_variance_ratios[winners]
                 percentage_price_increases[winners] = trial_percentage_price_increases[winners]
+                percentage_usage_decreases[winners] = trial_percentage_usage_decreases[winners]
                 
                 logger.info(f"  Selection completed - {winners.sum()} candidates replaced by better trials")
 
@@ -931,17 +981,23 @@ def run_parallel_de(
 
                 logger.info(f"      Best Fitness Candidate: Fitness = {fitnesses[best_fitness_idx]:.3f}, " \
                     f"Var Ratio = {variance_ratios[best_fitness_idx]:.3f}, " \
-                    f"% Price Increase = {percentage_price_increases[best_fitness_idx]:.3f}%"
+                    f"% Price Increase = {percentage_price_increases[best_fitness_idx]:.1%}, " \
+                    f"% Usage Decrease = {percentage_usage_decreases[best_fitness_idx]:.1%}"
                 )
-                best_fitness_cand_fitnesses[gen+1] = fitnesses[best_fitness_idx]
-                best_fitness_cand_var_ratios[gen+1] = variance_ratios[best_fitness_idx]
+                best_fitness_cand_fitnesses[gen+1]          = fitnesses[best_fitness_idx]
+                best_fitness_cand_var_ratios[gen+1]         = variance_ratios[best_fitness_idx]
+                best_fitness_cand_price_increases[gen+1]    = percentage_price_increases[best_fitness_idx]
+                best_fitness_cand_usage_decreases[gen+1]    = percentage_usage_decreases[best_fitness_idx]
 
                 logger.info(f"      Best Variance Ratio Candidate: Fitness = {fitnesses[best_var_ratio_idx]:.3f}, " \
                     f"Var Ratio = {variance_ratios[best_var_ratio_idx]:.3f}, " \
-                    f"Price Increase = {percentage_price_increases[best_var_ratio_idx]:.3f}%"
+                    f"% Price Increase = {percentage_price_increases[best_var_ratio_idx]:.1%}, " \
+                    f"% Usage Decrease = {percentage_usage_decreases[best_var_ratio_idx]:.1%}"
                 )
-                best_var_ratio_cand_fitnesses[gen+1]    = fitnesses[best_var_ratio_idx]
-                best_var_ratio_cand_var_ratios[gen+1]   = variance_ratios[best_var_ratio_idx]
+                best_var_ratio_cand_fitnesses[gen+1]        = fitnesses[best_var_ratio_idx]
+                best_var_ratio_cand_var_ratios[gen+1]       = variance_ratios[best_var_ratio_idx]
+                best_var_ratio_cand_price_increases[gen+1]  = percentage_price_increases[best_var_ratio_idx]
+                best_var_ratio_cand_usage_decreases[gen+1]  = percentage_usage_decreases[best_var_ratio_idx]
 
                 logger.info(f"      Fitness Improvement: {fitness_improvement:.3f}")
                 logger.info(f"      Generation Time: {print_duration(gen_duration)} ({gen_duration:.1f}s)")
@@ -958,14 +1014,20 @@ def run_parallel_de(
 
         # Plot the progression of fitness and variance ratio over generations
         _plot_progression(
-            best_fitness_cand_fitnesses      = best_fitness_cand_fitnesses     ,
-            best_var_ratio_cand_fitnesses    = best_var_ratio_cand_fitnesses   ,
-            best_fitness_cand_var_ratios     = best_fitness_cand_var_ratios    ,
-            best_var_ratio_cand_var_ratios   = best_var_ratio_cand_var_ratios  ,
-            folder_name                      = folder_name                     ,
-            file_name                        = file_name                       ,
-            timestamp                        = timestamp                       ,
-            logger                           = logger                          ,
+            best_fitness_cand_fitnesses         = best_fitness_cand_fitnesses           ,
+            best_fitness_cand_var_ratios        = best_fitness_cand_var_ratios          ,
+            best_fitness_cand_price_increases   = best_fitness_cand_price_increases     ,
+            best_fitness_cand_usage_decreases   = best_fitness_cand_usage_decreases     ,
+
+            best_var_ratio_cand_fitnesses       = best_var_ratio_cand_fitnesses         ,
+            best_var_ratio_cand_var_ratios      = best_var_ratio_cand_var_ratios        ,
+            best_var_ratio_cand_price_increases = best_var_ratio_cand_price_increases   ,
+            best_var_ratio_cand_usage_decreases = best_var_ratio_cand_usage_decreases   ,
+
+            folder_name                         = folder_name                           ,
+            file_name                           = file_name                             ,
+            timestamp                           = timestamp                             ,
+            logger                              = logger                                ,
         )
 
         return _expand_trajectory(
