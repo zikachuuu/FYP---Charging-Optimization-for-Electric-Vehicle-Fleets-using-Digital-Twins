@@ -613,31 +613,31 @@ def postprocessing(**kwargs):
         ax2 = ax1.twinx()
         ax2.set_ylabel('Price ($/SoC)', color='tab:red')
         line4 = ax2.plot(
-            df_electricity.index                , 
-            df_electricity["Price High ($/SoC)"], 
-            color       = 'xkcd:light red'      ,        
-            linewidth   = 2                     , 
-            marker      = markers[3]            ,
-            label       = 'Additional Price (right y-axis)'    , 
-            linestyle   = ':'                   ,
+            df_electricity.index                            , 
+            df_electricity["Price Low ($/SoC)"]             , 
+            color       = 'xkcd:light green'                ,     
+            linewidth   = 2                                 , 
+            marker      = markers[3]                        ,
+            label       = 'Base Price (right y-axis)'       , 
+            linestyle   = ':'                               ,
         )
         line5 = ax2.plot(
-            df_electricity.index                , 
-            df_electricity["Price Low ($/SoC)"] , 
-            color       = 'xkcd:light green'    ,     
-            linewidth   = 2                     , 
-            marker      = markers[4]            ,
-            label       = 'Base Price (right y-axis)'               , 
-            linestyle   = ':'                   ,
+            df_electricity.index                            , 
+            df_electricity["Price High ($/SoC)"]            , 
+            color       = 'xkcd:light red'                  ,        
+            linewidth   = 2                                 , 
+            marker      = markers[4]                        ,
+            label       = 'Additional Price (right y-axis)' , 
+            linestyle   = ':'                               ,
         )
         line6 = ax2.plot(
-            df_electricity.index                    , 
-            df_electricity["Wholesale Price ($/SoC)"] , 
-            color       = 'tab:gray'                 , 
-            linewidth   = 2                          , 
-            marker      = markers[5]                 ,
-            label       = 'Wholesale Price (right y-axis)'          , 
-            linestyle   = ':'                        ,
+            df_electricity.index                            , 
+            df_electricity["Wholesale Price ($/SoC)"]       , 
+            color       = 'tab:gray'                        , 
+            linewidth   = 2                                 , 
+            marker      = markers[5]                        ,
+            label       = 'Wholesale Price (right y-axis)'  , 
+            linestyle   = ':'                               ,
         )
         ax2.tick_params(axis='y', labelcolor='tab:red')
         
