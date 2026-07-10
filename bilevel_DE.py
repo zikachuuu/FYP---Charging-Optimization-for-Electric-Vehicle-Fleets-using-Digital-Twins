@@ -447,6 +447,55 @@ def _evaluate_candidate(
     )
 
 
+
+def _plot_progression(
+        best_fitness_cand_fitnesses      : list[float]   ,
+        best_var_ratio_cand_fitnesses    : list[float]   ,
+        best_fitness_cand_var_ratios     : list[float]   ,
+        best_var_ratio_cand_var_ratios   : list[float]   ,
+        folder_name                      : str           ,
+        file_name                        : str           ,
+        timestamp                        : str           ,
+        logger                           : Logger        ,
+    ) -> None:
+    """
+    Plots the progression of fitness and variance ratio over generations.
+    """
+    # Plot the 2 graphs for fitness and variance progression
+    gens = np.arange(len(best_fitness_cand_fitnesses))
+
+    # Fitness progression plot
+    fig_fitness = plt.figure(figsize=(12, 8))
+    plt.plot        (gens, best_fitness_cand_fitnesses      , label="Best Fitness"                                  , color="tab:blue")
+    plt.plot        (gens, best_var_ratio_cand_fitnesses    , label="Best-Variance-Ratio Candidate's Fitness"       , color="tab:orange", linestyle="--")
+    plt.title       ("Fitness Progression")
+    plt.xlabel      ("Generation")
+    plt.ylabel      ("Fitness")
+    plt.grid        (True, alpha=0.3)
+    plt.legend      (loc='upper center', bbox_to_anchor=(0.5, -0.1), ncol=2, frameon=True)
+    plt.tight_layout()
+    fitness_plot_path = os.path.join("Results", folder_name, f"DE_fitness_progress_{file_name}_{timestamp}.png")
+    fig_fitness.savefig(fitness_plot_path)
+    plt.close(fig_fitness)
+    logger.info(f"Saved fitness progression plot to: {fitness_plot_path}")
+
+    # Variance Ratio progression plot
+    fig_variance = plt.figure(figsize=(12, 8))
+    plt.plot        (gens, best_fitness_cand_var_ratios     , label="Best-Fitness Candidate's Variance Ratio"       , color="tab:blue")
+    plt.plot        (gens, best_var_ratio_cand_var_ratios   , label="Best-Variance-Ratio Candidate's Variance Ratio", color="tab:orange", linestyle="--")
+    plt.title       ("Variance Ratio Progression")
+    plt.xlabel      ("Generation")
+    plt.ylabel      ("Variance Ratio")
+    plt.grid        (True, alpha=0.3)
+    plt.legend      (loc='upper center', bbox_to_anchor=(0.5, -0.1), ncol=2, frameon=True)
+    plt.tight_layout()
+    variance_plot_path = os.path.join("Results", folder_name, f"DE_variance_ratio_progress_{file_name}_{timestamp}.png")
+    fig_variance.savefig(variance_plot_path)
+    plt.close(fig_variance)
+    logger.info(f"Saved variance ratio progression plot to: {variance_plot_path}")
+
+
+
 def run_parallel_de(
         **kwargs
     ):
@@ -906,39 +955,18 @@ def run_parallel_de(
                 end_time_DE = time.time()
                 logger.info(f"DE completed in {print_duration(end_time_DE - start_time_DE)} ({end_time_DE - start_time_DE:.1f}s).")
 
-        # Plot the 2 graphs for fitness and variance progression
-        gens = np.arange(len(best_fitness_cand_fitnesses))
 
-        # Fitness progression plot
-        fig_fitness = plt.figure(figsize=(12, 8))
-        plt.plot        (gens, best_fitness_cand_fitnesses , label="Best Fitness"                               , color="tab:blue")
-        plt.plot        (gens, best_var_ratio_cand_fitnesses, label="Best-Variance-Ratio Candidate's Fitness"   , color="tab:orange", linestyle="--")
-        plt.title       ("Fitness Progression")
-        plt.xlabel      ("Generation")
-        plt.ylabel      ("Fitness")
-        plt.grid        (True, alpha=0.3)
-        plt.legend      (loc='upper center', bbox_to_anchor=(0.5, -0.1), ncol=2, frameon=True)
-        plt.tight_layout()
-        fitness_plot_path = os.path.join("Results", folder_name, f"DE_fitness_progress_{file_name}_{timestamp}.png")
-        fig_fitness.savefig(fitness_plot_path)
-        plt.close(fig_fitness)
-        logger.info(f"Saved fitness progression plot to: {fitness_plot_path}")
-
-        # Variance Ratio progression plot
-        fig_variance = plt.figure(figsize=(12, 8))
-        plt.plot        (gens, best_fitness_cand_var_ratios , label="Best-Fitness Candidate's Variance Ratio", color="tab:green")
-        plt.plot        (gens, best_var_ratio_cand_var_ratios, label="Best-Variance-Ratio Candidate's Variance Ratio", color="tab:red", linestyle="--")
-        plt.title       ("Variance Ratio Progression")
-        plt.xlabel      ("Generation")
-        plt.ylabel      ("Variance Ratio")
-        plt.grid        (True, alpha=0.3)
-        plt.legend      (loc='upper center', bbox_to_anchor=(0.5, -0.1), ncol=2, frameon=True)
-        plt.tight_layout()
-        variance_plot_path = os.path.join("Results", folder_name, f"DE_variance_ratio_progress_{file_name}_{timestamp}.png")
-        fig_variance.savefig(variance_plot_path)
-        plt.close(fig_variance)
-        logger.info(f"Saved variance ratio progression plot to: {variance_plot_path}")
-
+        # Plot the progression of fitness and variance ratio over generations
+        _plot_progression(
+            best_fitness_cand_fitnesses      = best_fitness_cand_fitnesses     ,
+            best_var_ratio_cand_fitnesses    = best_var_ratio_cand_fitnesses   ,
+            best_fitness_cand_var_ratios     = best_fitness_cand_var_ratios    ,
+            best_var_ratio_cand_var_ratios   = best_var_ratio_cand_var_ratios  ,
+            folder_name                      = folder_name                     ,
+            file_name                        = file_name                       ,
+            timestamp                        = timestamp                       ,
+            logger                           = logger                          ,
+        )
 
         return _expand_trajectory(
             candidate_flat  = best_vector           ,
