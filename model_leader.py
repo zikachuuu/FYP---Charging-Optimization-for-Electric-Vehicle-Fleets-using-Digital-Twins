@@ -3,7 +3,11 @@ import numpy.typing as npt
 
 from logger import Logger
 from networkClass import Arc
-from config_DE import PENALTY_WEIGHT
+from config_DE import (
+    PENALTY_WEIGHT  ,
+    STRIDE          ,
+    WINDOW_SIZE     ,
+)
 
 def leader_model(
         **kwargs
@@ -12,11 +16,11 @@ def leader_model(
     Leader: Charging Operator
 
     Given EV charging scheduling from the follower, calculate the electrity consumption at each time step,
-    the variance of the electricity consumption over the day, and the fitness score.
+    the local variances of electricity consumption over a sliding window, the local variance ratios compared to reference variances, and the overall fitness score.
 
     Fitness = variance_ratio + penalty_weight * percentage_price_increase <br>
     Where: \n
-        - variance_ratio = variance / reference_variance
+        - variance_ratio = sum (local_variance / local_reference_variance)
         - reference_variance = variance when all charging prices are set to minimum levels (a_t = wholesale_elec_price_t, b_t = 0)
 
         - percentage_price_increase = 1/(T-2) sum ((a_t + b_t * K_t - wholesale_elec_price_t)/ wholesale_elec_price_t)
@@ -39,7 +43,6 @@ def leader_model(
     
     Returns a dictionary containing: \n
         - fitness: float
-        - variance: float
         - variance_ratio: float
         - percentage_price_increase: float
     """
@@ -47,30 +50,30 @@ def leader_model(
     # Parameters
     # ----------------------------
     # Follower model parameters
-    T                       : int                                       = kwargs["T"]                       # termination time of daily operations (0, ..., T)
-    elec_supplied           : dict[tuple[int, int]          , int]      = kwargs["elec_supplied"]           # electricity supplied (in SoC levels) at zone i at time t
+    T                       : int                               = kwargs["T"]                       # termination time of daily operations (0, ..., T)
+    elec_supplied           : dict[tuple[int, int]  , int]      = kwargs["elec_supplied"]           # electricity supplied (in SoC levels) at zone i at time t
 
     # Network components
-    all_arcs                : dict[int                      , Arc]      = kwargs["all_arcs"]
-    charge_arcs_t           : dict[int                      , set[int]] = kwargs["charge_arcs_t"]
-    ZONES                   : list[int]                                 = kwargs["ZONES"]
-    TIMESTEPS               : list[int]                                 = kwargs["TIMESTEPS"]
+    all_arcs                : dict[int              , Arc]      = kwargs["all_arcs"]
+    charge_arcs_t           : dict[int              , set[int]] = kwargs["charge_arcs_t"]
+    ZONES                   : list[int]                         = kwargs["ZONES"]
+    TIMESTEPS               : list[int]                         = kwargs["TIMESTEPS"]
 
     # Leader model parameters
-    wholesale_elec_price    : dict[int                      , float]    = kwargs["wholesale_elec_price"]    # wholesale electricity price at time t
-    reference_variance      : float                                     = kwargs["reference_variance"]      # reference variance for normalization
+    wholesale_elec_price    : dict[int              , float]    = kwargs["wholesale_elec_price"]    # wholesale electricity price at time t
+    reference_variances     : dict[int, float]                  = kwargs["reference_variances"]      # reference variance for normalization
 
     # Pricing Variables
-    charge_cost_low         : dict[int                      , float]    = kwargs["charge_cost_low"]         # a_t
-    charge_cost_high        : dict[int                      , float]    = kwargs["charge_cost_high"]        # b_t
-    elec_threshold          : dict[int                      , int]      = kwargs["elec_threshold"]          # r_t
+    charge_cost_low         : dict[int              , float]    = kwargs["charge_cost_low"]         # a_t
+    charge_cost_high        : dict[int              , float]    = kwargs["charge_cost_high"]        # b_t
+    elec_threshold          : dict[int              , int]      = kwargs["elec_threshold"]          # r_t
 
     # Solutions
-    x                       : dict[int                      , float]    = kwargs["x"]
+    x                       : dict[int              , float]    = kwargs["x"]
 
     # Metadata
-    logger                  : Logger                                    = kwargs["logger"]                  # logger instance
-    was_suboptimal          : bool                                      = kwargs["was_suboptimal"]          # whether the follower model was suboptimal
+    logger                  : Logger                            = kwargs["logger"]                  # logger instance
+    was_suboptimal          : bool                              = kwargs["was_suboptimal"]          # whether the follower model was suboptimal
 
     # ----------------------------
     # Variance Calculation
@@ -90,11 +93,35 @@ def leader_model(
             charge_amount = arc.d.l - arc.o.l  # SoC levels charged
             electricity_usage[t - 1] += x[e_id] * charge_amount
 
-    # Calculate variance of electricity consumption using numpy
-    variance                    : float                     = np.var(electricity_usage, ddof=0) if len(electricity_usage) > 1 else 0.0   # ddof=0 for population variance, =1 for sample variance
-    variance_ratio              : float                     = variance / reference_variance if reference_variance > 0 else 0.0
+    # Calculate local variances for each window of electricity usage
+    local_variances: dict[int, float] = {}
+    for start in range(0, len(electricity_usage), STRIDE):
+        end = min(start + WINDOW_SIZE, len(electricity_usage))
+        window = electricity_usage[start:end]
+        if len(window) >= 2:
+            local_variances[start] = np.var(window, ddof=0)  # ddof=0 for population variance
 
-    logger.info(f"Leader model variance calculation: Variance = {variance:.4f}, Variance Ratio = {variance_ratio:.4f}")
+        # if the end of the window is at the end of the usage_vector, we break the loop since we cannot form any more windows
+        if end == len(electricity_usage):
+            break
+
+    # Check if key matches between local_variances and reference_variances
+    if set(local_variances.keys()) != set(reference_variances.keys()):
+        logger.error(f"Mismatch in keys between local_variances and reference_variances. Local keys: {list(local_variances.keys())}, Reference keys: {list(reference_variances.keys())}")
+        raise KeyError("Mismatch in keys between local_variances and reference_variances.")
+
+    # Calculate the variance ratio at each time step using the reference variances, then sum them
+    variance_ratios: list[float] = []
+    for start, local_variance in local_variances.items():
+        
+        reference_variance  : float = reference_variances[start]
+        variance_ratio      : float = local_variance / (reference_variance + 1e-8)  # Add a small epsilon to avoid division by zero
+        variance_ratios.append(variance_ratio)
+
+    variance_ratio: float = np.sum(variance_ratios) 
+
+    logger.info(f"Leader model variance calculation: Variance Ratio = {variance_ratio:.3f}")
+
 
     # ----------------------------
     # Fitness Calculation
@@ -125,11 +152,10 @@ def leader_model(
     percentage_price_increase   : float = np.mean(price_increases)
     fitness                     : float = variance_ratio + PENALTY_WEIGHT * percentage_price_increase
 
-    logger.info(f"Leader model completed. Fitness: {fitness:.4f}, Percentage Price Increase: {percentage_price_increase:.4f}")
+    logger.info(f"Leader model completed. Fitness: {fitness:.3f}, Percentage Price Increase: {percentage_price_increase:.3f}")
 
     return {
         "fitness"                   : fitness                   ,
-        "variance"                  : variance                  ,
         "variance_ratio"            : variance_ratio            ,
         "percentage_price_increase" : percentage_price_increase ,
         "was_suboptimal"            : was_suboptimal
