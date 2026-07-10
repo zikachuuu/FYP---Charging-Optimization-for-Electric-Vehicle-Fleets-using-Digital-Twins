@@ -127,7 +127,7 @@ def leader_model(
         variance_ratio      : float = local_variance / (reference_variance + 1e-8)  # Add a small epsilon to avoid division by zero
         variance_ratios.append(variance_ratio)
 
-    variance_ratio: float = np.sum(variance_ratios) 
+    variance_ratio: float = np.mean(variance_ratios)  # Average variance ratio across all windows
 
     logger.info(f"Leader model variance ratio calculation: Variance Ratio = {variance_ratio:.3f}")
 
