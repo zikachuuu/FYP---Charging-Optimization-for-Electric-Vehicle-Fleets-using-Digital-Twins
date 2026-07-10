@@ -968,6 +968,7 @@ def run_parallel_de(
                         # Metadata
                         M                       = M                     ,
                         reference_variances     = reference_variances   ,
+                        reference_usage         = reference_usage       ,
                         log_queue               = log_queue             ,
                         log_queue_gurobi        = log_queue_gurobi      ,
                     )
