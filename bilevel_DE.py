@@ -4,6 +4,7 @@ import time
 import multiprocessing
 import os
 import matplotlib.pyplot as plt
+import matplotlib.ticker as mtick
 from functools import partial
 import math
 
@@ -445,6 +446,7 @@ def _evaluate_candidate(
         leader_outputs["fitness"]                   ,
         leader_outputs["variance_ratio"]            ,
         leader_outputs["percentage_price_increase"] ,
+        leader_outputs["percentage_usage_decrease"] ,
         leader_outputs["was_suboptimal"]            ,
     )
 
@@ -507,6 +509,7 @@ def _plot_progression(
     plt.title       ("Price Increase Progression")
     plt.xlabel      ("Generation")
     plt.ylabel      ("Percentage Price Increase")
+    plt.gca().yaxis.set_major_formatter(mtick.PercentFormatter(xmax=1.0))
     plt.grid        (True, alpha=0.3)
     plt.legend      (loc='upper center', bbox_to_anchor=(0.5, -0.1), ncol=1, frameon=True)
     plt.tight_layout()
@@ -522,6 +525,7 @@ def _plot_progression(
     plt.title       ("Usage Decrease Progression")
     plt.xlabel      ("Generation")
     plt.ylabel      ("Percentage Usage Decrease")
+    plt.gca().yaxis.set_major_formatter(mtick.PercentFormatter(xmax=1.0))
     plt.grid        (True, alpha=0.3)
     plt.legend      (loc='upper center', bbox_to_anchor=(0.5, -0.1), ncol=1, frameon=True)
     plt.tight_layout()
