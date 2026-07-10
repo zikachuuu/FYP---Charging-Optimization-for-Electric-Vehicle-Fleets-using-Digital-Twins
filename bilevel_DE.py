@@ -795,23 +795,7 @@ def run_parallel_de(
                 logger.info(f"  Selection completed - {winners.sum()} candidates replaced by better trials")
 
                 # --- 4. Early Stopping ---
-                # Check if any candidate meets fitness threshold
-                # if so, early stop by taking the candidate with the lowest fitness among them
-                meet_threshold: npt.NDArray[np.bool_] = fitnesses <= FITNESS_THRESHOLD
-                if np.any(meet_threshold):
-                    qualified_indices           : npt.NDArray[np.int_]      = np.where(meet_threshold)[0]
-                    qualified_fitnesses         : npt.NDArray[np.float64]   = fitnesses[qualified_indices]
-                    best_idx_within_qualified   : int                       = qualified_indices[np.argmin(qualified_fitnesses)]
-                    best_vector                 : npt.NDArray[np.float64]   = population[best_idx_within_qualified].copy()
-
-                    logger.info(f"Early stopping at generation {gen+1} with Fitness = {fitnesses[best_idx_within_qualified]:.3f}, " \
-                        f"Var Ratio = {variance_ratios[best_idx_within_qualified]:.3f}, " \
-                        f"% Price Increase = {percentage_price_increases[best_idx_within_qualified]:.3f}%"
-                    )
-                    end_time_DE = time.time()
-                    logger.info(f"DE completed in {print_duration(end_time_DE - start_time_DE)} ({end_time_DE - start_time_DE:.1f}s).")
-
-                    break  # exit the generation loop
+                # Removed until further notice
                 
                 # --- 5. Update Best Trackers ---
                 best_var_ratio_idx      = np.argmin(variance_ratios)
