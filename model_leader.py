@@ -61,7 +61,8 @@ def leader_model(
 
     # Leader model parameters
     wholesale_elec_price    : dict[int              , float]    = kwargs["wholesale_elec_price"]    # wholesale electricity price at time t
-    reference_variances     : dict[int, float]                  = kwargs["reference_variances"]      # reference variance for normalization
+    reference_variances     : dict[int, float]                  = kwargs["reference_variances"]     # reference variance for normalization
+    reference_usage         : float                             = kwargs["reference_usage"]         # reference electricity usage for normalization
 
     # Pricing Variables
     charge_cost_low         : dict[int              , float]    = kwargs["charge_cost_low"]         # a_t
@@ -75,10 +76,9 @@ def leader_model(
     logger                  : Logger                            = kwargs["logger"]                  # logger instance
     was_suboptimal          : bool                              = kwargs["was_suboptimal"]          # whether the follower model was suboptimal
 
-    # ----------------------------
-    # Variance Calculation
-    # ----------------------------
-
+    # ---------------------------------------
+    # Percentage Usage Decrease Calculation
+    # ---------------------------------------
     # Calculate electricity consumption at each time step using vectorized operations
     # Exclude first time step (t=0) as no charging occurs at t=0
     # Exclude last time step (t=T) as no charging occurs at t=T
@@ -92,7 +92,16 @@ def leader_model(
             # Electricity used = number of EVs * charge amount
             charge_amount = arc.d.l - arc.o.l  # SoC levels charged
             electricity_usage[t - 1] += x[e_id] * charge_amount
+    
+    current_usage               : float = np.sum(electricity_usage)
+    percentage_usage_decrease   : float = (reference_usage - current_usage) / (reference_usage + 1e-8)  # Add a small epsilon to avoid division by zero
 
+    logger.info(f"Leader model electricity usage calculation: Current Usage = {current_usage:.3f}, Reference Usage = {reference_usage:.3f}, Percentage Usage Decrease = {percentage_usage_decrease:.1%}")
+
+
+    # ---------------------------------------
+    # Variance Ratio Calculation
+    # ---------------------------------------
     # Calculate local variances for each window of electricity usage
     local_variances: dict[int, float] = {}
     for start in range(0, len(electricity_usage), STRIDE):
@@ -120,12 +129,12 @@ def leader_model(
 
     variance_ratio: float = np.sum(variance_ratios) 
 
-    logger.info(f"Leader model variance calculation: Variance Ratio = {variance_ratio:.3f}")
+    logger.info(f"Leader model variance ratio calculation: Variance Ratio = {variance_ratio:.3f}")
 
 
-    # ----------------------------
-    # Fitness Calculation
-    # ----------------------------    
+    # ---------------------------------------
+    # Percentage Price Increase Calculation
+    # ---------------------------------------
     # Pre-compute electricity supplied at each time step (excluding first and last)
     electricity_supplied_arr    : npt.NDArray[np.float64] = np.array([
         sum(elec_supplied.get((i, t), 0) for i in ZONES) for t in TIMESTEPS[1:-1]
@@ -150,14 +159,21 @@ def leader_model(
     ) / wholesale_elec_price_arr
     
     percentage_price_increase   : float = np.mean(price_increases)
-    fitness                     : float = variance_ratio + PENALTY_WEIGHT * percentage_price_increase
+    logger.info(f"Leader model percentage price increase calculation: Percentage Price Increase = {percentage_price_increase:.1%}")
 
-    logger.info(f"Leader model completed. Fitness: {fitness:.3f}, Percentage Price Increase: {percentage_price_increase:.3f}")
+
+    # ---------------------------------------
+    # Fitness Calculation
+    # ---------------------------------------
+    fitness                     : float = variance_ratio + PENALTY_WEIGHT * percentage_price_increase
+    logger.info(f"Leader model completed. Fitness: {fitness:.3f}")
+
 
     return {
         "fitness"                   : fitness                   ,
         "variance_ratio"            : variance_ratio            ,
         "percentage_price_increase" : percentage_price_increase ,
+        "percentage_usage_decrease" : percentage_usage_decrease ,
         "was_suboptimal"            : was_suboptimal
     }
 
