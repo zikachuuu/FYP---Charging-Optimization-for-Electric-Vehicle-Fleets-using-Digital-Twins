@@ -19,7 +19,7 @@ from config_DE import (
     MAX_ITER                            ,
     DIFF_WEIGHT                         ,
     CROSS_PROB                          ,
-    VAR_THRESHOLD                       ,
+    FITNESS_THRESHOLD                   ,
     NUM_ANCHORS                         ,
     VARS_PER_STEP                       ,
     DIFF_WEIGHT_VARY                    ,
@@ -31,9 +31,10 @@ from config_DE import (
     FINAL_UPPER_BOUND_MULTIPLICITY_B    ,
     RANDOM_SEED                         ,
     MAX_SUBOPTIMAL_TOLERANCE            ,
+    WINDOW_SIZE                         ,
+    STRIDE                              ,
 )
 
-# Threshold for fitness improvement to trigger anchor increase
 
 def _precompute_interpolation_matrix(
         T               : int                   , 
@@ -56,32 +57,33 @@ def _precompute_interpolation_matrix(
     ```
     Note that we only interpolates time steps 1 to T-1 (excludes time steps 0 and T)
     """
-    num_anchors = len(anchor_indices)
-    M: npt.NDArray[np.float64] = np.zeros((T-1, num_anchors))
+    num_anchors : int                       = len(anchor_indices)
+    M           : npt.NDArray[np.float64]   = np.zeros((T-1, num_anchors))
     
     for i in range(num_anchors - 1):
 
-        anchor_start    = anchor_indices[i]         # eg 1
-        anchor_end      = anchor_indices[i+1]       # eg 3
-        segment_len     = anchor_end - anchor_start # eg 3 - 1 = 2
+        anchor_start: int   = anchor_indices[i]         # eg 1
+        anchor_end  : int   = anchor_indices[i+1]       # eg 3
+        segment_len : int   = anchor_end - anchor_start # eg 3 - 1 = 2
 
         if segment_len == 0:
             raise ValueError("Duplicate anchors detected, segment length is zero")
             
-        slope = 1.0 / segment_len
+        slope: float = 1.0 / segment_len
         
         # Fill the matrix rows corresponding to this time segment
         # Note: rows are indexed from 0 to T-2, representing time steps 1 to T-1
         for t in range(anchor_start, anchor_end + 1): # +1 to include end for continuity
             if t < 1 or t >= T:  # Skip time steps 0 and T
                 raise ValueError("Time step t out of interpolation range")
-            local_x = t - anchor_start
-            weight_next = local_x * slope
-            weight_prev = 1.0 - weight_next
+            
+            local_x     :int    = t - anchor_start
+            weight_next :float  = local_x * slope
+            weight_prev :float  = 1.0 - weight_next
             
             # M[t-1, i] is weight of anchor i (t-1 because we skip time step 0)
             # M[t-1, i+1] is weight of anchor i+1
-            M[t-1, i] = weight_prev
+            M[t-1, i]   = weight_prev
             M[t-1, i+1] = weight_next
             
     return M
@@ -226,42 +228,42 @@ def _log_population_stats(
 
     def _format_stats(values: npt.NDArray[np.float64]) -> str:
         return (
-            f"mean={float(values.mean()):.6f}, "
-            f"var={float(values.var(ddof=0)):.6f}, "
-            f"min={float(values.min()):.6f}, "
-            f"max={float(values.max()):.6f}"
+            f"mean={float(values.mean()):.3f}, "
+            f"var={float(values.var(ddof=0)):.3f}, "
+            f"min={float(values.min()):.3f}, "
+            f"max={float(values.max()):.3f}"
         )
 
-    logger.info(f"  {label} Population Stats (candidate means) - a_t: {_format_stats(mean_a)}")
-    logger.info(f"  {label} Population Stats (candidate means) - b_t: {_format_stats(mean_b)}")
-    logger.info(f"  {label} Population Stats (candidate means) - r_t: {_format_stats(mean_r)}")
+    logger.info(f"  {label} Population Stats - a_t: {_format_stats(mean_a)}")
+    logger.info(f"  {label} Population Stats - b_t: {_format_stats(mean_b)}")
+    logger.info(f"  {label} Population Stats - r_t: {_format_stats(mean_r)}")
 
 
 def _reference_candidate(
         **kwargs
     ):
     """
-    Generate the reference variance value by solving the follower problem with minimum prices.
+    Generate the dictionary of reference variances by solving the follower problem with minimum prices.
     """
     # ----------------------------
     # Parameters
     # ----------------------------
     # Follower model parameters
-    T                       : int                                   = kwargs["T"]                       # termination time of daily operations (0, ..., T)
+    T                   : int                   = kwargs["T"]                       # termination time of daily operations (0, ..., T)
 
     # Network components
-    all_arcs                : dict[int                  , Arc]      = kwargs["all_arcs"]
-    charge_arcs_t           : dict[int                  , set[int]] = kwargs["charge_arcs_t"]
-    TIMESTEPS               : list[int]                             = kwargs["TIMESTEPS"]
+    all_arcs            : dict[int  , Arc]      = kwargs["all_arcs"]
+    charge_arcs_t       : dict[int  , set[int]] = kwargs["charge_arcs_t"]
+    TIMESTEPS           : list[int]             = kwargs["TIMESTEPS"]
 
     # Path Metadata
-    timestamp               : str                                   = kwargs["timestamp"]               # timestamp for logging
-    file_name               : str                                   = kwargs["file_name"]               # filename for logging
-    folder_name             : str                                   = kwargs["folder_name"]             # folder name for logging
+    timestamp           : str                   = kwargs["timestamp"]               # timestamp for logging
+    file_name           : str                   = kwargs["file_name"]               # filename for logging
+    folder_name         : str                   = kwargs["folder_name"]             # folder name for logging
 
     # Metadata
-    log_queue               : multiprocessing.Queue                 = kwargs["log_queue"]               # multiprocessing log queue
-    log_queue_gurobi        : multiprocessing.Queue                 = kwargs["log_queue_gurobi"]        # multiprocessing log queue for gurobi
+    log_queue           : multiprocessing.Queue = kwargs["log_queue"]               # multiprocessing log queue
+    log_queue_gurobi    : multiprocessing.Queue = kwargs["log_queue_gurobi"]        # multiprocessing log queue for gurobi
 
     logger = Logger (
         f"Reference"     ,    
@@ -302,25 +304,39 @@ def _reference_candidate(
     logger.info("Reference candidate solved successfully.")
 
     # Extract variables and sets from the follower_outputs    
-    x               : dict[int, float]                          = follower_outputs["x"]
+    x: dict[int, float] = follower_outputs["x"]
 
     # Calculate electricity consumption at each time step using vectorized operations
-    electricity_usage: npt.NDArray[np.float64] = np.zeros(T + 1)
+    # Exclude first time step (t=0) as no charging occurs at t=0
+    # Exclude last time step (t=T) as no charging occurs at t=T
+    electricity_usage: npt.NDArray[np.float64] = np.zeros(T - 1)
 
-    for t in TIMESTEPS:
+    for t in TIMESTEPS[1:-1]:
         # Calculate total electricity used at time t
         for e_id in charge_arcs_t.get(t, set()):
             arc = all_arcs[e_id]
             
             # Electricity used = number of EVs * charge amount
             charge_amount = arc.d.l - arc.o.l  # SoC levels charged
-            electricity_usage[t] += x[e_id] * charge_amount
+            electricity_usage[t - 1] += x[e_id] * charge_amount
 
-    # Calculate variance of electricity consumption using numpy
-    usage_vector    : npt.NDArray[np.float64]   = electricity_usage[1:T]  # exclude time 0 and T
-    variance        : float                     = np.var(usage_vector, ddof=0) if len(usage_vector) > 1 else 0.0
+    # Calculate the list of reference variances of electricity consumption for each window
+    # We use a sliding window approach with the specified WINDOW_SIZE and STRIDE
+    # The last window can be smaller than WINDOW_SIZE if it reaches the end of the time steps (as long as its size is at least 2)
+    
+    reference_variances : dict[int, float] = {} # Key is start time of the window, value is variance of that window
 
-    return variance
+    for start in range(0, len(electricity_usage), STRIDE):
+        end     = min(start + WINDOW_SIZE, len(electricity_usage))
+        window  = electricity_usage[start:end]
+        if len(window) >= 2:
+            reference_variances[start] = np.var(window, ddof=0)
+        
+        # if the end of the window is at the end of the usage_vector, we break the loop since we cannot form any more windows
+        if end == len(electricity_usage):
+            break
+
+    return reference_variances
 
 
 def _evaluate_candidate(
@@ -334,25 +350,25 @@ def _evaluate_candidate(
     # Parameters
     # ----------------------------
     # Network components
-    TIMESTEPS               : list[int]                             = kwargs["TIMESTEPS"]
+    TIMESTEPS           : list[int]                             = kwargs["TIMESTEPS"]
 
     # Pricing Variable bounds
-    lower_bounds_a          : npt.NDArray[np.float64]               = kwargs["lower_bounds_a"]          # lower bounds for a_t
-    lower_bounds_b          : npt.NDArray[np.float64]               = kwargs["lower_bounds_b"]          # lower bounds for b_t
-    lower_bounds_r          : npt.NDArray[np.float64]               = kwargs["lower_bounds_r"]          # lower bounds for r_t
-    upper_bounds_a          : npt.NDArray[np.float64]               = kwargs["upper_bounds_a"]          # upper bounds for a_t
-    upper_bounds_b          : npt.NDArray[np.float64]               = kwargs["upper_bounds_b"]          # upper bounds for b_t
-    upper_bounds_r          : npt.NDArray[np.float64]               = kwargs["upper_bounds_r"]          # upper bounds for r_t
+    lower_bounds_a      : npt.NDArray[np.float64]               = kwargs["lower_bounds_a"]          # lower bounds for a_t
+    lower_bounds_b      : npt.NDArray[np.float64]               = kwargs["lower_bounds_b"]          # lower bounds for b_t
+    lower_bounds_r      : npt.NDArray[np.float64]               = kwargs["lower_bounds_r"]          # lower bounds for r_t
+    upper_bounds_a      : npt.NDArray[np.float64]               = kwargs["upper_bounds_a"]          # upper bounds for a_t
+    upper_bounds_b      : npt.NDArray[np.float64]               = kwargs["upper_bounds_b"]          # upper bounds for b_t
+    upper_bounds_r      : npt.NDArray[np.float64]               = kwargs["upper_bounds_r"]          # upper bounds for r_t
     
     # Path Metadata
-    timestamp               : str                                   = kwargs["timestamp"]               # timestamp for logging
-    file_name               : str                                   = kwargs["file_name"]               # filename for logging
-    folder_name             : str                                   = kwargs["folder_name"]             # folder name for logging
+    timestamp            : str                                  = kwargs["timestamp"]               # timestamp for logging
+    file_name            : str                                  = kwargs["file_name"]               # filename for logging
+    folder_name          : str                                  = kwargs["folder_name"]             # folder name for logging
 
     # Metadata
-    M                       : npt.NDArray[np.float64]               = kwargs["M"]                       # interpolation matrix
-    log_queue               : multiprocessing.Queue                 = kwargs["log_queue"]               # multiprocessing log queue
-    log_queue_gurobi        : multiprocessing.Queue                 = kwargs["log_queue_gurobi"]        # multiprocessing log queue for gurobi
+    M                    : npt.NDArray[np.float64]              = kwargs["M"]                       # interpolation matrix
+    log_queue            : multiprocessing.Queue                = kwargs["log_queue"]               # multiprocessing log queue
+    log_queue_gurobi     : multiprocessing.Queue                = kwargs["log_queue_gurobi"]        # multiprocessing log queue for gurobi
 
     logger_worker = Logger (
         f"Worker_{os.getpid()}"     ,    
@@ -425,7 +441,6 @@ def _evaluate_candidate(
 
     return (
         leader_outputs["fitness"]                   ,
-        leader_outputs["variance"]                  ,
         leader_outputs["variance_ratio"]            ,
         leader_outputs["percentage_price_increase"] ,
         leader_outputs["was_suboptimal"]            ,
@@ -466,11 +481,11 @@ def run_parallel_de(
     # Logger Setup
     # ----------------------------
     # 1. Create the Queue using Manager (Safest for Pools)
-    manager = multiprocessing.Manager()
-    log_queue = manager.Queue()
+    manager             = multiprocessing.Manager()
+    log_queue           = manager.Queue()
 
-    manager_gurobi = multiprocessing.Manager()
-    log_queue_gurobi = manager_gurobi.Queue()
+    manager_gurobi      = multiprocessing.Manager()
+    log_queue_gurobi    = manager_gurobi.Queue()
 
     with LogListener(
             "stage1_MP_evaluate_candidate",
@@ -591,7 +606,7 @@ def run_parallel_de(
         start_time_ref = time.time()
 
         try:
-            reference_variance = _reference_candidate(
+            reference_variances = _reference_candidate(
                 charge_cost_low     = lowest_charge_cost_low    ,
                 charge_cost_high    = lowest_charge_cost_high   ,
                 elec_threshold      = lowest_elec_threshold     ,
@@ -601,7 +616,7 @@ def run_parallel_de(
                 log_queue_gurobi    = log_queue_gurobi          ,
             )
         except OptimizationError as e:
-            logger.error("Failed to obtain reference variance from reference candidate.")
+            logger.error("Failed to obtain reference variances from reference candidate.")
             raise e
         except Exception as e:
             logger.error(f"An unexpected error occurred: {e}")
@@ -609,18 +624,7 @@ def run_parallel_de(
 
         end_time_ref = time.time()
         duration_ref = end_time_ref - start_time_ref
-        logger.info(f"Reference variance obtained: {reference_variance:.5f} in {print_duration(duration_ref)} ({duration_ref:.2f} seconds)")
-
-        if reference_variance < VAR_THRESHOLD:
-            logger.info(f"Reference variance ({reference_variance:.5f}) is already below the variance threshold ({VAR_THRESHOLD:.5f}). No optimization needed.")
-            return {
-                "charge_cost_low"    : lowest_charge_cost_low ,
-                "charge_cost_high"   : lowest_charge_cost_high,
-                "elec_threshold"     : lowest_elec_threshold  ,
-            }
-        else:
-            logger.info(f"Reference variance ({reference_variance:.5f}) is above the variance threshold ({VAR_THRESHOLD:.5f}). Proceeding with optimization.")
-            logger.info("Starting Differential Evolution optimization...")
+        logger.info(f"Reference variances (at start time steps {list(reference_variances.keys())}) obtained in {print_duration(duration_ref)} ({duration_ref:.1f} seconds)")
 
         # Create a partial function with fixed parameters for the worker function
         # Now the worker function only needs the candidate vector as input
@@ -638,7 +642,7 @@ def run_parallel_de(
 
             # Metadata
             M                       = M                     ,
-            reference_variance      = reference_variance    ,
+            reference_variances     = reference_variances   ,
             log_queue               = log_queue             ,
             log_queue_gurobi        = log_queue_gurobi      ,
         )
@@ -648,11 +652,11 @@ def run_parallel_de(
         # DE Main Loop
         # ----------------------------
         # To track fitness and variance of candidate with best fitness
-        best_fitness_can_fitnesses: npt.NDArray[np.float64] = np.zeros(MAX_ITER + 1)
-        best_fitness_can_variances: npt.NDArray[np.float64] = np.zeros(MAX_ITER + 1)
+        best_fitness_cand_fitnesses     : npt.NDArray[np.float64] = np.zeros(MAX_ITER + 1)
+        best_fitness_cand_var_ratios    : npt.NDArray[np.float64] = np.zeros(MAX_ITER + 1)
         # To track fitness and variance of candidate with best variance
-        best_variance_can_fitnesses: npt.NDArray[np.float64] = np.zeros(MAX_ITER + 1)
-        best_variance_can_variances: npt.NDArray[np.float64] = np.zeros(MAX_ITER + 1)
+        best_var_ratio_cand_fitnesses   : npt.NDArray[np.float64] = np.zeros(MAX_ITER + 1)
+        best_var_ratio_cand_var_ratios  : npt.NDArray[np.float64] = np.zeros(MAX_ITER + 1)
 
         start_time_DE = time.time()
 
@@ -672,14 +676,13 @@ def run_parallel_de(
                 raise e
             
             # Extract fitness and variance (first and second columns of each row)
-            fitnesses                   : npt.NDArray[np.float64]    = results[:,0]
-            variances                   : npt.NDArray[np.float64]    = results[:,1]
-            variance_ratios             : npt.NDArray[np.float64]    = results[:,2]
-            percentage_price_increases  : npt.NDArray[np.float64]    = results[:,3]
-            were_suboptimal             : npt.NDArray[np.bool_]      = results[:,4] > 0.5  # boolean array indicating which candidates were suboptimal
+            fitnesses                   : npt.NDArray[np.float64]   = results[:,0]
+            variance_ratios             : npt.NDArray[np.float64]   = results[:,1]
+            percentage_price_increases  : npt.NDArray[np.float64]   = results[:,2]
+            were_suboptimal             : npt.NDArray[np.bool_]     = results[:,3] > 0.5  # boolean array indicating which candidates were suboptimal
             
-            init_end_time               : float = time.time()
-            initial_suboptimal_count    : int   = int(were_suboptimal.sum())
+            init_end_time               : float                     = time.time()
+            initial_suboptimal_count    : int                       = int(were_suboptimal.sum())
 
             if initial_suboptimal_count > MAX_SUBOPTIMAL_TOLERANCE:
                 logger.error(
@@ -693,57 +696,25 @@ def run_parallel_de(
                     f"Initial evaluation included {initial_suboptimal_count} suboptimal candidate(s). Proceeding with all results."
                 )
             
-            # Check if any candidate meets variance threshold
-            # if so, early stop by taking the candidate with the lowest fitness among them
-            meet_threshold: npt.NDArray[np.bool_] = variances <= VAR_THRESHOLD
-
-            if np.any(meet_threshold):
-                qualified_indices           : npt.NDArray[np.int_]      = np.where(meet_threshold)[0]
-                qualified_fitnesses         : npt.NDArray[np.float64]   = fitnesses[qualified_indices]
-                best_idx_within_qualified   : int                       = qualified_indices[np.argmin(qualified_fitnesses)]
-                best_vector                 : npt.NDArray[np.float64]   = population[best_idx_within_qualified].copy()
-
-                logger.info(f"Early stopping at initialization with Var = {variances[best_idx_within_qualified]:.5f}, " \
-                    f"Fitness = {fitnesses[best_idx_within_qualified]:.5f}, " \
-                    f"Var Ratio =  {variance_ratios[best_idx_within_qualified]:.5f}, " \
-                    f"Percentage Price Increase = {percentage_price_increases[best_idx_within_qualified]:.5f}%"
-                )
-                logger.info(f"DE completed in {print_duration(init_end_time - start_time_DE)} ({init_end_time - start_time_DE:.1f}s)")
-
-                return _expand_trajectory(
-                    best_vector,
-                    M               = M                   ,
-                    T               = T                   ,
-                    lower_bounds_a  = lower_bounds_a      ,
-                    lower_bounds_b  = lower_bounds_b      ,
-                    lower_bounds_r  = lower_bounds_r      ,
-                    upper_bounds_a  = upper_bounds_a_final,
-                    upper_bounds_b  = upper_bounds_b_final,
-                    upper_bounds_r  = upper_bounds_r      ,
-                    TIMESTEPS       = TIMESTEPS           ,
-                )
-
             # Track both the candidate with best variance (and its fitness), and the candidate with best fitness (and its variance)
-            best_var_idx        : int   = np.argmin(variances)
+            best_var_ratio_idx  : int   = np.argmin(variance_ratios)
             best_fitness_idx    : int   = np.argmin(fitnesses)
             prev_best_fitness   : float = fitnesses[best_fitness_idx]  # Track for anchor adaptation
 
             logger.info("Initial population")
-            logger.info(f"  Initial candidate with best variance: Var = {variances[best_var_idx]:.5f}, " \
-                f"Fitness = {fitnesses[best_var_idx]:.5f}, " \
-                f"Var Ratio = {variance_ratios[best_var_idx]:.5f}, " \
-                f"Percentage Price Increase = {percentage_price_increases[best_var_idx]:.5f}%"
+            logger.info(f"  Initial candidate with best fitness: Fitness = {fitnesses[best_fitness_idx]:.3f}, " \
+                f"Var Ratio = {variance_ratios[best_fitness_idx]:.3f}, " \
+                f"% Price Increase = {percentage_price_increases[best_fitness_idx]:.3f}%"
             )
-            best_variance_can_fitnesses[0] = fitnesses[best_var_idx]
-            best_variance_can_variances[0] = variances[best_var_idx]
+            best_fitness_cand_fitnesses[0] = fitnesses[best_fitness_idx]
+            best_fitness_cand_var_ratios[0] = variance_ratios[best_fitness_idx]
 
-            logger.info(f"  Initial candidate with best fitness: Var = {variances[best_fitness_idx]:.5f}, " \
-                f"Fitness = {fitnesses[best_fitness_idx]:.5f}, " \
-                f"Var Ratio = {variance_ratios[best_fitness_idx]:.5f}, " \
-                f"Percentage Price Increase = {percentage_price_increases[best_fitness_idx]:.5f}%"
+            logger.info(f"  Initial candidate with best variance ratio: Fitness = {fitnesses[best_var_ratio_idx]:.3f}, " \
+                f"Var Ratio = {variance_ratios[best_var_ratio_idx]:.3f}, " \
+                f"% Price Increase = {percentage_price_increases[best_var_ratio_idx]:.3f}%"
             )
-            best_fitness_can_fitnesses[0] = fitnesses[best_fitness_idx]
-            best_fitness_can_variances[0] = variances[best_fitness_idx]
+            best_var_ratio_cand_fitnesses[0] = fitnesses[best_var_ratio_idx]
+            best_var_ratio_cand_var_ratios[0] = variance_ratios[best_var_ratio_idx]
 
             duration_init = init_end_time - start_time_DE
             logger.info(f"  Time taken: {print_duration(duration_init)} ({duration_init:.1f}s)")
@@ -793,10 +764,9 @@ def run_parallel_de(
                 trial_results = np.array(pool.map(evaluate_single_candidate_worker, trial_population))
 
                 trial_fitnesses                 : npt.NDArray[np.float64] = trial_results[:,0]
-                trial_variances                 : npt.NDArray[np.float64] = trial_results[:,1]
-                trial_variance_ratios           : npt.NDArray[np.float64] = trial_results[:,2]
-                trial_percentage_price_increases: npt.NDArray[np.float64] = trial_results[:,3]
-                trial_were_suboptimal           : npt.NDArray[np.bool_]   = trial_results[:,4] > 0.5  # boolean array indicating which trials were suboptimal
+                trial_variance_ratios           : npt.NDArray[np.float64] = trial_results[:,1]
+                trial_percentage_price_increases: npt.NDArray[np.float64] = trial_results[:,2]
+                trial_were_suboptimal           : npt.NDArray[np.bool_]   = trial_results[:,3] > 0.5  # boolean array indicating which trials were suboptimal
 
                 trial_suboptimal_count = int(trial_were_suboptimal.sum())
                 if trial_suboptimal_count > MAX_SUBOPTIMAL_TOLERANCE:
@@ -819,26 +789,24 @@ def run_parallel_de(
                 
                 population[winners]                 = trial_population[winners]
                 fitnesses[winners]                  = trial_fitnesses[winners]
-                variances[winners]                  = trial_variances[winners]
                 variance_ratios[winners]            = trial_variance_ratios[winners]
                 percentage_price_increases[winners] = trial_percentage_price_increases[winners]
                 
                 logger.info(f"  Selection completed - {winners.sum()} candidates replaced by better trials")
 
                 # --- 4. Early Stopping ---
-                # Check if any candidate meets variance threshold
+                # Check if any candidate meets fitness threshold
                 # if so, early stop by taking the candidate with the lowest fitness among them
-                meet_threshold: npt.NDArray[np.bool_] = variances <= VAR_THRESHOLD
+                meet_threshold: npt.NDArray[np.bool_] = fitnesses <= FITNESS_THRESHOLD
                 if np.any(meet_threshold):
                     qualified_indices           : npt.NDArray[np.int_]      = np.where(meet_threshold)[0]
                     qualified_fitnesses         : npt.NDArray[np.float64]   = fitnesses[qualified_indices]
                     best_idx_within_qualified   : int                       = qualified_indices[np.argmin(qualified_fitnesses)]
                     best_vector                 : npt.NDArray[np.float64]   = population[best_idx_within_qualified].copy()
 
-                    logger.info(f"Early stopping at generation {gen+1} with Var = {variances[best_idx_within_qualified]:.5f}, " \
-                        f"Fitness = {fitnesses[best_idx_within_qualified]:.5f}, " \
-                        f"Var Ratio = {variance_ratios[best_idx_within_qualified]:.5f}, " \
-                        f"Percentage Price Increase = {percentage_price_increases[best_idx_within_qualified]:.5f}%"
+                    logger.info(f"Early stopping at generation {gen+1} with Fitness = {fitnesses[best_idx_within_qualified]:.3f}, " \
+                        f"Var Ratio = {variance_ratios[best_idx_within_qualified]:.3f}, " \
+                        f"% Price Increase = {percentage_price_increases[best_idx_within_qualified]:.3f}%"
                     )
                     end_time_DE = time.time()
                     logger.info(f"DE completed in {print_duration(end_time_DE - start_time_DE)} ({end_time_DE - start_time_DE:.1f}s).")
@@ -846,9 +814,9 @@ def run_parallel_de(
                     break  # exit the generation loop
                 
                 # --- 5. Update Best Trackers ---
-                best_var_idx        = np.argmin(variances)
-                best_fitness_idx    = np.argmin(fitnesses)
-                current_best_fitness = fitnesses[best_fitness_idx]
+                best_var_ratio_idx      = np.argmin(variance_ratios)
+                best_fitness_idx        = np.argmin(fitnesses)
+                current_best_fitness    = fitnesses[best_fitness_idx]
 
                 # --- 6. Adaptive Anchor Sizing ---
                 # Check if fitness improvement is below threshold
@@ -859,7 +827,7 @@ def run_parallel_de(
                     anchor_increase = math.ceil ((MAX_ANCHORS - current_num_anchors) / 2)
                     new_num_anchors = min(current_num_anchors + anchor_increase, MAX_ANCHORS)
                     
-                    logger.info(f"  Fitness improvement ({fitness_improvement:.5f}) below threshold ({FITNESS_IMPROVEMENT_THRESHOLD:.5f})")
+                    logger.info(f"  Fitness improvement ({fitness_improvement:.3f}) below threshold ({FITNESS_IMPROVEMENT_THRESHOLD:.3f})")
                     logger.info(f"  Increasing anchors from {current_num_anchors} to {new_num_anchors} next iteration")
                     
                     # Recalculate anchor indices and interpolation matrix
@@ -912,7 +880,7 @@ def run_parallel_de(
                         upper_bounds_r          = upper_bounds_r        ,
                         # Metadata
                         M                       = M                     ,
-                        reference_variance      = reference_variance    ,
+                        reference_variances     = reference_variances   ,
                         log_queue               = log_queue             ,
                         log_queue_gurobi        = log_queue_gurobi      ,
                     )
@@ -927,23 +895,22 @@ def run_parallel_de(
                 est_remaining_time = gen_duration * (MAX_ITER - gen - 1)
 
                 logger.info(f"  Results:")
-                logger.info(f"      Best Variance Candidate: Var = {variances[best_var_idx]:.5f}, " \
-                    f"Fitness = {fitnesses[best_var_idx]:.5f}, " \
-                    f"Var Ratio = {variance_ratios[best_var_idx]:.5f}, " \
-                    f"Price Increase = {percentage_price_increases[best_var_idx]:.5f}%"
-                )
-                best_variance_can_fitnesses[gen+1] = fitnesses[best_var_idx]
-                best_variance_can_variances[gen+1] = variances[best_var_idx]
 
-                logger.info(f"      Best Fitness Candidate: Var = {variances[best_fitness_idx]:.5f}, " \
-                    f"Fitness = {fitnesses[best_fitness_idx]:.5f}, " \
-                    f"Var Ratio = {variance_ratios[best_fitness_idx]:.5f}, " \
-                    f"Price Increase = {percentage_price_increases[best_fitness_idx]:.5f}%"
+                logger.info(f"      Best Fitness Candidate: Fitness = {fitnesses[best_fitness_idx]:.3f}, " \
+                    f"Var Ratio = {variance_ratios[best_fitness_idx]:.3f}, " \
+                    f"% Price Increase = {percentage_price_increases[best_fitness_idx]:.3f}%"
                 )
-                best_fitness_can_fitnesses[gen+1] = fitnesses[best_fitness_idx]
-                best_fitness_can_variances[gen+1] = variances[best_fitness_idx]
+                best_fitness_cand_fitnesses[gen+1] = fitnesses[best_fitness_idx]
+                best_fitness_cand_var_ratios[gen+1] = variance_ratios[best_fitness_idx]
 
-                logger.info(f"      Fitness Improvement: {fitness_improvement:.5f}")
+                logger.info(f"      Best Variance Ratio Candidate: Fitness = {fitnesses[best_var_ratio_idx]:.3f}, " \
+                    f"Var Ratio = {variance_ratios[best_var_ratio_idx]:.3f}, " \
+                    f"Price Increase = {percentage_price_increases[best_var_ratio_idx]:.3f}%"
+                )
+                best_var_ratio_cand_fitnesses[gen+1]    = fitnesses[best_var_ratio_idx]
+                best_var_ratio_cand_var_ratios[gen+1]   = variance_ratios[best_var_ratio_idx]
+
+                logger.info(f"      Fitness Improvement: {fitness_improvement:.3f}")
                 logger.info(f"      Generation Time: {print_duration(gen_duration)} ({gen_duration:.1f}s)")
                 logger.info(f"      Est. Remaining Time: {print_duration(est_remaining_time)} ({est_remaining_time:.1f}s)")
 
@@ -956,12 +923,12 @@ def run_parallel_de(
                 logger.info(f"DE completed in {print_duration(end_time_DE - start_time_DE)} ({end_time_DE - start_time_DE:.1f}s).")
 
         # Plot the 2 graphs for fitness and variance progression
-        gens = np.arange(len(best_fitness_can_fitnesses))
+        gens = np.arange(len(best_fitness_cand_fitnesses))
 
         # Fitness progression plot
         fig_fitness = plt.figure(figsize=(12, 8))
-        plt.plot        (gens, best_fitness_can_fitnesses , label="Best Fitness"         , color="tab:blue")
-        plt.plot        (gens, best_variance_can_fitnesses, label="Best-Variance Fitness", color="tab:orange", linestyle="--")
+        plt.plot        (gens, best_fitness_cand_fitnesses , label="Best Fitness"                               , color="tab:blue")
+        plt.plot        (gens, best_var_ratio_cand_fitnesses, label="Best-Variance-Ratio Candidate's Fitness"   , color="tab:orange", linestyle="--")
         plt.title       ("Fitness Progression")
         plt.xlabel      ("Generation")
         plt.ylabel      ("Fitness")
@@ -973,20 +940,20 @@ def run_parallel_de(
         plt.close(fig_fitness)
         logger.info(f"Saved fitness progression plot to: {fitness_plot_path}")
 
-        # Variance progression plot
+        # Variance Ratio progression plot
         fig_variance = plt.figure(figsize=(12, 8))
-        plt.plot        (gens, best_fitness_can_variances , label="Best-Fitness Variance", color="tab:green")
-        plt.plot        (gens, best_variance_can_variances, label="Best Variance"        , color="tab:red", linestyle="--")
-        plt.title       ("Variance Progression")
+        plt.plot        (gens, best_fitness_cand_var_ratios , label="Best-Fitness Candidate's Variance Ratio", color="tab:green")
+        plt.plot        (gens, best_var_ratio_cand_var_ratios, label="Best-Variance-Ratio Candidate's Variance Ratio", color="tab:red", linestyle="--")
+        plt.title       ("Variance Ratio Progression")
         plt.xlabel      ("Generation")
-        plt.ylabel      ("Variance")
+        plt.ylabel      ("Variance Ratio")
         plt.grid        (True, alpha=0.3)
         plt.legend      (loc='upper center', bbox_to_anchor=(0.5, -0.1), ncol=2, frameon=True)
         plt.tight_layout()
-        variance_plot_path = os.path.join("Results", folder_name, f"DE_variance_progress_{file_name}_{timestamp}.png")
+        variance_plot_path = os.path.join("Results", folder_name, f"DE_variance_ratio_progress_{file_name}_{timestamp}.png")
         fig_variance.savefig(variance_plot_path)
         plt.close(fig_variance)
-        logger.info(f"Saved variance progression plot to: {variance_plot_path}")
+        logger.info(f"Saved variance ratio progression plot to: {variance_plot_path}")
 
 
         return _expand_trajectory(
